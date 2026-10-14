@@ -1,0 +1,27 @@
+# Render Blueprint — one Web Service runs both the Discord bot and the dashboard.
+# In Render: New → Blueprint → pick this GitHub repo. You'll be asked for the secret values.
+services:
+  - type: web
+    name: jianghu-bot
+    runtime: node
+    # "free" works, but sleeps after 15 min without web traffic (the bot goes offline).
+    # Use an uptime pinger on /health, or switch to "starter" for an always-on bot.
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: GUILD_ID
+        sync: false
+      - key: MONGODB_URI
+        sync: false
+      - key: ADMIN_USERNAME
+        value: admin
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true

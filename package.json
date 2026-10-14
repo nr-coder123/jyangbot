@@ -1,0 +1,20 @@
+{
+  "name": "jianghu-bot",
+  "version": "1.0.0",
+  "description": "Murim / Jianghu / Cultivation roleplay Discord bot with a web dashboard (items, drops, shop, trading, stat sheets, realms, impurity, custom scripts).",
+  "main": "src/index.js",
+  "private": true,
+  "scripts": {
+    "start": "node src/index.js",
+    "check": "node scripts/selftest.js"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "discord.js": "^14.16.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "mongodb": "^6.10.0"
+  }
+}

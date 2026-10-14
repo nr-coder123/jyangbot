@@ -1,0 +1,327 @@
+'use strict';
+/**
+ * Default data for a fresh install. Everything here can be edited from the dashboard afterwards.
+ */
+const { newId, num, numOrNull, arr, slug } = require('./utils');
+
+const ITEM_TYPES = ['manual', 'cultivation', 'core', 'pill', 'poison', 'purification', 'material', 'weapon', 'treasure', 'misc'];
+const MANUAL_CATEGORIES = ['generic', 'core', 'special', 'forbidden'];
+const YIELD_TYPES = ['none', 'qi', 'strength', 'endurance', 'mobility', 'points', 'flex'];
+const ELEMENTS = ['Wood', 'Fire', 'Earth', 'Metal', 'Water', 'Yin', 'Yang'];
+
+// name, qiBars, required stats/qi to ENTER, soft cap stats/qi, hard cap stats/qi, breakthrough chance (to the NEXT realm)
+const R = (name, qiBars, reqStats, reqQi, softCapStats, softCapQi, hardCapStats, hardCapQi, breakthroughChance) => ({
+  name, qiBars, reqStats, reqQi, softCapStats, softCapQi, hardCapStats, hardCapQi, breakthroughChance,
+});
+const REALMS = [
+  R('3rd Rate', 2, 0, 0, 70, 30, 80, 40, 100),
+  R('2nd Rate', 2.5, 70, 30, 100, 40, 110, 55, 95),
+  R('1st Rate', 3, 100, 40, 150, 65, 165, 80, 85),
+  R('Expert', 3.5, 150, 65, 195, 90, 215, 105, 75),
+  R('Master', 4, 195, 90, 245, 100, 270, 125, 65),
+  R('Peak', 4.5, 245, 100, 325, 170, 355, 190, 55),
+  R('Supreme Peak', 5, 325, 170, 400, 225, 440, 260, 45),
+  R('Transcendent', 5.5, 400, 225, 480, 325, 525, 355, 35),
+  R('Unrestrained', 6, 480, 325, 555, 400, 610, 440, 25),
+  R('Enlightened', 6.5, 555, 400, 600, 510, 660, 545, 18),
+  R('Celestial', 7, 600, 510, 700, 575, 770, 630, 12),
+  R('Life and Death', 7.5, 700, 575, null, null, null, null, 0),
+];
+
+const RARITIES = [
+  { name: 'Earthly', chance: 75, color: '#5fae5b', emoji: '🟩' },
+  { name: 'Heavenly', chance: 20, color: '#4f8fe0', emoji: '🟦' },
+  { name: 'Immortal', chance: 5, color: '#e0a526', emoji: '🟨' },
+];
+
+const S = (name, alignment, titleName, description, playable = true, rarityBonus = {}) => ({
+  id: slug(name), name, alignment, titleName, description, playable, roleId: '', rarityBonus,
+});
+const SECTS = [
+  S('Wudang Sect', 'Orthodox', 'Wudang', 'The most "benevolent" sect, but everything is black and white (Yin/Yang). Welcoming to allies they deem good, merciless to those they deem evil.'),
+  S('Shaolin Sect', 'Orthodox', 'Shaolin', 'Very traditional and against most change in the Jianghu. Never uses sharp weapons, strongly against killing. Cannot marry, except by rare exception.'),
+  S('Mount Hua Sect', 'Orthodox', 'Mount Hua', 'Classy and obsessed with appearances. They consider themselves Taoists like Wudang, though for most members it is only theory.'),
+  S('Beggar Sect', 'Orthodox', 'Beggar Sect', 'An information sect, not specialized in martial arts. Members are assigned by staff; what happens around them can be made public.', false),
+  S('Jaegal Clan', 'Orthodox', 'Jaegal', 'Strategists. Lowered stats.'),
+  S('Tang Clan', 'Orthodox', 'Tang', 'Poison users. Isolationist and distrustful, but not evil.'),
+  S('Peng Clan', 'Orthodox', 'Peng', 'Bulky characters: weak Qi but strong physicals.'),
+  S('Namgoong Clan', 'Orthodox', 'Namgoong', 'Super rich.'),
+  S('Moyong Clan', 'Orthodox', 'Moyong', 'Destroyed in the war against the Demon Cult. Distant descendants may live, but are no longer clan members.', false),
+  S('The 72 Strongholds', 'Unorthodox', 'Stronghold', 'Bandits. Higher drop rate.', true, { Earthly: -5, Heavenly: 4, Immortal: 1 }),
+  S('Ice Palace', 'Unorthodox', 'Ice Palace', 'North. Ice users.'),
+  S('Sun Palace', 'Unorthodox', 'Sun Palace', 'East. Fire users.'),
+  S('Sword Palace', 'Unorthodox', 'Sword Palace', 'West. Sword users, super strong.'),
+  S('Beast Palace', 'Unorthodox', 'Beast Palace', 'South. Start with Elemental Qi.'),
+  S('Hao Sect', 'Unorthodox', 'Hao', 'The Ignoble Clan. Assassination and poison users; the reason Unorthodox characters can hear Beggar Sect information.'),
+  S('Blood Cult', 'Unorthodox', 'Blood Cult', 'Descendants of the Demon Cult, taken over by the exiles of a Succession War.'),
+  S('Demon Cult', 'Unorthodox', 'Demon Cult', 'Extinct. Once the "Divine Demon Cult", corrupted by forbidden Qi and exterminated by the entire Jianghu.', false),
+];
+
+const TITLES = {
+  prefixes: ['Heavenly', 'Demonic', 'Absolute', 'Peerless', 'Primordial', 'Heaven Defying', 'Bloody', 'Sovereign', 'Chaos', 'Divine', 'Celestial', 'Abyssal', 'Radiant', 'Venerable', 'Myriad', 'Calamitous', 'Limitless', 'Supreme', 'Eternal', 'Void'],
+  stems: ['Rising', 'Hidden', 'Roaring', 'Drunken', 'Murder', 'Unbroken', 'Piercing', 'Soaring', 'Raging', 'Silent', 'Thousand-Faced', 'Everlasting', 'Severing', 'Freezing', 'Blazing', 'Mad', 'Sword', 'Drifting', 'Vengeful', 'Serene'],
+  suffixes: ['Dragon', 'Phoenix', 'Taoist', 'Blade', 'Asura', 'Monarch', 'Fist', 'God', 'Tiger', 'Viper', 'Demon', 'Immortal', 'Sage', 'Ghost', 'Crow', 'Tortoise', 'Saint', 'Wolf', 'Lotus', 'Devil'],
+  notes: {
+    Freezing: 'Female only, or ice/cold-based Core martial arts',
+    Blazing: 'Male only, or fire/heat-based Core martial arts',
+    Dragon: 'Male only',
+    Phoenix: 'Female only',
+  },
+};
+
+const SCRIPTS = [
+  {
+    id: 'three-hearts',
+    name: 'Three Hearts Cultivation',
+    description: 'Hearts of Essence / Energy / Spirit at 50 / 75 / 100 Impurity, Fake Heart Demon at 125+.',
+    enabled: true,
+    code: `// Three Hearts Cultivation Method
+hooks.effects = (ctx, fx) => {
+  const imp = ctx.character.impurity;
+  if (imp >= 125) {
+    fx.notes.push('👹 **Fake Heart Demon** — a false Heart Demon haunts you. All Three Hearts benefits are lost; you suffer every Impurity drawback.');
+    return fx;
+  }
+  if (imp >= 50) {
+    fx.qiRegenDisabled = false;
+    fx.notes.push('💗 **Heart of Essence** — Qi regeneration is NOT disabled. *(A light shines on the left side of the chest.)*');
+  }
+  if (imp >= 75) {
+    fx.statMultiplier = 1;
+    fx.tempStats.endurance += 3;
+    fx.notes.push('💛 **Heart of Energy** — stats are NOT reduced; +3 temporary Endurance. *(A light shines on the right side of the chest.)*');
+  }
+  if (imp >= 100) {
+    fx.preventMeridianBurst = true;
+    fx.tempQiBars += 1;
+    fx.notes.push('🤍 **Heart of Spirit** — meridians do NOT burst; +1 temporary Qi Bar. *(A light shines at the center of the chest.)*');
+  }
+  return fx;
+};
+`,
+  },
+  {
+    id: 'no-meridians',
+    name: 'No Meridians',
+    description: '0 Qi Bars, but can learn virtually anything and use others\' External Qi.',
+    enabled: true,
+    code: `hooks.effects = (ctx, fx) => {
+  fx.qiBarsOverride = 0;
+  fx.notes.push('🕳️ **No Meridians** — 0 Qi Bars, but can learn virtually anything and wield others\\' External Qi.');
+  return fx;
+};
+`,
+  },
+  {
+    id: 'heavenly-martial-meridian',
+    name: 'Heavenly Martial Meridian',
+    description: '+4 Qi Bars, but Qi advances slowly due to overflow.',
+    enabled: true,
+    code: `// Change QI_GAIN_RATE to tune how slowly Qi grows (0.75 = 75% of every Qi gain).
+const QI_GAIN_RATE = 0.75;
+
+hooks.effects = (ctx, fx) => {
+  fx.qiBarBonus += 4;
+  fx.notes.push('🌌 **Heavenly Martial Meridian** — +4 Qi Bars; Qi gains are reduced by overflow.');
+  return fx;
+};
+
+hooks.qiGain = (ctx, amount) => amount * QI_GAIN_RATE;
+`,
+  },
+  {
+    id: 'template',
+    name: 'Template (copy me)',
+    description: 'Shows every hook you can use. Not attached to anything.',
+    enabled: true,
+    code: `// Every hook is optional — delete the ones you do not need.
+//
+// ctx.character  -> { name, sect, gender, realm, realmIndex, stats{strength,endurance,mobility,qi},
+//                     pools{normal,flex}, impurity, burstApplied, bonusQiBars, traits[], cultivationMethods[],
+//                     qiCore, martialArts{core,special,forbidden,generic}, titles }
+// ctx.realm      -> the character's current realm row
+// ctx.source     -> { type, name } of the item/trait this script is attached to
+// ctx.thresholds -> impurity thresholds from Settings (noRegenAt, debuffAt, burstAt ...)
+// ctx.extra      -> hook-specific info (e.g. ctx.extra.item for "consume")
+
+// 1) Sheet effects / impurity drawbacks.
+hooks.effects = (ctx, fx) => {
+  // fx.qiRegenDisabled      true/false
+  // fx.statMultiplier       1 = normal, 0.75 = -25%
+  // fx.preventMeridianBurst true stops the permanent 100-impurity burst
+  // fx.tempStats.strength / endurance / mobility / qi   temporary bonuses
+  // fx.tempQiBars           temporary Qi Bars
+  // fx.qiBarBonus           permanent extra Qi Bars
+  // fx.qiBarsOverride       a number forces Qi Bars to that value (null = off)
+  // fx.notes.push('Text shown on the stat sheet');
+  return fx;
+};
+
+// 2) How much Qi the character actually receives (from staff, points or pills).
+hooks.qiGain = (ctx, amount) => amount;
+
+// 3) Realm Breakthrough chance (0-100).
+hooks.breakthroughChance = (ctx, chance) => chance;
+
+// 4) Result of consuming a pill. ctx.extra.item is the pill.
+// result = { yieldType, yieldAmount, impurity, breakthroughBonus, rate, notes[] }
+hooks.consume = (ctx, result) => result;
+`,
+  },
+];
+
+const TRAITS = [
+  { id: 'nine-yin-body', name: 'Nine Yin Body', description: 'Ice Palace Heir. Extremely strong Yin arts.', scriptId: '' },
+  { id: 'nine-yang-body', name: 'Nine Yang Body', description: 'Sun Palace Heir. Extremely strong Yang arts.', scriptId: '' },
+  { id: 'no-meridians', name: 'No Meridians', description: '0 Qi Bars, but can learn virtually anything and use others\' External Qi.', scriptId: 'no-meridians' },
+  { id: 'sword-sense', name: 'Sword Sense', description: 'Absolute Sword Sense. Senses weapons\' pasts and can replicate a master\'s arts.', scriptId: '' },
+  { id: 'absolute-mimicry', name: 'Absolute Mimicry', description: 'Copy any martial art by seeing it. Limited copy slots.', scriptId: '' },
+  { id: 'heavenly-martial-meridian', name: 'Heavenly Martial Meridian', description: 'Extremely high Qi Bars (+4 off-rip), but advances in Qi slowly due to overflow.', scriptId: 'heavenly-martial-meridian' },
+  { id: 'mentor', name: 'Mentor', description: 'Teaches others how to use things.', scriptId: '' },
+];
+
+const THREE_HEARTS_DESCRIPTION = `- Upon reaching **\`50\` Impurity**, create the '__Heart of Essence.__'
+  - __Does not disable Qi regeneration.__ _A light will be shown on the left side of your chest._
+- Upon reaching **\`75\` Impurity**, create the '__Heart of Energy.__'
+  - __Does not reduce stats by 25%.__ You are also granted temporary \`+3\` Endurance Points. _A light will be shown on the right side of your chest._
+- Upon reaching **\`100\` Impurity**, create the '__Heart of Spirit.__'
+  - __Does not reduce stats/Qi by 25% permanently.__ You are also granted temporary \`+1\` Qi Bar. _A light will be shown on the center of your chest._
+- **[__!!!!__]** Upon reaching **\`125+\` Impurity**, experience '__Fake Heart Demon.__'
+  - An entity similar to a 'Heart Demon' will haunt the inside of your head, leading you to a moment of madness that will remove all the positive effects of this cultivation method. **__You will receive all the drawbacks of Impurity.__**
+
+**Absorption Rate**: 0%.
+**Affinity**: _None._`;
+
+const DEFAULT_SETTINGS = {
+  currencyName: 'Nyang',
+  currencyEmoji: '🪙',
+  startingFlexPoints: 50,
+  startingNyang: 0,
+  startingRolls: 0,
+  defaultCultivationMethods: ['Qi Gathering'],
+  defaultQiCore: 'Normal Qi Core',
+  maxSingleStatPercent: 50,
+  allocationWindowMinutes: 5,
+  maxItems: 300,
+  maxCharactersPerUser: 1,
+  softCapGainMultiplier: 0.5,
+  discardPointsPastHardCap: true,
+  breakthroughCooldownHours: 0,
+  breakthroughFailureImpurity: 0,
+  impurity: { noRegenAt: 50, debuffAt: 75, debuffPercent: 25, burstAt: 100, burstPercent: 25 },
+  monthlyImpurityReset: true,
+  staffQiResetsImpurity: true,
+  pillQiResetsImpurity: false,
+  maxCultivationMethods: 2,
+  martialArtLimits: { generic: 3, core: 1, special: 1, forbidden: 1 },
+  elements: ELEMENTS,
+  channels: { submissions: '', progress: '', log: '' },
+  staffRoleIds: [],
+  approvedRoleIds: [],
+  shopSellbackPercent: 50,
+  marketFeePercent: 0,
+  tradeExpiryMinutes: 15,
+  autoBackupHours: 24,
+  maxBackups: 30,
+  maxChangelog: 5000,
+  titles: TITLES,
+};
+
+function normalizeItem(i = {}) {
+  const now = new Date().toISOString();
+  return {
+    id: i.id || newId('it-'),
+    name: String(i.name || 'Unnamed item').trim(),
+    rarity: i.rarity || 'Earthly',
+    type: ITEM_TYPES.includes(i.type) ? i.type : 'misc',
+    emoji: i.emoji || '',
+    description: i.description || '',
+    tradeable: i.tradeable !== false,
+    inDropPool: i.inDropPool !== false,
+    dropWeight: num(i.dropWeight, 1),
+    shop: { enabled: false, price: 0, stock: -1, ...(i.shop || {}) },
+    sellPrice: numOrNull(i.sellPrice),
+    manual: { category: 'generic', replacesCore: false, shareable: false, shareLimit: 0, ...(i.manual || {}) },
+    cultivation: { absorption: 0, affinities: {}, ...(i.cultivation || {}) },
+    pill: { yieldType: 'none', yieldAmount: 0, impurity: 0, element: '', breakthroughBonus: 0, ...(i.pill || {}) },
+    poison: { tier: 1, element: '', impurity: 10, debuff: '', gimmick: '', activation: '', repeatable: false, triggersBurst: false, ...(i.poison || {}) },
+    purification: { tier: 1, element: '', gimmick: '', ...(i.purification || {}) },
+    scriptId: i.scriptId || '',
+    createdAt: i.createdAt || now,
+    updatedAt: i.updatedAt || now,
+  };
+}
+
+function normalizeCharacter(c = {}) {
+  return {
+    id: c.id || newId('ch-'),
+    ownerId: String(c.ownerId || ''),
+    ownerTag: c.ownerTag || '',
+    name: String(c.name || 'Unnamed').trim(),
+    sect: c.sect || '',
+    gender: c.gender || '',
+    titles: { prefix: '', stem: '', suffix: '', ...(c.titles || {}) },
+    realm: Number.isInteger(c.realm) ? c.realm : 0,
+    stats: { strength: 0, endurance: 0, mobility: 0, qi: 0, ...(c.stats || {}) },
+    pools: { normal: 0, flex: 0, ...(c.pools || {}) },
+    bonusQiBars: num(c.bonusQiBars),
+    impurity: num(c.impurity),
+    burstApplied: !!c.burstApplied,
+    breakthroughBonus: num(c.breakthroughBonus),
+    lastBreakthroughAt: c.lastBreakthroughAt || null,
+    traits: arr(c.traits),
+    cultivationMethods: arr(c.cultivationMethods),
+    qiCore: c.qiCore || null,
+    martialArts: { core: [], special: [], forbidden: [], generic: [], ...(c.martialArts || {}) },
+    inventory: c.inventory && typeof c.inventory === 'object' ? c.inventory : {},
+    nyang: num(c.nyang),
+    rolls: num(c.rolls),
+    docLink: c.docLink || '',
+    status: c.status || 'active',
+    notes: c.notes || '',
+    approvedBy: c.approvedBy || null,
+    approvedAt: c.approvedAt || null,
+    createdAt: c.createdAt || new Date().toISOString(),
+  };
+}
+
+function createDefaultState() {
+  const month = new Date().toISOString().slice(0, 7);
+  return {
+    version: 1,
+    settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),
+    rarities: JSON.parse(JSON.stringify(RARITIES)),
+    realms: JSON.parse(JSON.stringify(REALMS)),
+    sects: JSON.parse(JSON.stringify(SECTS)),
+    traits: JSON.parse(JSON.stringify(TRAITS)),
+    scripts: JSON.parse(JSON.stringify(SCRIPTS)),
+    items: [
+      normalizeItem({
+        id: 'three-hearts-cultivation',
+        name: 'Three Hearts Cultivation Method',
+        rarity: 'Immortal',
+        type: 'cultivation',
+        emoji: '💠',
+        description: THREE_HEARTS_DESCRIPTION,
+        inDropPool: false,
+        tradeable: false,
+        cultivation: { absorption: 0, affinities: {} },
+        scriptId: 'three-hearts',
+      }),
+    ],
+    characters: [],
+    users: {},
+    applications: [],
+    progress: [],
+    trades: [],
+    market: [],
+    changelog: [],
+    dashboardUsers: [],
+    meta: { createdAt: new Date().toISOString(), lastImpurityResetMonth: month, lastAutoBackupAt: null },
+  };
+}
+
+module.exports = {
+  ITEM_TYPES, MANUAL_CATEGORIES, YIELD_TYPES, ELEMENTS, REALMS, RARITIES, SECTS, TITLES, TRAITS, SCRIPTS,
+  DEFAULT_SETTINGS, normalizeItem, normalizeCharacter, createDefaultState,
+};

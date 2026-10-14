@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jianghu Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>☯</text></svg>">
+</head>
+<body>
+  <section id="login" class="login hidden">
+    <form id="loginForm" class="login-card">
+      <div class="seal">武</div>
+      <h1>Jianghu Dashboard</h1>
+      <p class="muted">Only those who know the words may enter.</p>
+      <label class="field"><span>Username</span><input name="username" autocomplete="username" required></label>
+      <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
+      <button class="btn primary" type="submit">Enter</button>
+      <p id="loginError" class="error"></p>
+    </form>
+  </section>
+
+  <section id="app" class="hidden">
+    <aside class="sidebar">
+      <div class="brand"><span class="seal small">武</span><div><strong>Jianghu</strong><small>Murim Dashboard</small></div></div>
+      <nav id="nav"></nav>
+      <div class="sidebar-foot">
+        <div id="whoami" class="muted"></div>
+        <button id="logout" class="btn ghost small">Log out</button>
+      </div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <button id="menuBtn" class="btn ghost small menu-btn">☰</button>
+        <h2 id="viewTitle"></h2>
+        <div id="saveState" class="muted small"></div>
+      </header>
+      <div id="view"></div>
+    </main>
+  </section>
+
+  <div id="modal" class="modal hidden"><div class="modal-card"><div class="modal-head"><h3 id="modalTitle"></h3><button class="btn ghost small" id="modalClose">✕</button></div><div id="modalBody"></div><div id="modalActions" class="modal-actions"></div></div></div>
+  <div id="toast"></div>
+  <div id="datalists"></div>
+  <script src="app.js"></script>
+</body>
+</html>
