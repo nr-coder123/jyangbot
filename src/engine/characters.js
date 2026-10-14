@@ -101,7 +101,7 @@ function learnItem(state, c, item) {
     const cat = defaults.MANUAL_CATEGORIES.includes(item.manual?.category) ? item.manual.category : 'generic';
     const list = c.martialArts[cat];
     const limit = num(s.martialArtLimits?.[cat], 1);
-    if (list.length >= limit) throw new UserError(`Your ${cat} martial art slots are full (${list.length}/${limit}). Forget one first with \`/item forget\`.`);
+    if (list.length >= limit) throw new UserError(`Your ${cat} martial art slots are full (${list.length}/${limit}). Forget one first in /menu → 📊 Stats.`);
     if (item.manual.replacesCore && (cat === 'special' || cat === 'forbidden') && c.martialArts.core.length) {
       note = `It **replaces** your Core art: ${c.martialArts.core.map((r) => refName(state, r)).join(', ')}.`;
       c.martialArts.core = [];
@@ -109,13 +109,13 @@ function learnItem(state, c, item) {
     list.push(ref);
   } else if (item.type === 'cultivation') {
     const limit = num(s.maxCultivationMethods, 2);
-    if (c.cultivationMethods.length >= limit) throw new UserError(`You already have ${c.cultivationMethods.length}/${limit} cultivation methods. Forget one first with \`/item forget\`.`);
+    if (c.cultivationMethods.length >= limit) throw new UserError(`You already have ${c.cultivationMethods.length}/${limit} cultivation methods. Forget one first in /menu → 📊 Stats.`);
     c.cultivationMethods.push(ref);
   } else if (item.type === 'core') {
     if (c.qiCore) note = `It replaces **${refName(state, c.qiCore)}**.`;
     c.qiCore = ref;
   } else {
-    throw new UserError(`**${item.name}** is a ${item.type}, it can't be learned. Pills are used with \`/item use\`.`);
+    throw new UserError(`**${item.name}** is a ${item.type}, it can't be learned. Pills are consumed instead.`);
   }
   economy.removeItem(state, c, item.id, 1);
   return { note };

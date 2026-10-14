@@ -9,7 +9,8 @@ const auth = require('./auth');
 const scripts = require('../engine/scripts');
 const effects = require('../engine/effects');
 const chars = require('../engine/characters');
-const { grant, GRANT_TYPES } = require('../engine/grants');
+const { grant, take, GRANT_TYPES, TAKE_TYPES } = require('../engine/grants');
+const templates = require('../engine/templates');
 const { UserError, newId, slug, norm, num, numOrNull, clone, truncate, arr } = require('../utils');
 
 const COOKIE = 'jh_session';
@@ -154,7 +155,8 @@ function create(bot) {
       settings: s.settings, rarities: s.rarities, realms: s.realms, sects: s.sects, traits: s.traits, scripts: s.scripts,
       items: s.items, characters: s.characters, applications: s.applications.slice(0, 300), progress: s.progress.slice(0, 100),
       market: s.market, meta: s.meta,
-      constants: { ITEM_TYPES: defaults.ITEM_TYPES, MANUAL_CATEGORIES: defaults.MANUAL_CATEGORIES, YIELD_TYPES: defaults.YIELD_TYPES, GRANT_TYPES, HOOKS: scripts.HOOKS },
+      constants: { ITEM_TYPES: defaults.ITEM_TYPES, MANUAL_CATEGORIES: defaults.MANUAL_CATEGORIES, YIELD_TYPES: defaults.YIELD_TYPES, GRANT_TYPES, TAKE_TYPES, HOOKS: scripts.HOOKS },
+      recipes: s.recipes, combat: s.combat,
       server: { storage: store.backend.kind, lastSavedAt: store.lastSavedAt, saveError: store.lastError, bot: bot.status, publicUrl: config.publicUrl },
     };
   }));
@@ -172,6 +174,7 @@ function create(bot) {
     next.staffRoleIds = arr(next.staffRoleIds).map(String).filter(Boolean);
     next.approvedRoleIds = arr(next.approvedRoleIds).map(String).filter(Boolean);
     next.defaultCultivationMethods = arr(next.defaultCultivationMethods).map((e) => String(e).trim()).filter(Boolean);
+    next.qiBarBonuses = arr(next.qiBarBonuses).map((r) => ({ minQi: num(r.minQi), bars: num(r.bars) })).filter((r) => r.minQi > 0 || r.bars > 0).sort((a, b) => a.minQi - b.minQi);
     store.state.settings = next;
     store.log(req.actor, 'settings.update', diff(before, next));
     return { settings: next };
@@ -370,9 +373,12 @@ function create(bot) {
   app.post('/api/characters/:id/grant', wrap(async (req) => {
     const c = store.state.characters.find((x) => x.id === req.params.id);
     if (!c) throw new UserError('Character not found.');
-    const lines = grant(store.state, c, req.body.type, req.body.amount);
-    store.log(req.actor, `give.${req.body.type}`, `${c.name}: ${req.body.amount}${req.body.reason ? ` — ${req.body.reason}` : ''}`);
-    return { character: c, lines };
+    const isTake = req.body.mode === 'take';
+    const r = isTake
+      ? take(store.state, c, req.body.type, req.body.amount, { stat: req.body.stat, refund: !!req.body.refund })
+      : grant(store.state, c, req.body.type, req.body.amount);
+    store.log(req.actor, `${isTake ? 'take' : 'give'}.${req.body.type}`, `${c.name}: ${r.summary}${req.body.reason ? ` — ${req.body.reason}` : ''}`);
+    return { character: c, lines: [r.summary, ...r.lines] };
   }));
   app.delete('/api/characters/:id', wrap(async (req) => {
     const st = store.state;
@@ -399,6 +405,104 @@ function create(bot) {
     } else throw new UserError('Unknown action.');
     return { application: a };
   }));
+
+
+  // ----- recipes (crafting) -----
+  const recipeBody = (b, existing) => {
+    const r = defaults.normalizeRecipe({ ...(existing || {}), ...b, id: existing ? existing.id : undefined });
+    if (!r.name) throw new UserError('Recipe name is required.');
+    if (!r.inputs.length) throw new UserError('Add at least one input item.');
+    if (!r.outputs.length) throw new UserError('Add at least one output item.');
+    for (const x of [...r.inputs, ...r.outputs]) if (!store.state.items.some((i) => i.id === x.itemId)) throw new UserError('A recipe uses an item that does not exist.');
+    return r;
+  };
+  app.post('/api/recipes', wrap(async (req) => {
+    const r = recipeBody(req.body || {});
+    store.state.recipes.push(r);
+    store.log(req.actor, 'recipe.create', r.name);
+    return { recipe: r };
+  }));
+  app.put('/api/recipes/:id', wrap(async (req) => {
+    const st = store.state;
+    const idx = st.recipes.findIndex((x) => x.id === req.params.id);
+    if (idx < 0) throw new UserError('Recipe not found.');
+    const before = st.recipes[idx];
+    const r = recipeBody(req.body || {}, before);
+    st.recipes[idx] = r;
+    store.log(req.actor, 'recipe.update', `${r.name}: ${diff(before, r)}`);
+    return { recipe: r };
+  }));
+  app.delete('/api/recipes/:id', wrap(async (req) => {
+    const r = store.state.recipes.find((x) => x.id === req.params.id);
+    if (!r) throw new UserError('Recipe not found.');
+    store.state.recipes = store.state.recipes.filter((x) => x !== r);
+    store.log(req.actor, 'recipe.delete', r.name);
+    return { ok: true };
+  }));
+
+  // ----- combat tables (/compare) -----
+  app.put('/api/combat', wrap(async (req) => {
+    const b = req.body || {};
+    const rows = (list) => arr(list).map((r) => ({ min: numOrNull(r.min), label: String(r.label || ''), tier: String(r.tier || ''), name: String(r.name || '').trim(), reqRT: Math.max(0, Math.floor(num(r.reqRT))), desc: String(r.desc || '') })).filter((r) => r.name);
+    const next = { damage: rows(b.damage), clash: rows(b.clash), mobility: rows(b.mobility), damageNote: String(b.damageNote || ''), clashNote: String(b.clashNote || '') };
+    for (const k of ['damage', 'clash', 'mobility']) if (!next[k].length) throw new UserError(`The ${k} table needs at least one row.`);
+    store.state.combat = next;
+    store.log(req.actor, 'combat.update', 'Stat comparison tables saved');
+    return { combat: next };
+  }));
+
+  // ----- message templates -----
+  app.get('/api/templates', wrap(async () => ({
+    templates: Object.entries(templates.DEFS).map(([key, d]) => ({ key, label: d.label, placeholders: d.placeholders, value: templates.get(store.state, key), custom: !!store.state.templates[key], default: d.default })),
+  })));
+  app.put('/api/templates/:key', wrap(async (req) => {
+    if (!templates.DEFS[req.params.key]) throw new UserError('Unknown template.');
+    const t = templates.normalizeImport(req.body || {});
+    if (!t.content.trim() && !t.embeds.length) throw new UserError('A message needs text or at least one embed.');
+    store.state.templates[req.params.key] = t;
+    store.log(req.actor, 'template.update', templates.DEFS[req.params.key].label);
+    return { value: t };
+  }));
+  app.delete('/api/templates/:key', wrap(async (req) => {
+    delete store.state.templates[req.params.key];
+    store.log(req.actor, 'template.reset', templates.DEFS[req.params.key]?.label || req.params.key);
+    store.markDirty();
+    return { value: templates.get(store.state, req.params.key) };
+  }));
+  app.post('/api/templates/:key/test', wrap(async (req) => {
+    if (!bot.status.online) throw new UserError('The bot is offline.');
+    if (!req.body?.channelId) throw new UserError('Pick a channel to send the test to.');
+    await bot.sendTest(req.body.channelId, templates.render(store.state, req.params.key, req.body.vars || {}));
+    return { ok: true };
+  }));
+
+  // ----- commands & permissions -----
+  app.get('/api/commands', wrap(async () => ({ commands: bot.catalog(), online: bot.status.online })));
+  app.put('/api/commands/:key', wrap(async (req) => {
+    const key = String(req.params.key).replace(/\s+/g, ' ').trim();
+    const [name, sub] = key.split(' ');
+    const cmd = bot.catalog().find((c) => c.name === name);
+    if (!cmd || (sub && !cmd.subcommands.some((s) => s.name === sub))) throw new UserError('Unknown command.');
+    const b = req.body || {};
+    const access = ['everyone', 'staff', 'roles', ...(sub ? ['inherit'] : [])].includes(b.access) ? b.access : sub ? 'inherit' : 'everyone';
+    const rule = {
+      enabled: b.enabled !== false,
+      access,
+      roleIds: arr(b.roleIds).map(String).filter(Boolean),
+      channelIds: arr(b.channelIds).map(String).filter(Boolean),
+      description: truncate(String(b.description || '').trim(), 100),
+    };
+    if (!sub) rule.hidden = !!b.hidden;
+    const before = store.state.commandAccess[key];
+    store.state.commandAccess[key] = rule;
+    store.log(req.actor, 'command.update', `/${key}: ${diff(before || {}, rule)}`);
+    let synced = false;
+    if (bot.status.online) {
+      try { await bot.registerCommands(); synced = true; } catch (e) { console.warn('[dashboard] sync failed', e.message); }
+    }
+    return { rule, synced };
+  }));
+  app.post('/api/commands/sync', wrap(async () => ({ count: await bot.registerCommands() })));
 
   // ----- changelog -----
   app.get('/api/changelog', wrap(async (req) => {

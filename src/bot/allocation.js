@@ -1,6 +1,6 @@
 'use strict';
 /**
- * The 5-minute "type your stats in chat" window opened by /stats allocate.
+ * The 5-minute "type your stats in chat" window opened from /menu → 📊 Stats → "Type in chat".
  * While open, the bot reads the player's messages in that channel:
  *   strength 5
  *   mobility 5

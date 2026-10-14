@@ -110,10 +110,14 @@ function migrate(data) {
   if (!isPlainObject(data)) return d;
   const s = { ...d, ...data };
   s.settings = deepMerge(d.settings, data.settings || {});
-  for (const k of ['rarities', 'realms', 'sects', 'traits', 'scripts', 'items', 'characters', 'applications', 'progress', 'trades', 'market', 'changelog', 'dashboardUsers']) {
+  for (const k of ['rarities', 'realms', 'sects', 'traits', 'scripts', 'items', 'characters', 'recipes', 'applications', 'progress', 'trades', 'market', 'changelog', 'dashboardUsers']) {
     if (!Array.isArray(s[k])) s[k] = d[k];
   }
   s.users = isPlainObject(s.users) ? s.users : {};
+  s.templates = isPlainObject(s.templates) ? s.templates : {};
+  s.commandAccess = isPlainObject(s.commandAccess) ? s.commandAccess : {};
+  s.combat = isPlainObject(s.combat) ? { ...d.combat, ...s.combat } : d.combat;
+  s.recipes = s.recipes.map((r) => defaults.normalizeRecipe(r));
   s.meta = { ...d.meta, ...(data.meta || {}) };
   s.items = s.items.map((i) => defaults.normalizeItem(i));
   s.characters = s.characters.map((c) => defaults.normalizeCharacter(c));

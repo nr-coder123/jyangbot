@@ -5,18 +5,21 @@ One Node.js process runs **both** the bot and the dashboard, so a single Render 
 
 **What it does**
 
-- Character applications → staff approval → stat sheet (who approved it is recorded)
-- Players type `strength 5` / `mobility 5` (several lines at once) in a 5-minute window to spend points, with the **50% rule**, soft caps and hard caps enforced
-- Staff rewards: `/give all` (stats only), `/give allqi` (any stat incl. Qi), `/give qi` (a Breakthrough — resets Impurity), Nyang, drop rolls, Qi Bars, items
-- 12 editable realms with requirements, soft/hard caps, Qi Bars and Realm Breakthrough chances; pills can raise the chance
-- Impurity (50 / 75 / 100 thresholds, monthly reset, reset on receiving Qi), poisons that don't burst meridians, Feng Shui purification calculator
-- Cultivation absorption rates & elemental affinities (best positive + all negatives rule)
-- Items (up to 300, configurable) with rarity, type, description, drop weight, shop price, pill yield / impurity / affinity, poison & purification tiers
-- `/roll` drops by rarity: Earthly 75% · Heavenly 20% · Immortal 5% (editable, plus per-sect bonuses)
-- Inventory, shop, player-to-player trades, a player market, Nyang payments
-- Titles (Prefix + Stem + Suffix, "Mount Hua's Rising Dragon" / "Rogue Silent Viper")
-- **Custom code** for special items/traits (Three Hearts Cultivation, No Meridians, Heavenly Martial Meridian included as examples) — written in the dashboard, no need to edit the bot
-- Save / load / backups / import / export, and a changelog of every edit (who, what, when)
+- **`/menu`** — one button-driven menu per player: the stat sheet first, then 📊 Stats (tap +1 / +5 or type several stats at once), 🎒 Inventory (consume pills, learn manuals, sell, roll drops, shop), ☯️ Realm (Realm Breakthrough) and ⚒️ Craft
+- **`/submit`** a character → staff approve with a button in a staff-only channel → stat sheet created (who approved it is recorded)
+- The **50% rule**, soft caps and hard caps are enforced automatically; Qi gives extra Qi Bars (26+ Qi = +1 … 751+ = +6)
+- Staff rewards and deductions: `/give all` (stats only), `/give allqi` (any stat incl. Qi), `/give qi` (a Breakthrough — resets Impurity), Nyang, rolls, Qi Bars, items — and `/take` for all of them, including lowering a stat with an optional refund. Each one posts a **Progression Report** / Deduction Report
+- 12 editable realms with requirements, caps, Qi Bars and breakthrough chances; pills can raise the chance
+- Impurity (50 / 75 / 100), poisons that don't burst meridians, Feng Shui `/purify` calculator, absorption & affinity
+- Items (up to 300) with rarity, type, description, drop weight, shop price, pill yield / impurity / affinity, poison & purification tiers
+- Drops by rarity: Earthly 75% · Heavenly 20% · Immortal 5% (editable, plus per-sect bonuses)
+- **Crafting** recipes (combine items + Nyang → new items, with a success chance)
+- **`/compare`** two characters: damage tier (Strength vs Endurance), Clash and Speed, with the Realm Tier rules
+- Shop, player trades (gifts = trade for nothing), player market
+- **Custom code** for special items/traits, written in the dashboard
+- **Dashboard control of every command**: who can use it (everyone / staff / specific roles), which channels, on/off, description
+- **Message designer**: every announcement is editable with a live Discord-style preview, and can be opened in / imported from [Discohook](https://discohook.app)
+- Save / load / backups, and a changelog of every edit (who, what, when)
 
 ---
 
@@ -24,8 +27,8 @@ One Node.js process runs **both** the bot and the dashboard, so a single Render 
 
 1. Go to <https://discord.com/developers/applications> → **New Application**.
 2. **Bot** tab → **Reset Token** → copy it (this is `DISCORD_TOKEN`).
-3. Still in **Bot**, turn on **Message Content Intent** (needed for typing `strength 5` in chat).
-   If you leave it off, the bot still works — players use `/stats add` instead.
+3. Still in **Bot**, turn on **Message Content Intent** (only needed for the optional "Type in chat" stat mode).
+   If you leave it off, everything else works — players use the buttons.
 4. **OAuth2 → URL Generator**: scopes `bot` + `applications.commands`; permissions
    *View Channels, Send Messages, Embed Links, Read Message History, Manage Roles*.
    Open the generated link and add the bot to your server.
@@ -92,47 +95,97 @@ Anyone who knows those can log in; you can also create one account per editor in
 
 ## 5. First setup in the dashboard
 
-1. **Settings → Discord**: pick the character submissions channel, progress channel, optional log channel, staff/approver roles, and roles given on approval.
-2. **Sects**: optionally link a Discord role to each sect (given on approval).
-3. **Items**: add your items (manuals, pills, poisons…). Tick *Can drop from /roll* and/or *Sold in the shop*.
-4. **Drop Rates**: change the 75 / 20 / 5 split if you want.
-5. **Realms**: adjust requirements, caps and breakthrough chances any time.
+1. **Settings → Discord**: pick the character submissions channel (make it staff-only in Discord), progress channel, announcements channel, optional log channel, staff roles, and roles given on approval.
+2. **Commands**: decide who can use what (e.g. set `/approve` to your *Character Approver* role).
+3. **Sects**: optionally link a Discord role to each sect (given on approval).
+4. **Items**: add your items (manuals, pills, poisons…). Tick *Can drop from drop rolls* and/or *Sold in the shop*.
+5. **Drop Rates**: change the 75 / 20 / 5 split if you want.
+6. **Realms & Qi Bars**: adjust requirements, caps, breakthrough chances and the Qi → Qi Bar table any time.
+7. **Messages**: restyle the announcements if you like.
 
 ---
 
 ## Commands
 
+Only 15 commands — most things happen through buttons in `/menu`.
+
 ### Players
 | Command | What it does |
 |---|---|
-| `/character submit name document [sect]` | Send your character doc for approval |
-| `/sheet [player]` | Show a stat sheet |
-| `/stats allocate` | Open a 5-minute window. Then type e.g. `strength 5` (one or many lines). `points` · `undo` · `done` |
-| `/stats add` / `/stats points` | Spend points with options / see what's left |
-| `/progress submit link summary [breakthrough]` | Submit a finished RP or fight for rewards |
-| `/realm info` · `/realm chance` · `/realm breakthrough` · `/realm list` | Realm progress and Realm Breakthroughs |
-| `/item use` (pills) · `/item learn` (manuals) · `/item forget` · `/item info` | Items and descriptions |
-| `/roll` · `/droprates` · `/inventory` | Drops and inventory |
-| `/shop view/buy/sell` · `/pay` · `/trade` · `/market list/view/buy/cancel` | Economy (Nyang) |
-| `/title list` · `/title stem` | Titles (players may pick their own stem once) |
-| `/impurity check` · `/purify` | Impurity effects · Feng Shui purification calculator |
-| `/help` | Command list |
+| `/submit name document [sect]` | Send your character for approval |
+| `/menu [player] [public]` | Your stat sheet + buttons: **📜 Sheet · 📊 Stats · 🎒 Inventory · ☯️ Realm · ⚒️ Craft** |
+| `/progress link summary [breakthrough]` | Submit a finished RP or fight for rewards |
+| `/trade player …` | Trade items / Nyang. Ask for nothing in return to **gift** |
+| `/market list · view · buy · cancel` | Sell items to anyone |
+| `/compare first second` | Damage, Clash and Speed between two characters |
+| `/item name` | Read any item's description |
+| `/purify` | Feng Shui purification calculator |
+| `/help` | How to play |
+
+**Inside `/menu`:**
+- **📜 Sheet** — the full stat sheet. New characters also get a picker to choose their title Stem once.
+- **📊 Stats** — `+1` / `+5` buttons for each stat, **✏️ Spend points…** (a form with all four stats), **⌨️ Type in chat** (5 minutes of typing `strength 5` lines), **↩️ Undo**, remaining points and the 50% limit. Also "Forget a martial art".
+- **🎒 Inventory** — pick an item to **Consume** (pills), **Learn** (manuals / cultivation methods / qi cores) or **Sell**; **🎲 Roll** for a drop; **🏮 Shop** to buy.
+- **☯️ Realm** — requirements with ✅/❌, the exact breakthrough chance, and the **Attempt Realm Breakthrough** button (asks to confirm).
+- **⚒️ Craft** — recipes you can make right now are marked ✅.
+
+`/menu` is private by default (only you see it); `public:true` shows it in the channel. Only the person who opened a menu can press its buttons.
 
 ### Staff
-(Members with **Manage Server**, or a staff role set in the dashboard.)
+(Defaults — change them in **Dashboard → Commands**.)
 
 | Command | What it does |
 |---|---|
-| Approve / Reject buttons on applications, or `/character approve player name` | Approve → creates the sheet, gives starting points and base roles |
+| Approve / Reject buttons on applications, or `/approve player name` | Creates the sheet, gives starting points and base roles |
 | `/give all @player 25` | 25 points for Strength / Endurance / Mobility only |
 | `/give allqi @player 25` | 25 points usable in any stat, **including Qi** |
 | `/give qi @player 1` | A Breakthrough: Qi directly, resets Impurity |
-| `/give nyang` · `/give rolls` · `/give qibars` · `/give item` | Currency, drop rolls, bonus Qi Bars, items (negative amounts take away) |
+| `/give nyang · rolls · qibars · item` | Currency, drop rolls, bonus Qi Bars, items |
+| `/take all · allqi · stat · nyang · rolls · qibars · item` | Remove any of those. `/take stat` lowers a stat; `refund:true` gives the points back to re-spend (respec) |
 | **Grant reward** button on progress posts | Same as `/give`, from a form |
-| `/impurity add/remove/reset` | `poison:true` never bursts meridians unless `can_burst:true` |
-| `/title set` · `/roll player:@x` (free roll) · `/backup` · `/dashboard` | |
+| `/impurity add · remove · reset` | `poison:true` never bursts meridians unless `can_burst:true` |
+| `/title player prefix stem suffix` | Set titles (`none` clears a part) |
+| `/admin backup · dashboard · sync` | Backup now, dashboard link, re-send commands to Discord |
 
----
+## Command permissions (Dashboard → Commands)
+
+Every command and subcommand can be set to:
+- **Everyone**, **Staff** (staff roles from Settings + anyone with Manage Server) or **Only these roles** (e.g. a *Character Approver* role for `/approve`)
+- **Only in these channels** (e.g. `/compare` only in a combat channel)
+- **On / off**, and a **custom description**
+- **Hide** — staff commands are hidden from the slash menu of members without Manage Server. If you give a role access, either untick Hide or allow that role for the command in Server Settings → Integrations.
+
+The Approve/Reject buttons follow the `/approve` rule; the progress **Grant reward** button follows the `/give` rule.
+Make the submissions channel visible only to staff / approvers in Discord's channel permissions. Approvals are announced in the **announcements channel** (Settings) or sent to the player by DM.
+
+## Messages (Dashboard → Messages)
+
+Every announcement — Progression Report, Deduction Report, application post, approved/rejected, progress post, breakthrough success/failure, drop roll, crafting — can be redesigned:
+- Edit text, embed color, author, title, description, fields, images and footer with a **live Discord-style preview**.
+- Click a placeholder chip like `{player}` to insert it; it's filled in when the bot sends the message.
+- **Open in Discohook** opens the current design in discohook.app; design it there, copy the JSON from Discohook's *JSON Data Editor* and use **Import JSON**. Placeholders survive the round trip.
+- **Send test** posts a sample in a channel (mentions never ping), **Reset to default** restores the original.
+
+Default Progression Report:
+```
+## Progression Report
++50 Stat Points to @Player
+## Approved by
+@Staff
+```
+
+## Crafting (Dashboard → Crafting)
+
+A recipe = input items (+ optional Nyang) → output items, with a success chance, an optional minimum realm, and whether materials are lost on failure. Players craft from `/menu → ⚒️ Craft`.
+
+## Stat comparison (Dashboard → Stat Comparison)
+
+`/compare` uses three editable tables, filled in with your server's rules:
+- **Damage** = attacker Strength − defender Endurance → T1 Nothing … T8 Lethal (T7 needs +1 Realm Tier, T8 +2)
+- **Clash** = Strength vs Strength → Equal, Pushback, Deflection, Disarm, Overwhelmed
+- **Speed** = Mobility vs Mobility → T1 Equal … T6 Blitz (T5 needs +1 Realm Tier, T6 +2)
+
+If the realm difference isn't enough, the result is capped at the best row allowed and the embed says so. Effective stats are used (impurity and temporary bonuses included).
 
 ## How the rules are implemented
 
@@ -145,7 +198,9 @@ Starting points are 50 by default (*Settings → New characters*).
 **Soft / hard caps.** Each realm has a soft and hard cap for stats and for Qi. Past the stat soft cap, each point spent is worth 50% (setting). Qi is never reduced, but stops at its Qi hard cap. When rewarding, the bot shows what the points will really be worth and discards anything past the hard cap (can be turned off).
 Defaults (editable): 2nd Rate soft 100 / hard 110 stats, soft 40 / hard 55 Qi — exactly as specified — and similar margins for the other realms.
 
-**Realm Breakthrough.** `/realm breakthrough` checks the next realm's requirements, then rolls against *realm chance + pill bonuses + script effects*. Pills with a *Breakthrough bonus* must be consumed first; the bonus is used up on the attempt.
+**Qi Bars.** Realm Qi Bars + Qi bonus (26–100 Qi: +1 · 101–200: +2 · 201–350: +3 · 351–550: +4 · 551–750: +5 · 751+: +6) + staff bonus Qi Bars + trait effects (e.g. Heavenly Martial Meridian +4; No Meridians = 0).
+
+**Realm Breakthrough.** `/menu → ☯️ Realm` checks the next realm's requirements, then rolls against *realm chance + pill bonuses + script effects*. Pills with a *Breakthrough bonus* must be consumed first; the bonus is used up on the attempt.
 
 | Realm | Qi Bars | Needs stats / Qi | Soft cap | Hard cap | Chance to advance |
 |---|---|---|---|---|---|
@@ -224,8 +279,9 @@ src/
   defaults.js         default realms, rarities, sects, titles, traits, example scripts
   store.js            in-memory state, MongoDB/file saving, backups, changelog
   engine/             game rules (no Discord code): stats, effects, scripts, characters,
-                      economy, rolls, affinity, fengshui, grants
-  bot/                Discord client, embeds, the 5-minute stat window, commands/*
+                      economy, rolls, affinity, fengshui, grants, crafting, combat, templates
+  bot/                Discord client, permissions (access.js), embeds, the stat typing window,
+                      commands/: menu, submit, progress, trade, tools, staff
   dashboard/          Express API (server.js), login (auth.js), web app (public/)
 scripts/selftest.js   rule tests
 render.yaml           Render blueprint

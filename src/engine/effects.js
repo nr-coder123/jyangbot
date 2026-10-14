@@ -38,6 +38,13 @@ function sanitizeFx(v, fallback) {
   };
 }
 
+/** Extra Qi Bars from total Qi (26+ Qi = +1, 101+ = +2, ...). Editable in Settings. */
+function qiBarBonusFor(state, qi) {
+  let bars = 0;
+  for (const row of state.settings.qiBarBonuses || []) if (Number(qi) >= Number(row.minQi)) bars = Math.max(bars, Number(row.bars) || 0);
+  return bars;
+}
+
 function compute(state, c) {
   const run = scripts.runChain(state, c, 'effects', baseFx(state, c));
   const fx = sanitizeFx(run.value, baseFx(state, c));
@@ -52,7 +59,8 @@ function compute(state, c) {
   effStats.qi = r2(c.stats.qi + fx.tempStats.qi);
 
   const realm = stats.realmOf(state, c);
-  const baseBars = r2((Number(realm.qiBars) || 0) + (Number(c.bonusQiBars) || 0) + fx.qiBarBonus);
+  const qiBonus = qiBarBonusFor(state, c.stats.qi);
+  const baseBars = r2((Number(realm.qiBars) || 0) + qiBonus + (Number(c.bonusQiBars) || 0) + fx.qiBarBonus);
   const total = fx.qiBarsOverride !== null ? fx.qiBarsOverride : r2(baseBars + fx.tempQiBars);
 
   return {
@@ -64,11 +72,11 @@ function compute(state, c) {
     drawbacks,
     notes: fx.notes,
     scriptErrors: run.errors,
-    qiBars: { base: baseBars, temp: fx.tempQiBars, total: Math.max(0, total), overridden: fx.qiBarsOverride !== null },
+    qiBars: { base: baseBars, temp: fx.tempQiBars, total: Math.max(0, total), overridden: fx.qiBarsOverride !== null, realm: Number(realm.qiBars) || 0, fromQi: qiBonus, staff: Number(c.bonusQiBars) || 0, effects: fx.qiBarBonus },
     caps: stats.caps(state, c),
     capLines: stats.capLines(state, c),
     absorption: affinity.absorption(state, c),
   };
 }
 
-module.exports = { baseFx, sanitizeFx, compute };
+module.exports = { baseFx, sanitizeFx, compute, qiBarBonusFor };

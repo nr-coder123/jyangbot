@@ -2,34 +2,14 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const store = require('../../store');
 const economy = require('../../engine/economy');
-const { EPH, actor, requireChar, findItem, itemChoices, inventoryChoices } = require('../util');
+const { EPH, actor, requireChar, findItem, itemChoices, inventoryChoices, isStaff } = require('../util');
 const { itemIcon } = require('../render');
 const { UserError, fmt, norm, truncate } = require('../../utils');
-
-// ---------- /pay ----------
-const pay = new SlashCommandBuilder()
-  .setName('pay')
-  .setDescription('Send Nyang to another player')
-  .addUserOption((o) => o.setName('player').setDescription('Who receives it').setRequired(true))
-  .addNumberOption((o) => o.setName('amount').setDescription('How much').setRequired(true).setMinValue(1));
-
-async function executePay(i) {
-  const st = store.state;
-  const from = requireChar(i.user.id);
-  const user = i.options.getUser('player');
-  const to = requireChar(user.id, true);
-  if (to.ownerId === from.ownerId) throw new UserError("You can't pay yourself.");
-  const amount = i.options.getNumber('amount');
-  economy.spendNyang(st, from, amount);
-  economy.addNyang(to, amount);
-  store.log(actor(i), 'pay', `${from.name} → ${to.name}: ${amount}`);
-  return i.reply({ content: `${st.settings.currencyEmoji} **${from.name}** sent **${fmt(amount)}** ${st.settings.currencyName} to **${to.name}** (<@${user.id}>).` });
-}
 
 // ---------- /trade ----------
 const trade = new SlashCommandBuilder()
   .setName('trade')
-  .setDescription('Offer a trade to another player (they accept with a button)')
+  .setDescription('Trade or give items / Nyang to a player (ask for nothing to make it a gift)')
   .addUserOption((o) => o.setName('player').setDescription('Who you trade with').setRequired(true))
   .addStringOption((o) => o.setName('give_item').setDescription('Item you give').setAutocomplete(true))
   .addIntegerOption((o) => o.setName('give_quantity').setDescription('How many you give (default 1)').setMinValue(1))
@@ -164,7 +144,7 @@ async function executeMarket(i) {
     return i.reply({ content: `🛍️ **${c.name}** bought ${q}× **${it?.name}** from **${r.seller?.name || 'a former seller'}** for ${s.currencyEmoji} **${fmt(r.cost)}**.${r.seller ? ` <@${r.seller.ownerId}>` : ''}` });
   }
   if (sub === 'cancel') {
-    if (l.sellerUserId !== i.user.id && !require('../util').isStaff(i)) throw new UserError('That is not your listing.');
+    if (l.sellerUserId !== i.user.id && !isStaff(i)) throw new UserError('That is not your listing.');
     const seller = economy.cancelListing(st, l);
     store.log(actor(i), 'market.cancel', `${listingLabel(l).text}`);
     return i.reply({ content: `Listing \`${l.id}\` removed; items returned to **${seller?.name || '—'}**.`, flags: EPH });
@@ -182,8 +162,7 @@ async function autocompleteMarket(i) {
 
 module.exports = {
   commands: [
-    { data: pay, execute: executePay },
-    { data: trade, execute: executeTrade, autocomplete: autocompleteTrade },
+        { data: trade, execute: executeTrade, autocomplete: autocompleteTrade },
     { data: market, execute: executeMarket, autocomplete: autocompleteMarket },
   ],
   buttons: { trade: onTradeButton },

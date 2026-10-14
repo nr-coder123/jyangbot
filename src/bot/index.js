@@ -1,37 +1,82 @@
 'use strict';
-const { Client, GatewayIntentBits, Events, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const config = require('../config');
 const store = require('../store');
 const allocation = require('./allocation');
+const access = require('./access');
+const status = require('./status');
 const { EPH, sendToChannel } = require('./util');
 const { UserError, truncate } = require('../utils');
 
-const modules = ['character', 'stats', 'give', 'realm', 'items', 'trade', 'title', 'admin'].map((m) => require(`./commands/${m}`));
+const MODULES = ['menu', 'submit', 'progress', 'trade', 'tools', 'staff'];
+const modules = MODULES.map((m) => require(`./commands/${m}`));
 const commands = new Map();
-const buttons = {};
+const components = {};
 const modals = {};
 for (const m of modules) {
-  for (const c of m.commands || []) commands.set(c.data.name, c);
-  Object.assign(buttons, m.buttons || {});
+  for (const c of m.commands || []) {
+    commands.set(c.data.name, c);
+    if (c.staff) access.staffDefaults.add(c.data.name);
+  }
+  Object.assign(components, m.buttons || {});
   Object.assign(modals, m.modals || {});
 }
 
-const status = { online: false, tag: null, error: null, messageContent: false, guilds: 0, startedAt: null };
 let client = null;
 
+const SUB = 1;
+const GROUP = 2;
+
+/** Every command + subcommand with its default text (for the dashboard). */
+function catalog() {
+  return [...commands.values()].map((c) => {
+    const j = c.data.toJSON();
+    const subs = (j.options || []).filter((o) => o.type === SUB).map((o) => ({ name: o.name, description: o.description, options: (o.options || []).map((x) => ({ name: x.name, description: x.description, required: !!x.required })) }));
+    return {
+      name: j.name,
+      description: j.description,
+      staffDefault: access.staffDefaults.has(j.name),
+      options: subs.length ? [] : (j.options || []).map((x) => ({ name: x.name, description: x.description, required: !!x.required })),
+      subcommands: subs,
+      rule: access.ruleFor(j.name),
+      subRules: Object.fromEntries(subs.map((s) => [s.name, access.subRule(j.name, s.name)])),
+    };
+  });
+}
+
+/** JSON sent to Discord, with the dashboard's descriptions, visibility and on/off switches applied. */
 function commandJSON() {
-  return [...commands.values()].map((c) => c.data.toJSON());
+  const out = [];
+  for (const c of commands.values()) {
+    const j = c.data.toJSON();
+    const rule = access.ruleFor(j.name);
+    if (rule.enabled === false) continue;
+    if (rule.description) j.description = truncate(rule.description, 100);
+    j.default_member_permissions = rule.hidden ? String(PermissionFlagsBits.ManageGuild) : null;
+    j.dm_permission = false;
+    j.options = (j.options || []).filter((o) => {
+      if (o.type !== SUB && o.type !== GROUP) return true;
+      const sr = access.subRule(j.name, o.name);
+      if (sr.enabled === false) return false;
+      if (sr.description) o.description = truncate(sr.description, 100);
+      return true;
+    });
+    out.push(j);
+  }
+  return out;
 }
 
 async function registerCommands() {
+  if (!client || !status.online) throw new UserError('The bot is offline, so commands could not be sent to Discord.');
   const body = commandJSON();
   if (config.guildId) {
     await client.application.commands.set(body, config.guildId);
     console.log(`[bot] registered ${body.length} commands in guild ${config.guildId}`);
   } else {
     await client.application.commands.set(body);
-    console.log(`[bot] registered ${body.length} global commands (can take up to an hour to appear — set GUILD_ID for instant updates)`);
+    console.log(`[bot] registered ${body.length} global commands (can take up to an hour — set GUILD_ID for instant updates)`);
   }
+  return body.length;
 }
 
 async function handleError(i, err) {
@@ -58,12 +103,14 @@ async function onInteraction(i) {
       const c = commands.get(i.commandName);
       if (!c) return;
       if (!i.inGuild()) throw new UserError('Please use the bot inside the server.');
+      const why = access.check(i.member, i.channelId, i.commandName, i.options.getSubcommand(false));
+      if (why) throw new UserError(why);
       await c.execute(i);
       store.markDirty();
       return;
     }
-    if (i.isButton()) {
-      const h = buttons[i.customId.split(':')[0]];
+    if (i.isButton() || i.isAnySelectMenu()) {
+      const h = components[i.customId.split(':')[0]];
       if (h) await h(i);
       store.markDirty();
       return;
@@ -80,11 +127,7 @@ async function onInteraction(i) {
 
 function wire() {
   client.once(Events.ClientReady, async (c) => {
-    status.online = true;
-    status.tag = c.user.tag;
-    status.guilds = c.guilds.cache.size;
-    status.startedAt = new Date().toISOString();
-    status.error = null;
+    Object.assign(status, { online: true, tag: c.user.tag, guilds: c.guilds.cache.size, startedAt: new Date().toISOString() });
     console.log(`[bot] logged in as ${c.user.tag}`);
     try {
       await registerCommands();
@@ -104,7 +147,6 @@ async function login(withMessageContent) {
   const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
   if (withMessageContent) intents.push(GatewayIntentBits.MessageContent);
   client = new Client({ intents });
-  client.botState = status;
   status.messageContent = withMessageContent;
   wire();
   await client.login(config.token);
@@ -120,10 +162,10 @@ async function start() {
     await login(config.messageContent);
   } catch (e) {
     if (config.messageContent && /intent/i.test(String(e.message))) {
-      console.warn('[bot] Message Content intent is not enabled in the Discord developer portal. Starting without it — "/stats allocate" chat typing is disabled, "/stats add" still works.');
+      console.warn('[bot] Message Content intent is off in the Discord developer portal. Starting without it — stat typing in chat is disabled, buttons still work.');
       try { client.destroy(); } catch {}
       await login(false);
-      status.error = 'Message Content intent disabled in the developer portal — chat stat typing is off.';
+      status.error = 'Message Content intent is off in the developer portal — "Type in chat" is disabled (buttons work).';
     } else {
       status.error = e.message;
       throw e;
@@ -149,9 +191,16 @@ function getDiscordInfo() {
     id: g.id,
     name: g.name,
     channels: g.channels.cache.filter((c) => c.isTextBased() && !c.isThread()).map((c) => ({ id: c.id, name: c.name })).sort((a, b) => a.name.localeCompare(b.name)),
-    roles: g.roles.cache.filter((r) => r.id !== g.id && !r.managed).map((r) => ({ id: r.id, name: r.name, position: r.position })).sort((a, b) => b.position - a.position),
+    roles: g.roles.cache.filter((r) => r.id !== g.id && !r.managed).map((r) => ({ id: r.id, name: r.name, position: r.position, color: r.hexColor })).sort((a, b) => b.position - a.position),
+    members: g.members.cache.filter((m) => !m.user.bot).map((m) => ({ id: m.id, name: m.displayName })),
   }));
-  return { status, guilds };
+  return { status, guilds, botUser: client.user ? { name: client.user.username, avatar: client.user.displayAvatarURL({ size: 64 }) } : null };
+}
+
+/** Dashboard "Send test" for message templates. Mentions are shown but never ping. */
+async function sendTest(channelId, payload) {
+  const ok = await sendToChannel(client, channelId, { ...payload, allowedMentions: { parse: [] } });
+  if (!ok) throw new UserError('Could not post in that channel (check the bot can see and write there).');
 }
 
 async function stop() {
@@ -160,4 +209,4 @@ async function stop() {
   } catch {}
 }
 
-module.exports = { start, stop, status, getDiscordInfo, commandJSON };
+module.exports = { start, stop, status, getDiscordInfo, commandJSON, catalog, registerCommands, sendTest };

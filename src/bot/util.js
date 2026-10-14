@@ -1,42 +1,41 @@
 'use strict';
-const { PermissionFlagsBits, MessageFlags } = require('discord.js');
+const { MessageFlags } = require('discord.js');
 const store = require('../store');
 const chars = require('../engine/characters');
+const templates = require('../engine/templates');
+const access = require('./access');
 const { UserError, norm, truncate, findByName } = require('../utils');
 
 const EPH = MessageFlags.Ephemeral;
 
-function isStaff(i) {
-  const m = i.member;
-  if (!m) return false;
-  const p = m.permissions;
-  if (p && typeof p.has === 'function' && (p.has(PermissionFlagsBits.ManageGuild) || p.has(PermissionFlagsBits.Administrator))) return true;
-  const roleIds = m.roles?.cache ? [...m.roles.cache.keys()] : Array.isArray(m.roles) ? m.roles : [];
-  return (store.state.settings.staffRoleIds || []).some((r) => roleIds.includes(r));
-}
+const isStaff = (i) => access.isStaff(i.member);
 
-function requireStaff(i) {
-  if (!isStaff(i)) throw new UserError('Only staff can do that (Manage Server permission, or a staff role set in the dashboard).');
+/** Throw unless the member may use `name` (and `sub`) according to the dashboard rules. */
+function requireAccess(i, name, sub) {
+  const why = access.check(i.member, i.channelId, name, sub);
+  if (why) throw new UserError(why);
 }
 
 const actor = (i) => ({ id: i.user.id, name: i.user.username, source: 'discord' });
 
 function requireChar(userId, other = false) {
   const c = chars.activeCharacterOf(store.state, userId);
-  if (!c) throw new UserError(other ? "That player doesn't have an approved character." : "You don't have an approved character yet. Submit one with `/character submit`.");
+  if (!c) throw new UserError(other ? "That player doesn't have an approved character." : "You don't have an approved character yet. Submit one with `/submit`.");
   return c;
-}
-
-/** Character for an optional `player` option: someone else's (anyone may view) or your own. */
-function charFor(i, opt = 'player') {
-  const u = i.options.getUser(opt);
-  return u && u.id !== i.user.id ? requireChar(u.id, true) : requireChar(i.user.id);
 }
 
 function findItem(value) {
   const it = findByName(store.state.items, value);
   if (!it) throw new UserError(`Item "${value}" not found.`);
   return it;
+}
+
+function findCharacter(value) {
+  const st = store.state;
+  const q = norm(value);
+  const c = st.characters.find((x) => x.id === value) || st.characters.find((x) => x.status === 'active' && norm(x.name) === q) || st.characters.find((x) => norm(x.name) === q);
+  if (!c) throw new UserError(`Character "${value}" not found.`);
+  return c;
 }
 
 function itemChoices(i, filter = () => true) {
@@ -55,9 +54,20 @@ function inventoryChoices(i, userId, filter = () => true) {
   return itemChoices(i, (it) => (c.inventory[it.id] || 0) > 0 && filter(it));
 }
 
+function characterChoices(i) {
+  const q = norm(i.options.getFocused());
+  return i.respond(store.state.characters.filter((c) => c.status === 'active' && (!q || norm(c.name).includes(q))).slice(0, 25).map((c) => ({ name: truncate(c.name, 100), value: c.id })));
+}
+
 function listChoices(i, values) {
   const q = norm(i.options.getFocused());
   return i.respond(values.filter((v) => !q || norm(v).includes(q)).slice(0, 25).map((v) => ({ name: truncate(v, 100), value: truncate(v, 100) })));
+}
+
+/** Build a message from a dashboard template. Mentions in the text only ping the given user ids. */
+function message(key, vars, { color, ping = [] } = {}) {
+  const m = templates.render(store.state, key, vars, { color });
+  return { ...m, allowedMentions: { users: ping.filter(Boolean), roles: [] } };
 }
 
 async function sendToChannel(client, channelId, payload) {
@@ -71,4 +81,6 @@ async function sendToChannel(client, channelId, payload) {
   }
 }
 
-module.exports = { EPH, isStaff, requireStaff, actor, requireChar, charFor, findItem, itemChoices, inventoryChoices, listChoices, sendToChannel };
+module.exports = {
+  EPH, isStaff, requireAccess, actor, requireChar, findItem, findCharacter, itemChoices, inventoryChoices, characterChoices, listChoices, message, sendToChannel,
+};

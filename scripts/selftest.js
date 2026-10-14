@@ -12,7 +12,10 @@ const affinity = require('../src/engine/affinity');
 const { purify } = require('../src/engine/fengshui');
 const rolls = require('../src/engine/rolls');
 const economy = require('../src/engine/economy');
-const { grant } = require('../src/engine/grants');
+const { grant, take } = require('../src/engine/grants');
+const crafting = require('../src/engine/crafting');
+const combat = require('../src/engine/combat');
+const templates = require('../src/engine/templates');
 
 let passed = 0;
 const test = (name, fn) => {
@@ -80,7 +83,7 @@ test('Qi has no soft-cap reduction but stops at its hard cap (55)', () => {
   const { state, c } = fresh();
   c.realm = 1;
   c.stats.qi = 50;
-  const lines = grant(state, c, 'qi', 10);
+  const { lines } = grant(state, c, 'qi', 10);
   assert.strictEqual(c.stats.qi, 55);
   assert.ok(lines.some((l) => l.includes('hard cap')));
 });
@@ -136,6 +139,7 @@ test('No Meridians / Heavenly Martial Meridian traits', () => {
   c.traits = [{ id: 'heavenly-martial-meridian', name: 'Heavenly Martial Meridian' }];
   assert.strictEqual(effects.compute(state, c).qiBars.total, 6);
   grant(state, c, 'qi', 4);
+  c.stats.qi = 3;
   assert.strictEqual(c.stats.qi, 3);
   c.traits = [{ id: 'no-meridians', name: 'No Meridians' }];
   assert.strictEqual(effects.compute(state, c).qiBars.total, 0);
@@ -210,6 +214,74 @@ test('title formatting', () => {
   assert.strictEqual(chars.titleString(state, c), "Mount Hua's Rising Dragon");
   c.sect = '';
   assert.strictEqual(chars.titleString(state, c), 'Rogue Rising Dragon');
+});
+
+
+test('Qi Bar bonus from Qi: 26 -> +1, 101 -> +2, 751 -> +6', () => {
+  const { state, c } = fresh();
+  c.stats.qi = 25;
+  assert.strictEqual(effects.compute(state, c).qiBars.total, 2);
+  c.stats.qi = 26;
+  assert.strictEqual(effects.compute(state, c).qiBars.total, 3);
+  c.stats.qi = 150;
+  assert.strictEqual(effects.compute(state, c).qiBars.fromQi, 2);
+  c.stats.qi = 800;
+  assert.strictEqual(effects.compute(state, c).qiBars.fromQi, 6);
+});
+
+test('staff take: points, stats with refund, nyang', () => {
+  const { state, c } = fresh();
+  c.stats.strength = 20;
+  c.nyang = 10;
+  take(state, c, 'allqi', 30);
+  assert.strictEqual(c.pools.flex, 20);
+  const r = take(state, c, 'stat', 5, { stat: 'strength', refund: true });
+  assert.strictEqual(c.stats.strength, 15);
+  assert.strictEqual(c.pools.normal, 5);
+  assert.ok(r.summary.includes('Strength'));
+  take(state, c, 'nyang', 50);
+  assert.strictEqual(c.nyang, 0);
+});
+
+test('crafting consumes inputs and gives outputs', () => {
+  const { state, c } = fresh();
+  state.items.push(defaults.normalizeItem({ id: 'herb', name: 'Herb' }), defaults.normalizeItem({ id: 'pill2', name: 'Pill', type: 'pill' }));
+  const r = defaults.normalizeRecipe({ name: 'Pill', inputs: [{ itemId: 'herb', qty: 2 }], outputs: [{ itemId: 'pill2', qty: 1 }], nyangCost: 5 });
+  economy.addItem(c, 'herb', 1);
+  c.nyang = 10;
+  assert.strictEqual(crafting.check(state, c, r).ok, false);
+  economy.addItem(c, 'herb', 1);
+  const out = crafting.craft(state, c, r);
+  assert.ok(out.success);
+  assert.strictEqual(economy.qtyOf(c, 'herb'), 0);
+  assert.strictEqual(economy.qtyOf(c, 'pill2'), 1);
+  assert.strictEqual(c.nyang, 5);
+});
+
+test('compare: damage/clash/mobility tiers with realm-tier caps', () => {
+  const { state, c } = fresh();
+  const d = chars.createCharacter(state, { ownerId: '2', ownerTag: 'o', name: 'Baek Cheon' });
+  c.stats = { strength: 40, endurance: 10, mobility: 45, qi: 0 };
+  d.stats = { strength: 10, endurance: 10, mobility: 5, qi: 0 };
+  let r = combat.compare(state, c, d);
+  assert.strictEqual(r.aHitsB.wanted.tier, 'T7');
+  assert.strictEqual(r.aHitsB.row.tier, 'T6', 'T7 needs +1 realm tier');
+  assert.ok(r.aHitsB.capped);
+  assert.strictEqual(r.bHitsA.row.tier, 'T4');
+  assert.strictEqual(r.clash.row.name, 'Overwhelmed');
+  assert.strictEqual(r.speed.row.tier, 'T4', 'Blitz/T5 need realm tiers');
+  c.realm = 2;
+  r = combat.compare(state, c, d);
+  assert.strictEqual(r.aHitsB.row.tier, 'T7');
+  assert.strictEqual(r.speed.row.tier, 'T6');
+});
+
+test('templates fill placeholders and drop empty footers', () => {
+  const state = defaults.createDefaultState();
+  const m = templates.render(state, 'progressionReport', { player: '<@1>', summary: '+50 Stat Points', details: '', staff: '<@2>', reason: '' });
+  assert.ok(m.embeds[0].description.includes('+50 Stat Points to <@1>'));
+  assert.ok(m.embeds[0].description.includes('## Approved by\n<@2>'));
+  assert.strictEqual(m.embeds[0].footer, undefined);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

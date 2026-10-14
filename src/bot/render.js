@@ -23,7 +23,9 @@ function sheetEmbed(c) {
   };
   const list = (refs) => (refs || []).map((r) => refName(r)).filter(Boolean);
   const ma = c.martialArts;
-  const qiBarsTxt = `${fmt(sh.qiBars.total)}${sh.qiBars.temp ? ` *(incl. ${sh.qiBars.temp > 0 ? '+' : ''}${fmt(sh.qiBars.temp)} temporary)*` : ''}`;
+  const qb = sh.qiBars;
+  const parts = [`realm ${fmt(qb.realm)}`, qb.fromQi && `Qi +${fmt(qb.fromQi)}`, qb.staff && `bonus ${qb.staff > 0 ? '+' : ''}${fmt(qb.staff)}`, qb.effects && `traits ${qb.effects > 0 ? '+' : ''}${fmt(qb.effects)}`, qb.temp && `temporary ${qb.temp > 0 ? '+' : ''}${fmt(qb.temp)}`].filter(Boolean);
+  const qiBarsTxt = qb.overridden ? `${fmt(qb.total)}` : `${fmt(qb.total)}${parts.length > 1 ? ` *(${parts.join(' · ')})*` : ''}`;
   const desc = [
     '### Name', c.name,
     '### Titles', chars.titleString(st, c),
@@ -54,7 +56,7 @@ function sheetEmbed(c) {
     name: 'Progress',
     value: field([
       `Stat total: **${fmt(sh.normalTotal)}** *(Qi not counted)*`,
-      unspent > 0 ? `Unspent: ${stats.poolsLine(st, c)} — use \`/stats allocate\`` : 'No unspent points.',
+      unspent > 0 ? `Unspent: ${stats.poolsLine(st, c)} — press **📊 Stats** in \`/menu\`` : 'No unspent points.',
       stats.capSummary(st, c),
       sh.next ? `Next realm **${sh.next.name}**: needs ${fmt(sh.next.reqStats)} stat points & ${fmt(sh.next.reqQi)} Qi` : 'Final realm reached.',
     ].join('\n')),
@@ -121,7 +123,7 @@ function inventoryEmbed(c) {
     if (groups[name]) e.addFields({ name: `${rarityOf(name).emoji} ${name}`, value: field(groups[name].join('\n')) });
   }
   if (!entries.length) e.setDescription('*Empty.*');
-  e.setFooter({ text: `${fmt(c.nyang)} ${st.settings.currencyName} · ${c.rolls} drop roll(s) · /item info to read descriptions` });
+  e.setFooter({ text: `${fmt(c.nyang)} ${st.settings.currencyName} · ${c.rolls} drop roll(s) · pick an item below to see or use it` });
   return e;
 }
 

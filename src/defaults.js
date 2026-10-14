@@ -192,6 +192,49 @@ const THREE_HEARTS_DESCRIPTION = `- Upon reaching **\`50\` Impurity**, create th
 **Absorption Rate**: 0%.
 **Affinity**: _None._`;
 
+
+// Stat-difference tables used by /compare. Rows are matched by "min" (the row with the highest min <= difference wins).
+// reqRT = realm tiers the attacker / faster character must be above the other to reach this row.
+const COMBAT = {
+  damage: [
+    { min: null, label: '-15 or lower', tier: 'T1', name: 'Nothing', reqRT: 0, desc: 'Nothing happens and the attack will bounce off and slightly hurt the attacker.' },
+    { min: -14, label: '-14 to -6', tier: 'T2', name: 'Negligible', reqRT: 0, desc: 'Defender tanks the attack, leaving only the redness of the skin.' },
+    { min: -5, label: '-5 to -1', tier: 'T3', name: 'Minor', reqRT: 0, desc: 'Attack leaves slight pain and a minor abrasion. It is like a kid punching a grown adult.' },
+    { min: 0, label: '0 to 5', tier: 'T4', name: 'Light', reqRT: 0, desc: 'Clean hit that leaves a bruise or a shallow 1/4th of an inch cut on skin.' },
+    { min: 6, label: '6 to 12', tier: 'T5', name: 'Normal', reqRT: 0, desc: 'Goes as far from 0.5 to 1 inch into the body or leaves a normal to large hematoma, depending on the attack\'s weight. It causes visible bleeding.' },
+    { min: 13, label: '13 to 20', tier: 'T6', name: 'Moderate', reqRT: 0, desc: 'Slices deeply through the body, but not always close to the bone. For blunts, it cracks/fractures the bone, provided they aren\'t major ones.' },
+    { min: 21, label: '21 to 30', tier: 'T7', name: 'Severe', reqRT: 1, desc: 'Causes deep lacerations or cleanly fractures or snaps major bones. A lot of trauma.' },
+    { min: 31, label: '31 or higher', tier: 'T8', name: 'Lethal', reqRT: 2, desc: 'Smashes through bone or dismembers limbs. Anything at 42+ will essentially pulverize an opponent.' },
+  ],
+  damageNote: 'All results assume a hit to the TORSO (chest). Durable areas like forearms, thighs or biceps usually halve the damage.',
+  clash: [
+    { min: 0, label: '0-3', tier: '', name: 'Equal', reqRT: 0, desc: 'Both attacks come to a standstill. Nobody is pushed back.' },
+    { min: 4, label: '4-8', tier: '', name: 'Pushback', reqRT: 0, desc: 'The loser is pushed back, but isn\'t hurt by the attack, though their limbs wielding the weapon of choice might feel weaker than before. Ranged (Qi Blasts): the rebounding shockwave affects the loser\'s whole body and leaves them momentarily shook and weakened, but not stunned.' },
+    { min: 9, label: '9-16', tier: '', name: 'Deflection', reqRT: 0, desc: 'The loser\'s blade is likely knocked aside. It may create an opening, but it does not mean a free hit. Ranged: the shockwave freezes the loser up for a slight moment.' },
+    { min: 17, label: '17-25', tier: '', name: 'Disarm', reqRT: 0, desc: 'The loser will certainly lose grip of their weapon; their hands hurt enough that wielding it properly again is difficult if not impossible. Ranged: the shockwave practically stuns them, giving a great opening.' },
+    { min: 26, label: '26+', tier: '', name: 'Overwhelmed', reqRT: 0, desc: 'The loser\'s weapon is virtually ignored and loses all its power, as if the loser had done nothing at all. Ranged: the winner\'s Qi Blast pushes through as if nothing was there.' },
+  ],
+  clashNote: 'Clash is mainly for Skills clashing. Attacks without skills may only use it as a last resort or a yardstick.',
+  mobility: [
+    { min: 0, label: '0-3', tier: 'T1', name: 'Equal', reqRT: 0, desc: 'Virtually anything can be reacted to under normal circumstances.' },
+    { min: 4, label: '4-8', tier: 'T2', name: 'Slight', reqRT: 0, desc: 'Faster character has a slight advantage, with a tiny edge in reaction time.' },
+    { min: 9, label: '9-15', tier: 'T3', name: 'Advantageous', reqRT: 0, desc: 'Fast attacks from the faster character may feel like blurs, but the defender can still react if they have a rough idea of what is coming their way.' },
+    { min: 16, label: '16-24', tier: 'T4', name: 'Very Advantageous', reqRT: 0, desc: 'Faster character is consistently a blur, where prediction is hardly effective, being essentially twice as fast as the enemy.' },
+    { min: 25, label: '25-35', tier: 'T5', name: 'Extremely Advantageous', reqRT: 1, desc: 'Slower character is basically blind to movement. It\'s virtually impossible to block anything unless there already was a defense before the attack started.' },
+    { min: 36, label: '36+', tier: 'T6', name: 'Blitz', reqRT: 2, desc: 'The slower character can\'t react at all. Movements are practically teleportation.' },
+  ],
+};
+
+// Extra Qi Bars from the amount of Qi a character has (on top of the realm's Qi Bars).
+const QI_BAR_BONUSES = [
+  { minQi: 26, bars: 1 },
+  { minQi: 101, bars: 2 },
+  { minQi: 201, bars: 3 },
+  { minQi: 351, bars: 4 },
+  { minQi: 551, bars: 5 },
+  { minQi: 751, bars: 6 },
+];
+
 const DEFAULT_SETTINGS = {
   currencyName: 'Nyang',
   currencyEmoji: '🪙',
@@ -215,7 +258,7 @@ const DEFAULT_SETTINGS = {
   maxCultivationMethods: 2,
   martialArtLimits: { generic: 3, core: 1, special: 1, forbidden: 1 },
   elements: ELEMENTS,
-  channels: { submissions: '', progress: '', log: '' },
+  channels: { submissions: '', progress: '', announcements: '', log: '' },
   staffRoleIds: [],
   approvedRoleIds: [],
   shopSellbackPercent: 50,
@@ -225,6 +268,11 @@ const DEFAULT_SETTINGS = {
   maxBackups: 30,
   maxChangelog: 5000,
   titles: TITLES,
+  qiBarBonuses: QI_BAR_BONUSES,
+  menuPublicByDefault: false,
+  announceRolls: true,
+  announceCrafting: true,
+  announceBreakthroughs: true,
 };
 
 function normalizeItem(i = {}) {
@@ -249,6 +297,22 @@ function normalizeItem(i = {}) {
     scriptId: i.scriptId || '',
     createdAt: i.createdAt || now,
     updatedAt: i.updatedAt || now,
+  };
+}
+
+function normalizeRecipe(r = {}) {
+  const rows = (v) => arr(v).map((x) => ({ itemId: String(x.itemId || ''), qty: Math.max(1, Math.floor(num(x.qty, 1))) })).filter((x) => x.itemId);
+  return {
+    id: r.id || newId('rc-'),
+    name: String(r.name || 'Unnamed recipe').trim(),
+    description: r.description || '',
+    inputs: rows(r.inputs),
+    outputs: rows(r.outputs),
+    nyangCost: Math.max(0, num(r.nyangCost)),
+    successChance: Math.max(0, Math.min(100, num(r.successChance, 100))),
+    consumeOnFail: r.consumeOnFail !== false,
+    minRealm: Math.max(0, Math.floor(num(r.minRealm))),
+    enabled: r.enabled !== false,
   };
 }
 
@@ -310,6 +374,10 @@ function createDefaultState() {
       }),
     ],
     characters: [],
+    recipes: [],
+    combat: JSON.parse(JSON.stringify(COMBAT)),
+    templates: {},
+    commandAccess: {},
     users: {},
     applications: [],
     progress: [],
@@ -323,5 +391,5 @@ function createDefaultState() {
 
 module.exports = {
   ITEM_TYPES, MANUAL_CATEGORIES, YIELD_TYPES, ELEMENTS, REALMS, RARITIES, SECTS, TITLES, TRAITS, SCRIPTS,
-  DEFAULT_SETTINGS, normalizeItem, normalizeCharacter, createDefaultState,
+  DEFAULT_SETTINGS, COMBAT, QI_BAR_BONUSES, normalizeItem, normalizeCharacter, normalizeRecipe, createDefaultState,
 };
