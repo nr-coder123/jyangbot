@@ -5,6 +5,7 @@ const store = require('../store');
 const allocation = require('./allocation');
 const access = require('./access');
 const status = require('./status');
+const sectsync = require('./sectsync');
 const { EPH, sendToChannel } = require('./util');
 const { UserError, truncate } = require('../utils');
 
@@ -85,7 +86,8 @@ async function handleError(i, err) {
   if (i.isAutocomplete()) return;
   const content = userFacing ? `❌ ${err.message}` : '⚠️ Something went wrong. Staff can check the server logs.';
   try {
-    if (i.deferred && !i.replied) await i.editReply({ content });
+    if (i.deferred && !i.replied && !i.isMessageComponent()) await i.editReply({ content });
+    else if (i.deferred && i.isMessageComponent()) await i.followUp({ content, flags: EPH });
     else if (i.replied) await i.followUp({ content, flags: EPH });
     else await i.reply({ content, flags: EPH });
   } catch {}
@@ -93,6 +95,7 @@ async function handleError(i, err) {
 
 async function onInteraction(i) {
   try {
+    if (i.inGuild() && i.member && !i.isAutocomplete()) sectsync.syncMember(i.member);
     if (i.isAutocomplete()) {
       const c = commands.get(i.commandName);
       if (c?.autocomplete) await c.autocomplete(i);
@@ -129,6 +132,16 @@ function wire() {
   client.once(Events.ClientReady, async (c) => {
     Object.assign(status, { online: true, tag: c.user.tag, guilds: c.guilds.cache.size, startedAt: new Date().toISOString() });
     console.log(`[bot] logged in as ${c.user.tag}`);
+    if (status.membersIntent) {
+      try {
+        let n = 0;
+        for (const g of c.guilds.cache.values()) for (const m of (await g.members.fetch()).values()) n += sectsync.syncMember(m).length;
+        if (n) store.markDirty();
+        console.log(`[sects] startup sync: ${n} sect change(s)`);
+      } catch (e) {
+        console.warn('[sects] startup sync failed', e.message);
+      }
+    }
     try {
       await registerCommands();
     } catch (e) {
@@ -137,17 +150,26 @@ function wire() {
     }
   });
   client.on(Events.InteractionCreate, onInteraction);
+  client.on(Events.GuildMemberUpdate, (oldM, newM) => {
+    try {
+      if (sectsync.syncMember(newM).length) store.markDirty();
+    } catch (e) {
+      console.error('[sects] sync failed', e);
+    }
+  });
   client.on(Events.MessageCreate, (m) => allocation.onMessage(m).catch((e) => console.error('[bot] allocation', e)));
   client.on(Events.ShardDisconnect, () => (status.online = false));
   client.on(Events.ShardResume, () => (status.online = true));
   client.on(Events.Error, (e) => console.error('[bot] client error', e));
 }
 
-async function login(withMessageContent) {
+async function login({ messageContent, members }) {
   const intents = [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages];
-  if (withMessageContent) intents.push(GatewayIntentBits.MessageContent);
+  if (messageContent) intents.push(GatewayIntentBits.MessageContent);
+  if (members) intents.push(GatewayIntentBits.GuildMembers);
   client = new Client({ intents });
-  status.messageContent = withMessageContent;
+  status.messageContent = !!messageContent;
+  status.membersIntent = !!members;
   wire();
   await client.login(config.token);
 }
@@ -158,18 +180,35 @@ async function start() {
     console.warn('[bot]', status.error);
     return;
   }
-  try {
-    await login(config.messageContent);
-  } catch (e) {
-    if (config.messageContent && /intent/i.test(String(e.message))) {
-      console.warn('[bot] Message Content intent is off in the Discord developer portal. Starting without it — stat typing in chat is disabled, buttons still work.');
+  // Try with every optional privileged intent, then fall back if the developer portal hasn't enabled them.
+  const attempts = [
+    { messageContent: config.messageContent, members: true },
+    { messageContent: config.messageContent, members: false },
+    { messageContent: false, members: true },
+    { messageContent: false, members: false },
+  ].filter((a, i, list) => list.findIndex((b) => b.messageContent === a.messageContent && b.members === a.members) === i);
+  let lastErr;
+  for (const a of attempts) {
+    try {
+      await login(a);
+      lastErr = null;
+      break;
+    } catch (e) {
+      lastErr = e;
       try { client.destroy(); } catch {}
-      await login(false);
-      status.error = 'Message Content intent is off in the developer portal — "Type in chat" is disabled (buttons work).';
-    } else {
-      status.error = e.message;
-      throw e;
+      if (!/intent/i.test(String(e.message))) break;
     }
+  }
+  if (lastErr) {
+    status.error = lastErr.message;
+    throw lastErr;
+  }
+  const missing = [];
+  if (config.messageContent && !status.messageContent) missing.push('Message Content (the "Type in chat" stat mode)');
+  if (!status.membersIntent) missing.push('Server Members (instant sect sync when roles change — sects still sync whenever the player uses the bot)');
+  if (missing.length) {
+    status.error = `Privileged intents off in the Discord developer portal: ${missing.join('; ')}.`;
+    console.warn('[bot]', status.error);
   }
 
   // Mirror the changelog to a Discord channel if one is configured.
@@ -203,10 +242,16 @@ async function sendTest(channelId, payload) {
   if (!ok) throw new UserError('Could not post in that channel (check the bot can see and write there).');
 }
 
+/** Dashboard: a character's sect was changed — update the member's sect roles. */
+async function applySectRoles(userId, sectName) {
+  if (!client || !status.online) return { ok: false, reason: 'bot offline' };
+  return sectsync.applySectRoles(client, userId, sectName);
+}
+
 async function stop() {
   try {
     if (client) await client.destroy();
   } catch {}
 }
 
-module.exports = { start, stop, status, getDiscordInfo, commandJSON, catalog, registerCommands, sendTest };
+module.exports = { start, stop, status, getDiscordInfo, commandJSON, catalog, registerCommands, sendTest, applySectRoles };

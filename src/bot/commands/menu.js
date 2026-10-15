@@ -22,8 +22,9 @@ const ui = require('../../engine/ui');
 const weapons = require('../../engine/weapons');
 const allocation = require('../allocation');
 const botStatus = require('../status');
+const sectsync = require('../sectsync');
 const panels = require('../panels');
-const { EPH, actor, requireChar, requireAccess, message, sendToChannel } = require('../util');
+const { EPH, actor, requireChar, requireAccess, message, sendToChannel, logConsumption } = require('../util');
 const { UserError, fmt, truncate, clone } = require('../../utils');
 
 const menu = new SlashCommandBuilder()
@@ -158,7 +159,7 @@ VIEWS.item = (ctx, itemId) => {
   const buttons = [];
   if (ctx.isOwner && q > 0) {
     if (it.type === 'pill') buttons.push(btn(cid('a', ctx, 'use', it.id), 'consume', { style: ButtonStyle.Success }));
-    if (['manual', 'cultivation', 'core'].includes(it.type)) buttons.push(btn(cid('a', ctx, 'learn', it.id), 'learn', { style: ButtonStyle.Success }));
+    if (it.type === 'manual') buttons.push(btn(cid('a', ctx, 'learn', it.id), 'learn', { style: ButtonStyle.Success }));
     if (it.type === 'weapon') {
       const equipped = weapons.mainWeapon(st(), c)?.id === it.id;
       buttons.push(btn(cid('a', ctx, 'equip', it.id), 'equip', { style: ButtonStyle.Success, disabled: equipped }));
@@ -254,8 +255,9 @@ function render(ctx, view, arg, notice, extra = [], arg2) {
 }
 
 // ---------- commands ----------
-function openFor(i, view, arg) {
+async function openFor(i, view, arg) {
   const user = i.options.getUser('player');
+  if (user && user.id !== i.user.id) await sectsync.syncUserId(i.guild, user.id);
   const c = user && user.id !== i.user.id ? requireChar(user.id, true) : requireChar(i.user.id);
   const ctx = { viewer: i.user.id, c, isOwner: c.ownerId === i.user.id };
   const pub = i.options.getBoolean('public') ?? !!S().menuPublicByDefault;
@@ -369,8 +371,8 @@ async function onButton(i) {
       const it = state.items.find((x) => x.id === arg);
       if (!it) throw new UserError('Item not found.');
       const r = chars.consumePill(state, c, it);
-      store.log(actor(i), 'item.use', `${c.name} consumed ${it.name}: ${r.lines.join('; ').replace(/\*/g, '')}`);
       const result = panels.consumeResult(c, it, [...r.lines, ...(r.result.errors || []).map((e) => `${ui.emoji(state, 'warning')} ${e}`)]);
+      logConsumption(i, c, it, r.lines, result.embeds).catch(() => {});
       return i.update(render(ctx, economy.qtyOf(c, it.id) > 0 ? 'item' : 'inv', it.id, null, result.embeds));
     }
     case 'learn': {
@@ -378,7 +380,7 @@ async function onButton(i) {
       if (!it) throw new UserError('Item not found.');
       const r = chars.learnItem(state, c, it);
       store.log(actor(i), 'item.learn', `${c.name} learned ${it.name}`);
-      return i.update(render(ctx, 'inv', null, `📖 You learned **${it.name}**! ${r.note}`));
+      return i.update(render(ctx, 'inv', null, `📖 You learned **${r.art.name}**! ${r.note}`));
     }
     case 'equip': {
       const it = state.items.find((x) => x.id === arg);

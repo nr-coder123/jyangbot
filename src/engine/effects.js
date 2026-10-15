@@ -12,7 +12,9 @@ function baseFx(state, c) {
   const th = state.settings.impurity;
   const imp = Number(c.impurity) || 0;
   return {
-    qiRegenDisabled: imp >= th.noRegenAt,
+    // Impurity 50+: pill yields reduced (default -50%). qiRegenDisabled is kept so old scripts still work.
+    yieldMultiplier: imp >= (th.yieldPenaltyAt ?? 50) ? r2(1 - (th.yieldPenaltyPercent ?? 50) / 100) : 1,
+    qiRegenDisabled: imp >= (th.yieldPenaltyAt ?? 50),
     statMultiplier: imp >= th.debuffAt ? r2(1 - th.debuffPercent / 100) : 1,
     preventMeridianBurst: false,
     tempStats: { strength: 0, endurance: 0, mobility: 0, qi: 0 },
@@ -27,8 +29,12 @@ function sanitizeFx(v, fallback) {
   if (!v || typeof v !== 'object') return fallback;
   const n = (x, d) => (x !== null && x !== '' && Number.isFinite(Number(x)) ? Number(x) : d);
   const t = v.tempStats || {};
+  let yieldMultiplier = Math.max(0, n(v.yieldMultiplier, 1));
+  // Old scripts that set qiRegenDisabled = false meant "no impurity-50 drawback".
+  if (fallback.qiRegenDisabled && v.qiRegenDisabled === false && yieldMultiplier === fallback.yieldMultiplier) yieldMultiplier = 1;
   return {
-    qiRegenDisabled: !!v.qiRegenDisabled,
+    yieldMultiplier,
+    qiRegenDisabled: yieldMultiplier < 1,
     statMultiplier: Math.max(0, n(v.statMultiplier, 1)),
     preventMeridianBurst: !!v.preventMeridianBurst,
     tempStats: { strength: n(t.strength, 0), endurance: n(t.endurance, 0), mobility: n(t.mobility, 0), qi: n(t.qi, 0) },
@@ -51,7 +57,7 @@ function compute(state, c) {
   const fx = sanitizeFx(run.value, baseFx(state, c));
   const th = state.settings.impurity;
   const drawbacks = [];
-  if (fx.qiRegenDisabled) drawbacks.push(`🚫 Cannot regenerate Qi during fights (Impurity ≥ ${th.noRegenAt}).`);
+  if (fx.yieldMultiplier < 1) drawbacks.push(`📉 Pill yields reduced by ${Math.round((1 - fx.yieldMultiplier) * 100)}% (Impurity ≥ ${th.yieldPenaltyAt ?? 50}).`);
   if (fx.statMultiplier < 1) drawbacks.push(`📉 Stats temporarily reduced by ${Math.round((1 - fx.statMultiplier) * 100)}%.`);
   if (c.burstApplied) drawbacks.push(`💥 Meridians burst — stats and Qi were permanently reduced by ${th.burstPercent}%.`);
 

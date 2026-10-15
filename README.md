@@ -6,14 +6,16 @@ One Node.js process runs **both** the bot and the dashboard, so a single Render 
 **What it does**
 
 - **`/menu`** — one button-driven menu per player. It opens on the **character sheet**, then: Stats (tap +1 / +5, or type several stats at once), Inventory (consume pills, learn manuals, equip weapons, sell, list on the market, roll drops, crafting), Market, and Realm (Realm Breakthrough)
-- **`/submit`** a character → staff approve with a button in a staff-only channel → stat sheet created (who approved it is recorded)
+- **`/submit`** a character → staff approve with a button in a staff-only channel, or `/approve @player` (their own submission is used) → stat sheet created (who approved it is recorded)
+- **Sects follow Discord roles**: link a role to each sect; having the role makes that the character's sect, losing it makes them Rogue. A sect can hand out its Core martial art and a one-time Nyang bonus
+- **Arts & Traits library**: martial arts (Core / Special / Forbidden-Heavenly / Generic), cultivation methods (Qi Gathering absorbs 50%), Qi Cores and special traits, each with optional custom code. Manuals are items that teach an art, so arts can drop and be sold; Qi Cores and traits never can
 - The **50% rule**, soft caps and hard caps are enforced automatically; Qi gives extra Qi Bars (26+ Qi = +1 … 751+ = +6)
 - **Weapons**: everyone starts with a *Default Weapon*; staff add Spiritual / Dharma / Numinous / Immortal Treasures that can raise stats or Qi Bars while equipped (`/equip`). Boosted stats are __underlined__ on the sheet and explained in a Bonuses field
 - **Pills** (`/consume`) show every step: absorption from cultivation methods, impurity shaved off, caps, Qi overflow
 - Staff rewards and deductions: `/give` and `/take` for points, Qi, Nyang, rolls, Qi Bars, items and single stats — each posts a **Progression Report** / Deduction Report
 - **Titles** are typed by staff (`/title @player Rising Dragon`); players can't pick them
 - 12 editable realms with requirements, caps, Qi Bars and breakthrough chances; pills can raise the chance
-- Impurity (50 / 75 / 100), poisons that don't burst meridians, detox pills, Feng Shui `/purify` calculator
+- Impurity (50: pill yields −50% · 75: stats −25% · 100: meridians burst), poisons that don't burst meridians, detox pills, Feng Shui `/purify` calculator
 - Items (up to 300) with rarity, type, description, drop weight, shop price, pill yield / impurity / affinity, poison & purification tiers, weapon grade & bonuses
 - Drops by rarity: Earthly 75% · Heavenly 20% · Immortal 5% (editable, plus per-sect bonuses)
 - **Market**: the shop and player listings in one place, with a *Player market* filter. Each item has a "can be sold on the player market" switch
@@ -29,8 +31,8 @@ One Node.js process runs **both** the bot and the dashboard, so a single Render 
 
 1. Go to <https://discord.com/developers/applications> → **New Application**.
 2. **Bot** tab → **Reset Token** → copy it (this is `DISCORD_TOKEN`).
-3. Still in **Bot**, turn on **Message Content Intent** (only needed for the optional "Type in chat" stat mode).
-   If you leave it off, everything else works — players use the buttons.
+3. Still in **Bot**, turn on **Message Content Intent** (for the optional "Type in chat" stat mode) and **Server Members Intent** (instant sect sync when roles change).
+   If you leave them off, everything else works.
 4. **OAuth2 → URL Generator**: scopes `bot` + `applications.commands`; permissions
    *View Channels, Send Messages, Embed Links, Read Message History, Manage Roles*.
    Open the generated link and add the bot to your server.
@@ -140,7 +142,7 @@ Anyone who knows those can log in; you can also create one account per editor in
 
 | Command | What it does |
 |---|---|
-| Approve / Reject buttons on applications, or `/approve player name` | Creates the sheet, gives starting points, the Default Weapon and base roles |
+| Approve / Reject buttons on applications, or `/approve @player [sect]` | Approves the player's own submission (no need to retype the name). Creates the sheet, gives starting points, the Default Weapon, base roles, the sect role, the sect's Core art and join Nyang. `name`/`document` are only for players who never used `/submit` |
 | `/give all @player 25` | 25 points for Strength / Endurance / Mobility only |
 | `/give allqi @player 25` | 25 points usable in any stat, **including Qi** |
 | `/give qi @player 1` | A Breakthrough: Qi directly, resets Impurity |
@@ -150,6 +152,25 @@ Anyone who knows those can log in; you can also create one account per editor in
 | `/impurity add · remove · reset` | `poison:true` never bursts meridians unless `can_burst:true` |
 | `/title player title` | Set a title exactly as typed (`none` removes it) |
 | `/admin backup · dashboard · sync` | Backup now, dashboard link, re-send commands to Discord |
+
+## Sects & Discord roles (Dashboard → Sects)
+
+Each sect can have:
+- a **Discord role** — the role decides the sect. Give a member the Mount Hua role and their sheet says Mount Hua; remove it and they become Rogue. Sects without a role are left alone. Approving (or changing the sect in the dashboard) gives the role and removes other sect roles.
+- a **Core martial art** — given automatically if the character has no Core art yet (Mount Hua → Plum Blossom Sword).
+- **Nyang on joining** — paid once per sect per character.
+
+Sync happens whenever the player uses the bot, when anyone opens their menu, and instantly when roles change if **Server Members Intent** is on in the Discord developer portal (Bot tab). Every change appears in the changelog as `sect.sync`.
+
+## Arts & Traits (Dashboard → Arts & Traits)
+
+Four lists: **Martial Arts**, **Cultivation Methods**, **Qi Cores**, **Special Traits**. Each can have a description and custom code.
+- Martial arts: type (Core / Special / Forbidden-Heavenly / Generic), "replaces Core", shareable + limit.
+- Cultivation methods: **Absorption Rate** (how much of a pill's yield is absorbed — Qi Gathering 50%, default 100%; a character uses their best rate), bonus %, per-element affinity %, pill impurity reduction %.
+- Qi Cores: bonus %, affinities, impurity reduction, custom code. Set on characters by staff; never items, never sold.
+- To put a martial art or cultivation method into the game, press **+ Manual item that teaches it**: that item can drop, be crafted, sold in the shop or the player market. Reading it (Inventory → Learn) teaches the art.
+
+Old saves are converted automatically: cultivation-method and manual items become arts plus a manual item that teaches them; old "core" items become Qi Cores.
 
 ## Weapons
 
@@ -167,7 +188,9 @@ Absorption: +20% (Wood +20%) → +2 Qi
 Gained: +12 Qi (now 46)
 Impurity: 15 − 30% (cultivation) → 10.5 · now 30.5 (4.5 shaved off)
 ```
-Cultivation methods and Qi cores have a general **absorption %**, per-element **affinity %**, and a **pill impurity reduction %** (best positive value + all negatives, like absorption). A pill with negative impurity is a detox pill and removes impurity.
+Yield absorbed = raw × (Absorption Rate + bonuses)%. Example: Qi Gathering (50%) with a Wood +20% core eating a Wood pill absorbs 70%. Bonuses, affinities and impurity reduction combine as best positive value + all negatives. At **Impurity 50+** pill yields are halved (all yield types, not just Qi; editable in Settings). A pill with negative impurity is a detox pill and removes impurity.
+
+Every pill consumed is in the changelog (`item.consume`, with the channel it happened in). Set **Settings → Consumption log** to also post each one in a staff channel, so a pill taken mid-fight is easy to check. **Settings → Changelog channel** posts every change of any kind.
 
 ## Command permissions (Dashboard → Commands)
 
@@ -243,7 +266,7 @@ Defaults (editable): 2nd Rate soft 100 / hard 110 stats, soft 40 / hard 55 Qi �
 | Celestial | 7 | 600 / 510 | 700 / 575 | 770 / 630 | 12% |
 | Life and Death | 7.5 | 700 / 575 | none | none | final |
 
-**Impurity.** 50 → no Qi regen in fights · 75 → −25% stats (temporary) · 100 → meridians burst: −25% stats and Qi, permanently, once until the next reset.
+**Impurity.** 50 → pill yields −50% · 75 → −25% stats (temporary) · 100 → meridians burst: −25% stats and Qi, permanently, once until the next reset.
 Resets monthly and whenever the character receives Qi from staff (`/give qi`, or spending `allqi` points into Qi). Whether Qi from pills also resets it is a setting (off by default, otherwise a Qi pill would cancel its own impurity).
 Poison impurity (`/impurity add poison:true`) never triggers the burst unless `can_burst:true`.
 
@@ -278,6 +301,8 @@ Scripts run in an isolated sandbox with a time limit and only receive copies of 
 ---
 
 ## Saving, backups, changelog
+
+The dashboard checks for changes every 5 seconds. Lists (characters, items, applications, changelog…) update by themselves; editor screens show a **↻ New changes** button instead so nobody loses unsaved work.
 
 - Changes save automatically (about a second after each edit) to MongoDB or `data/db.json`.
 - **Save & Backups** tab: save now, reload, create/restore/download/delete backups, download the full save, import a save file.

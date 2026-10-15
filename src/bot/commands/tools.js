@@ -6,8 +6,9 @@ const chars = require('../../engine/characters');
 const weapons = require('../../engine/weapons');
 const ui = require('../../engine/ui');
 const { purify, TIER_NAMES } = require('../../engine/fengshui');
-const { EPH, actor, requireChar, findItem, itemChoices, inventoryChoices } = require('../util');
+const { EPH, actor, requireChar, findItem, itemChoices, inventoryChoices, logConsumption } = require('../util');
 const panels = require('../panels');
+const sectsync = require('../sectsync');
 
 // ---------- /consume ----------
 const consume = new SlashCommandBuilder()
@@ -20,8 +21,8 @@ async function executeConsume(i) {
   const c = requireChar(i.user.id);
   const it = findItem(i.options.getString('pill'));
   const r = chars.consumePill(st, c, it);
-  store.log(actor(i), 'item.use', `${c.name} consumed ${it.name}: ${r.lines.join('; ').replace(/\*/g, '')}`);
   const out = panels.consumeResult(c, it, [...r.lines, ...(r.result.errors || []).map((e) => `${ui.emoji(st, 'warning')} ${e}`)]);
+  logConsumption(i, c, it, r.lines, out.embeds).catch(() => {});
   return i.reply({ ...out, allowedMentions: { parse: [] } });
 }
 
@@ -51,6 +52,7 @@ const compare = new SlashCommandBuilder()
 async function executeCompare(i) {
   const u1 = i.options.getUser('player');
   const u2 = i.options.getUser('against') || i.user;
+  await Promise.all([u1, u2].filter((u) => u.id !== i.user.id).map((u) => sectsync.syncUserId(i.guild, u.id)));
   const a = requireChar(u2.id, u2.id !== i.user.id);
   const b = requireChar(u1.id, u1.id !== i.user.id);
   if (a.id === b.id) return i.reply({ content: 'Pick two different players.', flags: EPH });

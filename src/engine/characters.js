@@ -12,11 +12,12 @@ const { r2, fmt, num, norm, clamp, findByName, UserError } = require('../utils')
 const sectOf = (state, name) => (name ? state.sects.find((s) => norm(s.name) === norm(name) || norm(s.titleName) === norm(name)) : null);
 
 /** Turn a name into a reference: linked to an item/trait if one exists with that name, otherwise free text. */
-function resolveRef(state, name, kind = 'item') {
+/** kind: 'art' (martial arts, cultivation methods, qi cores) or 'trait'. Unknown names are kept as free text. */
+function resolveRef(state, name, kind = 'art') {
   if (name && typeof name === 'object') name = name.name || name.id;
   name = String(name || '').trim();
   if (!name) return null;
-  const found = findByName(kind === 'trait' ? state.traits : state.items, name);
+  const found = findByName(kind === 'trait' ? state.traits : state.arts || [], name);
   return found ? { id: found.id, name: found.name } : { name };
 }
 const refName = (state, ref, kind) => scripts.refName(state, ref, kind);
@@ -24,6 +25,44 @@ const refName = (state, ref, kind) => scripts.refName(state, ref, kind);
 /** The character's title as typed by staff (empty = none). */
 function titleString(state, c) {
   return String(c.title || '').trim();
+}
+
+/**
+ * Change a character's sect. A sect can give its Core martial art (only if the character has no Core art yet)
+ * and a one-time Nyang bonus (only the first time the character joins that sect).
+ */
+function setSect(state, c, sectName) {
+  const sect = sectOf(state, sectName);
+  const before = c.sect || '';
+  c.sect = sect ? sect.name : String(sectName || '').trim();
+  const out = { changed: before !== c.sect, before, after: c.sect, coreArt: null, nyang: 0 };
+  if (!sect) return out;
+  const art = sect.coreArtId && (state.arts || []).find((a) => a.id === sect.coreArtId);
+  if (art && !c.martialArts.core.length) {
+    c.martialArts.core.push({ id: art.id, name: art.name });
+    out.coreArt = art.name;
+  }
+  if (num(sect.joinNyang) > 0 && !(c.joinedSects || []).includes(sect.id)) {
+    c.nyang = r2(c.nyang + num(sect.joinNyang));
+    out.nyang = num(sect.joinNyang);
+  }
+  c.joinedSects = [...new Set([...(c.joinedSects || []), sect.id])];
+  return out;
+}
+
+/**
+ * Discord roles win: if the member has a sect's role, that is their sect. If they lost the role of
+ * the sect they were in, they become Rogue. Sects without a linked role are never touched.
+ * Returns the setSect result when something changed, otherwise null.
+ */
+function syncSectFromRoles(state, c, roleIds) {
+  const linked = state.sects.filter((x) => x.roleId);
+  if (!linked.length) return null;
+  const has = linked.find((x) => roleIds.includes(x.roleId));
+  if (has) return norm(c.sect) === norm(has.name) ? null : setSect(state, c, has.name);
+  const cur = sectOf(state, c.sect);
+  if (cur && cur.roleId) return setSect(state, c, '');
+  return null;
 }
 
 function activeCharacterOf(state, userId) {
@@ -57,6 +96,8 @@ function createCharacter(state, { ownerId, ownerTag, name, sect, docLink, approv
     cultivationMethods: (s.defaultCultivationMethods || []).map((n) => resolveRef(state, n)).filter(Boolean),
     qiCore: resolveRef(state, s.defaultQiCore),
   });
+  const sectPerks = setSect(state, c, c.sect);
+  Object.defineProperty(c, 'creationPerks', { value: sectPerks, enumerable: false }); // not saved
   const dw = state.items.find((i) => i.id === s.defaultWeaponId);
   if (dw) {
     c.inventory[dw.id] = 1;
@@ -90,36 +131,37 @@ const knownLists = (c) => [
   { key: 'cultivationMethods', list: c.cultivationMethods, label: 'cultivation method' },
 ];
 
-/** Learn a manual / cultivation method / qi core from the inventory (consumes it). */
+/** Read a manual from the inventory: learns the martial art / cultivation method it teaches (consumes the manual). */
 function learnItem(state, c, item) {
   const s = state.settings;
   if (economy.qtyOf(c, item.id) < 1) throw new UserError(`You don't have **${item.name}**.`);
-  const already = knownLists(c).some(({ list }) => list.some((r) => r.id === item.id)) || c.qiCore?.id === item.id;
-  if (already) throw new UserError(`**${c.name}** already knows **${item.name}**.`);
-  const ref = { id: item.id, name: item.name };
+  if (item.type !== 'manual') throw new UserError(`**${item.name}** is a ${item.type}, it can't be learned.${item.type === 'pill' ? ' Pills are consumed instead.' : ''}`);
+  const art = (state.arts || []).find((a) => a.id === item.manual?.artId);
+  if (!art) throw new UserError(`**${item.name}** doesn't teach anything yet (staff: pick what it teaches in the dashboard).`);
+  const already = knownLists(c).some(({ list }) => list.some((r) => r.id === art.id)) || c.qiCore?.id === art.id;
+  if (already) throw new UserError(`**${c.name}** already knows **${art.name}**.`);
+  const ref = { id: art.id, name: art.name };
   let note = '';
-  if (item.type === 'manual') {
-    const cat = defaults.MANUAL_CATEGORIES.includes(item.manual?.category) ? item.manual.category : 'generic';
+  if (['core', 'special', 'forbidden', 'generic'].includes(art.kind)) {
+    const cat = art.kind;
     const list = c.martialArts[cat];
     const limit = num(s.martialArtLimits?.[cat], 1);
-    if (list.length >= limit) throw new UserError(`Your ${cat} martial art slots are full (${list.length}/${limit}). Forget one first in /menu → 📊 Stats.`);
-    if (item.manual.replacesCore && (cat === 'special' || cat === 'forbidden') && c.martialArts.core.length) {
+    const replaces = art.replacesCore && (cat === 'special' || cat === 'forbidden') && c.martialArts.core.length;
+    if (list.length >= limit) throw new UserError(`Your ${cat} martial art slots are full (${list.length}/${limit}). Forget one first in /menu → Stats.`);
+    if (replaces) {
       note = `It **replaces** your Core art: ${c.martialArts.core.map((r) => refName(state, r)).join(', ')}.`;
       c.martialArts.core = [];
     }
     list.push(ref);
-  } else if (item.type === 'cultivation') {
+  } else if (art.kind === 'cultivation') {
     const limit = num(s.maxCultivationMethods, 2);
-    if (c.cultivationMethods.length >= limit) throw new UserError(`You already have ${c.cultivationMethods.length}/${limit} cultivation methods. Forget one first in /menu → 📊 Stats.`);
+    if (c.cultivationMethods.length >= limit) throw new UserError(`You already have ${c.cultivationMethods.length}/${limit} cultivation methods. Forget one first in /menu → Stats.`);
     c.cultivationMethods.push(ref);
-  } else if (item.type === 'core') {
-    if (c.qiCore) note = `It replaces **${refName(state, c.qiCore)}**.`;
-    c.qiCore = ref;
   } else {
-    throw new UserError(`**${item.name}** is a ${item.type}, it can't be learned. Pills are consumed instead.`);
+    throw new UserError(`**${art.name}** can't be learned from a manual.`);
   }
   economy.removeItem(state, c, item.id, 1);
-  return { note };
+  return { note, art };
 }
 
 /** Remove a known martial art / cultivation method by name (no refund). */
@@ -148,14 +190,21 @@ function consumePill(state, c, item) {
   const abs = affinity.absorption(state, c);
   const elementRate = p.element ? abs.byElement[p.element] || 0 : 0;
   const rate = affinity.rateFor(abs, p.element);
+  const absorbPct = Math.max(0, r2(abs.base + rate)); // e.g. Qi Gathering 50% + Wood 20% = 70%
+  const fx = effects.compute(state, c).fx;
+  const yieldMult = Math.max(0, Number(fx.yieldMultiplier ?? 1));
   const baseYield = num(p.yieldAmount);
+  const absorbed = r2(baseYield * (absorbPct / 100));
   const baseImpurity = num(p.impurity);
   const reduction = baseImpurity > 0 ? abs.impurityReduction : 0;
   const pre = {
     yieldType: p.yieldType || 'none',
     baseYield,
+    baseAbsorption: abs.base,
     rate,
-    yieldAmount: r2(Math.max(0, baseYield * (1 + rate / 100))),
+    absorption: absorbPct,
+    impurityYieldMultiplier: yieldMult,
+    yieldAmount: r2(Math.max(0, absorbed * yieldMult)),
     baseImpurity,
     impurityReduction: reduction,
     impurity: baseImpurity > 0 ? r2(Math.max(0, baseImpurity * (1 - reduction / 100))) : baseImpurity,
@@ -178,10 +227,15 @@ function consumePill(state, c, item) {
   const amt = num(result.yieldAmount);
   if (label && (baseYield || amt)) {
     lines.push(`**Yield:** ${fmt(baseYield)} ${label}`);
-    if (rate) {
-      const why = [abs.general ? `general ${signed(abs.general)}%` : '', elementRate ? `${p.element} ${signed(elementRate)}%` : ''].filter(Boolean).join(', ');
-      lines.push(`**Absorption:** ${signed(rate)}% (${why}) → ${signed(r2(pre.yieldAmount - baseYield))} ${label}`);
+    if (absorbPct !== 100) {
+      const why = [
+        `${abs.baseSource || 'base'} ${fmt(abs.base)}%`,
+        abs.general ? `general ${signed(abs.general)}%` : '',
+        elementRate ? `${p.element} ${signed(elementRate)}%` : '',
+      ].filter(Boolean).join(', ');
+      lines.push(`**Absorption:** ${fmt(absorbPct)}% (${why}) → ${fmt(absorbed)} ${label}${absorbed < baseYield ? ` *(${fmt(r2(baseYield - absorbed))} wasted)*` : ''}`);
     }
+    if (yieldMult !== 1) lines.push(`**Impurity:** yields ${yieldMult < 1 ? `reduced by ${fmt(r2((1 - yieldMult) * 100))}%` : `×${fmt(yieldMult)}`} → ${fmt(pre.yieldAmount)} ${label}`);
     if (Math.abs(amt - pre.yieldAmount) > 1e-9) lines.push(`**Cultivation effects:** ${signed(r2(amt - pre.yieldAmount))} ${label}`);
     switch (result.yieldType) {
       case 'qi': {
@@ -265,6 +319,6 @@ function attemptBreakthrough(state, c) {
 }
 
 module.exports = {
-  sectOf, resolveRef, refName, titleString, mainWeapon, equip, activeCharacterOf, createCharacter, addImpurity, learnItem, forget,
+  setSect, syncSectFromRoles, sectOf, resolveRef, refName, titleString, mainWeapon, equip, activeCharacterOf, createCharacter, addImpurity, learnItem, forget,
   consumePill, breakthroughChance, attemptBreakthrough,
 };

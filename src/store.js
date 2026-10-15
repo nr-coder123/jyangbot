@@ -105,12 +105,62 @@ class MongoBackend {
   }
 }
 
+/**
+ * Version 2: martial arts, cultivation methods and qi cores moved out of items into state.arts.
+ * Manuals stay items and point at the art they teach (manual.artId). Qi cores are no longer items.
+ */
+function migrateArts(s, data, d) {
+  const arts = Array.isArray(data.arts) ? data.arts.map((a) => defaults.normalizeArt(a)) : d.arts.map((a) => ({ ...a }));
+  const upsert = (art) => {
+    const i = arts.findIndex((a) => a.id === art.id || a.name.toLowerCase() === art.name.toLowerCase());
+    if (i >= 0) arts[i] = art;
+    else arts.push(art);
+  };
+  const removed = new Set();
+  for (const it of s.items) {
+    const legacy = it.type === 'cultivation' || it.type === 'core' || (it.type === 'manual' && !it.manual?.artId);
+    if (!legacy) continue;
+    const kind = it.type === 'cultivation' ? 'cultivation' : it.type === 'core' ? 'qicore' : it.manual?.category || 'generic';
+    const cult = it.cultivation || {};
+    upsert(defaults.normalizeArt({
+      id: it.id, name: it.name, kind, description: it.description,
+      replacesCore: it.manual?.replacesCore, shareable: it.manual?.shareable, shareLimit: it.manual?.shareLimit,
+      absorption: cult.absorption, affinities: cult.affinities, impurityReduction: cult.impurityReduction, scriptId: it.scriptId,
+    }));
+    if (it.type === 'core') removed.add(it.id);
+    else {
+      it.type = 'manual';
+      it.manual = { artId: it.id };
+      it.scriptId = '';
+    }
+  }
+  if (removed.size) {
+    s.items = s.items.filter((i) => !removed.has(i.id));
+    for (const c of s.characters || []) for (const id of removed) if (c.inventory) delete c.inventory[id];
+    s.market = (s.market || []).filter((l) => !removed.has(l.itemId));
+  }
+  for (const a of arts) if (a.description) a.description = a.description.replace('__Does not disable Qi regeneration.__', '__Does not reduce yields by 50%.__');
+  s.arts = arts;
+  // Sects: default core art + join Nyang fields.
+  s.sects = s.sects.map((x) => ({ coreArtId: x.name === 'Mount Hua Sect' && !('coreArtId' in x) && arts.some((a) => a.id === 'plum-blossom-sword') ? 'plum-blossom-sword' : '', joinNyang: 0, ...x }));
+  // Impurity 50 used to block Qi regen; it now reduces pill yields.
+  const oldImp = data.settings?.impurity;
+  if (oldImp && oldImp.noRegenAt !== undefined && oldImp.yieldPenaltyAt === undefined) s.settings.impurity.yieldPenaltyAt = oldImp.noRegenAt;
+  delete s.settings.impurity.noRegenAt;
+  for (const sc of s.scripts) {
+    if (typeof sc.code === 'string' && sc.code.includes('fx.qiRegenDisabled = false;')) {
+      sc.code = sc.code.replace('fx.qiRegenDisabled = false;', 'fx.yieldMultiplier = 1;').replace('Qi regeneration is NOT disabled.', 'pill yields are NOT reduced.');
+    }
+  }
+  s.version = 2;
+}
+
 function migrate(data) {
   const d = defaults.createDefaultState();
   if (!isPlainObject(data)) return d;
   const s = { ...d, ...data };
   s.settings = deepMerge(d.settings, data.settings || {});
-  for (const k of ['rarities', 'realms', 'sects', 'traits', 'scripts', 'items', 'characters', 'recipes', 'applications', 'progress', 'trades', 'market', 'changelog', 'dashboardUsers']) {
+  for (const k of ['rarities', 'realms', 'sects', 'traits', 'scripts', 'items', 'arts', 'characters', 'recipes', 'applications', 'progress', 'trades', 'market', 'changelog', 'dashboardUsers']) {
     if (!Array.isArray(s[k])) s[k] = d[k];
   }
   s.users = isPlainObject(s.users) ? s.users : {};
@@ -119,6 +169,7 @@ function migrate(data) {
   s.combat = isPlainObject(s.combat) ? { ...d.combat, ...s.combat } : d.combat;
   s.recipes = s.recipes.map((r) => defaults.normalizeRecipe(r));
   s.meta = { ...d.meta, ...(data.meta || {}) };
+  migrateArts(s, data, d);
   s.items = s.items.map((i) => defaults.normalizeItem(i));
   // Old saves: titles were prefix/stem/suffix; without a prefix the sect name was used ("Mount Hua's Rising Dragon").
   for (const c of s.characters) {
@@ -130,6 +181,20 @@ function migrate(data) {
     delete c.titles;
   }
   s.characters = s.characters.map((c) => defaults.normalizeCharacter(c));
+  // Character refs to martial arts / cultivation methods / qi cores point at the arts library.
+  const byId = new Map(s.arts.map((a) => [a.id, a]));
+  const byName = new Map(s.arts.map((a) => [a.name.toLowerCase(), a]));
+  const fix = (r) => {
+    if (!r) return r;
+    if (r.id && byId.has(r.id)) return { id: r.id, name: byId.get(r.id).name };
+    const a = byName.get(String(r.name || '').toLowerCase());
+    return a ? { id: a.id, name: a.name } : { name: r.name || r.id };
+  };
+  for (const c of s.characters) {
+    c.cultivationMethods = c.cultivationMethods.map(fix).filter(Boolean);
+    c.qiCore = fix(c.qiCore);
+    for (const k of Object.keys(c.martialArts)) c.martialArts[k] = c.martialArts[k].map(fix).filter(Boolean);
+  }
   // Old saves: make sure the Default Weapon exists.
   if (s.settings.defaultWeaponId === defaults.DEFAULT_WEAPON_ID && !s.items.some((i) => i.id === defaults.DEFAULT_WEAPON_ID)) {
     s.items.unshift(defaults.defaultWeaponItem());
@@ -153,6 +218,7 @@ class Store extends EventEmitter {
     this.timer = null;
     this.lastSavedAt = null;
     this.lastError = null;
+    this.revision = 0;
   }
 
   async init() {
@@ -178,6 +244,7 @@ class Store extends EventEmitter {
   }
 
   markDirty() {
+    this.revision = (this.revision || 0) + 1;
     clearTimeout(this.timer);
     this.timer = setTimeout(() => this.save().catch((e) => console.error('[store] save failed', e)), 1500);
   }
@@ -197,6 +264,7 @@ class Store extends EventEmitter {
 
   /** Record an edit. actor = { id, name, source: 'discord' | 'dashboard' | 'system' } */
   log(actor, action, details = '') {
+    this.revision = (this.revision || 0) + 1;
     const entry = {
       id: newId('log-'),
       at: new Date().toISOString(),
@@ -269,6 +337,7 @@ class Store extends EventEmitter {
     const accounts = this.state.dashboardUsers;
     const log = this.state.changelog;
     this.state = migrate(data);
+    this.revision = (this.revision || 0) + 1;
     this.state.dashboardUsers = accounts; // never lose dashboard logins by restoring
     if (!this.state.changelog.length) this.state.changelog = log;
     this.ensureAdmin();

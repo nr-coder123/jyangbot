@@ -14,6 +14,7 @@ const rolls = require('../engine/rolls');
 const crafting = require('../engine/crafting');
 const combat = require('../engine/combat');
 const { BONUS_LABEL } = require('../engine/weapons');
+const { ART_KIND_LABEL } = require('../defaults');
 const { fmt, truncate } = require('../utils');
 
 const S = () => store.state.settings;
@@ -136,17 +137,28 @@ function inventory(c) {
   });
 }
 
+/** Details of a martial art / cultivation method / qi core. */
+function artDetails(a) {
+  const lines = [];
+  if (['core', 'special', 'forbidden', 'generic'].includes(a.kind)) {
+    if (a.replacesCore) lines.push('**Replaces the Core art** when learned');
+    lines.push(a.shareable ? `Can be shared${a.shareLimit ? ` (max ${a.shareLimit})` : ''}` : "Can't be shared");
+  } else {
+    const aff = Object.entries(a.affinities || {}).filter(([, v]) => Number(v)).map(([k, v]) => `${k} ${signed(Number(v))}%`);
+    if (a.kind === 'cultivation') lines.push(`**Absorption Rate**: ${fmt(a.baseAbsorption ?? 100)}%${a.absorption ? ` (${signed(a.absorption)}% bonus)` : ''}`);
+    else if (a.absorption) lines.push(`**Absorption bonus**: ${signed(a.absorption)}%`);
+    lines.push(`**Affinity**: ${aff.join(', ') || 'None'}`);
+    if (a.impurityReduction) lines.push(`**Impurity from pills**: ${signed(-a.impurityReduction)}%`);
+  }
+  return lines.join('\n');
+}
+
 function itemDetails(it) {
   const p = it.pill || {};
   switch (it.type) {
     case 'manual': {
-      const m = it.manual;
-      return `${m.category === 'forbidden' ? 'Forbidden/Heavenly' : m.category[0].toUpperCase() + m.category.slice(1)} martial art${m.replacesCore ? ' · **replaces Core**' : ''}\n${m.shareable ? `Can be shared${m.shareLimit ? ` (max ${m.shareLimit})` : ''}` : "Can't be shared"}`;
-    }
-    case 'cultivation':
-    case 'core': {
-      const aff = Object.entries(it.cultivation.affinities || {}).filter(([, v]) => Number(v)).map(([k, v]) => `${k} ${signed(Number(v))}%`);
-      return [`**Absorption Rate**: ${fmt(it.cultivation.absorption)}%`, `**Affinity**: ${aff.join(', ') || 'None'}`, it.cultivation.impurityReduction ? `**Impurity from pills**: ${signed(-it.cultivation.impurityReduction)}%` : ''].filter(Boolean).join('\n');
+      const art = (store.state.arts || []).find((x) => x.id === it.manual?.artId);
+      return art ? `**Teaches**: ${art.name} *(${ART_KIND_LABEL[art.kind]})*\n${artDetails(art)}` : '*Teaches nothing yet.*';
     }
     case 'pill': {
       const y = p.yieldType === 'none' ? 'None' : p.yieldType === 'points' ? `${fmt(p.yieldAmount)} stat points` : p.yieldType === 'flex' ? `${fmt(p.yieldAmount)} flexible points` : `+${fmt(p.yieldAmount)} ${stats.LABEL[p.yieldType] || p.yieldType}`;
@@ -344,5 +356,5 @@ function compare(a, b) {
 
 module.exports = {
   rarityOf, itemIcon, sheet, sheetVars, statsPanel, ownedItems, inventory, itemInfo, itemDetails, marketEntries, findEntry, market, marketEntry,
-  realm, craftList, recipe, dropRates, consumeResult, compare, FILTER_NAME,
+  realm, craftList, recipe, dropRates, consumeResult, compare, FILTER_NAME, artDetails,
 };

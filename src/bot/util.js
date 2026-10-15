@@ -81,6 +81,24 @@ async function sendToChannel(client, channelId, payload) {
   }
 }
 
+/**
+ * Record a pill being consumed: changelog entry (with the channel it happened in) and, if set,
+ * a post in the consumption-log channel so staff can check pills taken mid-fight.
+ */
+async function logConsumption(i, c, it, lines, embeds) {
+  const where = i.channelId ? ` in <#${i.channelId}>` : '';
+  store.log(actor(i), 'item.consume', `${c.name} (${i.user.username}) consumed ${it.name}${where} — ${lines.join('; ').replace(/\*/g, '')}`);
+  const ch = store.state.settings.channels.consumption;
+  if (!ch) return;
+  const link = i.channelId ? `https://discord.com/channels/${i.guildId}/${i.channelId}` : '';
+  await sendToChannel(i.client, ch, {
+    content: `💊 <@${c.ownerId}> (**${c.name}**) consumed **${it.name}**${where}${link ? ` · [jump](${link})` : ''} · <t:${Math.floor(Date.now() / 1000)}:f>`,
+    embeds,
+    allowedMentions: { parse: [] },
+  });
+}
+
 module.exports = {
+  logConsumption,
   EPH, isStaff, requireAccess, actor, requireChar, findItem, findCharacter, itemChoices, inventoryChoices, characterChoices, listChoices, message, sendToChannel,
 };

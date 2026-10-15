@@ -14,23 +14,33 @@ function combine(values) {
   return r2((pos.length ? Math.max(...pos) : 0) + neg.reduce((a, b) => a + b, 0));
 }
 
+/**
+ * Absorption from the character's cultivation methods + qi core (arts library).
+ *   base    = best "base absorption" among cultivation methods (Qi Gathering = 50%: only half a pill's yield).
+ *             100% when no method sets one.
+ *   general = bonus % for every pill;  byElement = bonus % per pill affinity.
+ * A pill's yield = raw × (base + general + element) %.
+ */
 function absorption(state, c) {
   const refs = [...(c.cultivationMethods || []), c.qiCore].filter((r) => r && r.id);
-  const items = refs.map((r) => state.items.find((i) => i.id === r.id)).filter(Boolean);
-  const general = combine(items.map((i) => i.cultivation?.absorption || 0));
+  const arts = refs.map((r) => (state.arts || []).find((a) => a.id === r.id)).filter(Boolean);
+  const methods = arts.filter((a) => a.kind === 'cultivation' && a.baseAbsorption !== null && a.baseAbsorption !== undefined);
+  const best = methods.length ? methods.reduce((x, y) => (Number(y.baseAbsorption) > Number(x.baseAbsorption) ? y : x)) : null;
+  const base = best ? r2(Number(best.baseAbsorption)) : 100;
+  const general = combine(arts.map((a) => a.absorption || 0));
   const per = {};
-  for (const it of items) {
-    for (const [el, v] of Object.entries(it.cultivation?.affinities || {})) {
+  for (const a of arts) {
+    for (const [el, v] of Object.entries(a.affinities || {})) {
       if (Number(v)) (per[el] ||= []).push(Number(v));
     }
   }
   const byElement = Object.fromEntries(Object.entries(per).map(([k, v]) => [k, combine(v)]));
   // Impurity reduction %: same rule (best positive + all negatives). Negative = pills are MORE toxic.
-  const impurityReduction = combine(items.map((i) => i.cultivation?.impurityReduction || 0));
-  return { general, byElement, impurityReduction, sources: items.map((i) => i.name) };
+  const impurityReduction = combine(arts.map((a) => a.impurityReduction || 0));
+  return { base, baseSource: best ? best.name : null, general, byElement, impurityReduction, sources: arts.map((a) => a.name) };
 }
 
-/** Total % bonus for a pill of `element` (general + element). */
+/** Bonus % for a pill of `element` (general + element), on top of the base absorption. */
 function rateFor(abs, element) {
   return r2(abs.general + (element ? abs.byElement[element] || 0 : 0));
 }

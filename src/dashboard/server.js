@@ -48,15 +48,16 @@ function sanitizeItem(body, existing) {
   if (it.scriptId && !st.scripts.some((s) => s.id === it.scriptId)) throw new UserError('Selected script does not exist.');
   it.dropWeight = Math.max(0, num(it.dropWeight, 1));
   it.shop = { enabled: !!it.shop.enabled, price: Math.max(0, num(it.shop.price)), stock: Math.floor(num(it.shop.stock, -1)) };
-  it.manual.category = defaults.MANUAL_CATEGORIES.includes(it.manual.category) ? it.manual.category : 'generic';
-  it.cultivation.absorption = num(it.cultivation.absorption);
-  it.cultivation.affinities = Object.fromEntries(Object.entries(it.cultivation.affinities || {}).map(([k, v]) => [k, num(v)]).filter(([, v]) => v !== 0));
+  if (it.type === 'manual' && it.manual.artId) {
+    const art = (st.arts || []).find((a) => a.id === it.manual.artId);
+    if (!art) throw new UserError('The art this manual teaches no longer exists.');
+    if (art.kind === 'qicore') throw new UserError("Qi Cores can't be taught by manuals.");
+  }
   it.pill.yieldType = defaults.YIELD_TYPES.includes(it.pill.yieldType) ? it.pill.yieldType : 'none';
   for (const k of ['yieldAmount', 'impurity', 'breakthroughBonus']) it.pill[k] = num(it.pill[k]);
   it.poison.tier = Math.min(3, Math.max(1, Math.floor(num(it.poison.tier, 1))));
   it.poison.impurity = num(it.poison.impurity);
   it.purification.tier = Math.min(3, Math.max(1, Math.floor(num(it.purification.tier, 1))));
-  it.cultivation.impurityReduction = num(it.cultivation.impurityReduction);
   it.marketable = it.marketable !== false;
   for (const k of defaults.BONUS_KEYS) it.bonuses[k] = num(it.bonuses[k]);
   if (it.id === st.settings.defaultWeaponId && it.type !== 'weapon') throw new UserError('The Default Weapon must stay a weapon (change the default weapon in Settings first).');
@@ -159,10 +160,10 @@ function create(bot) {
     const defaultPw = req.user.isAdmin && !config.adminPasswordFromEnv && auth.verifyPassword('jianghu', req.user.hash);
     return {
       me: { username: req.user.username, isAdmin: !!req.user.isAdmin, defaultPassword: defaultPw },
-      settings: s.settings, rarities: s.rarities, realms: s.realms, sects: s.sects, traits: s.traits, scripts: s.scripts,
+      settings: s.settings, rarities: s.rarities, realms: s.realms, sects: s.sects, traits: s.traits, arts: s.arts, scripts: s.scripts, rev: store.revision,
       items: s.items, characters: s.characters, applications: s.applications.slice(0, 300), progress: s.progress.slice(0, 100),
       market: s.market, meta: s.meta,
-      constants: { WEAPON_GRADES: defaults.WEAPON_GRADES, BONUS_KEYS: defaults.BONUS_KEYS, ITEM_TYPES: defaults.ITEM_TYPES, MANUAL_CATEGORIES: defaults.MANUAL_CATEGORIES, YIELD_TYPES: defaults.YIELD_TYPES, GRANT_TYPES, TAKE_TYPES, HOOKS: scripts.HOOKS },
+      constants: { ART_KINDS: defaults.ART_KINDS, ART_KIND_LABEL: defaults.ART_KIND_LABEL, WEAPON_GRADES: defaults.WEAPON_GRADES, BONUS_KEYS: defaults.BONUS_KEYS, ITEM_TYPES: defaults.ITEM_TYPES, MANUAL_CATEGORIES: defaults.MANUAL_CATEGORIES, YIELD_TYPES: defaults.YIELD_TYPES, GRANT_TYPES, TAKE_TYPES, HOOKS: scripts.HOOKS },
       recipes: s.recipes, combat: s.combat,
       server: { storage: store.backend.kind, lastSavedAt: store.lastSavedAt, saveError: store.lastError, bot: bot.status, publicUrl: config.publicUrl },
     };
@@ -228,6 +229,8 @@ function create(bot) {
       playable: s.playable !== false,
       roleId: String(s.roleId || ''),
       rarityBonus: Object.fromEntries(Object.entries(s.rarityBonus || {}).map(([k, v]) => [k, num(v)]).filter(([, v]) => v)),
+      coreArtId: (store.state.arts || []).some((a) => a.id === s.coreArtId) ? s.coreArtId : '',
+      joinNyang: Math.max(0, num(s.joinNyang)),
     }));
     if (list.some((s) => !s.name)) throw new UserError('Every sect needs a name.');
     store.state.sects = list;
@@ -269,6 +272,59 @@ function create(bot) {
   }));
 
   // ----- traits & scripts -----
+  // ----- arts library: martial arts, cultivation methods, qi cores -----
+  const artBody = (b, existing) => {
+    const st = store.state;
+    const a = defaults.normalizeArt({ ...(existing || {}), ...b, id: existing ? existing.id : slug(b.name || '') });
+    if (!a.name) throw new UserError('Name is required.');
+    if (a.scriptId && !st.scripts.some((x) => x.id === a.scriptId)) throw new UserError('Selected script does not exist.');
+    if (st.arts.some((x) => x.id !== a.id && norm(x.name) === norm(a.name))) throw new UserError(`"${a.name}" already exists.`);
+    return a;
+  };
+  /** Keep the name stored on character references in step with the library. */
+  const renameRefs = (id, name) => {
+    for (const c of store.state.characters) {
+      const fix = (r) => (r && r.id === id ? { id, name } : r);
+      c.cultivationMethods = c.cultivationMethods.map(fix);
+      c.qiCore = fix(c.qiCore);
+      for (const k of Object.keys(c.martialArts)) c.martialArts[k] = c.martialArts[k].map(fix);
+    }
+  };
+  app.post('/api/arts', wrap(async (req) => {
+    const st = store.state;
+    const a = artBody(req.body || {});
+    if (st.arts.some((x) => x.id === a.id)) a.id = `${a.id}-${newId()}`;
+    st.arts.push(a);
+    store.log(req.actor, 'art.create', `${a.name} (${defaults.ART_KIND_LABEL[a.kind]})`);
+    return { art: a };
+  }));
+  app.put('/api/arts/:id', wrap(async (req) => {
+    const st = store.state;
+    const idx = st.arts.findIndex((x) => x.id === req.params.id);
+    if (idx < 0) throw new UserError('Not found.');
+    const before = st.arts[idx];
+    const a = artBody(req.body || {}, before);
+    st.arts[idx] = a;
+    if (before.name !== a.name) renameRefs(a.id, a.name);
+    store.log(req.actor, 'art.update', `${a.name}: ${diff(before, a)}`);
+    return { art: a };
+  }));
+  app.delete('/api/arts/:id', wrap(async (req) => {
+    const st = store.state;
+    const a = st.arts.find((x) => x.id === req.params.id);
+    if (!a) throw new UserError('Not found.');
+    const users = st.characters.filter((c) => c.qiCore?.id === a.id || c.cultivationMethods.some((r) => r.id === a.id) || Object.values(c.martialArts).some((l) => l.some((r) => r.id === a.id)));
+    const manuals = st.items.filter((i) => i.manual?.artId === a.id);
+    if (users.length || manuals.length) throw new UserError(`Still used by ${users.length} character(s) and ${manuals.length} manual(s)${users.length ? ` (e.g. ${users[0].name})` : manuals.length ? ` (e.g. ${manuals[0].name})` : ''}. Remove it from them first.`);
+    st.arts = st.arts.filter((x) => x !== a);
+    st.sects.forEach((x) => { if (x.coreArtId === a.id) x.coreArtId = ''; });
+    store.log(req.actor, 'art.delete', a.name);
+    return { ok: true };
+  }));
+
+  // Dashboard auto-refresh: a number that changes whenever anything changes.
+  app.get('/api/rev', (req, res) => res.json({ rev: store.revision, savedAt: store.lastSavedAt }));
+
   app.post('/api/traits', wrap(async (req) => {
     const b = req.body || {};
     if (!String(b.name || '').trim()) throw new UserError('Name is required.');
@@ -325,6 +381,7 @@ function create(bot) {
     st.scripts = st.scripts.filter((x) => x !== s);
     st.items.forEach((i) => { if (i.scriptId === s.id) i.scriptId = ''; });
     st.traits.forEach((t) => { if (t.scriptId === s.id) t.scriptId = ''; });
+    (st.arts || []).forEach((a) => { if (a.scriptId === s.id) a.scriptId = ''; });
     store.log(req.actor, 'script.delete', s.name);
     return { ok: true };
   }));
@@ -375,9 +432,15 @@ function create(bot) {
     if (idx < 0) throw new UserError('Character not found.');
     const before = st.characters[idx];
     const c = sanitizeCharacter(req.body || {}, before);
+    let sectNote = '';
+    if ((before.sect || '') !== (c.sect || '')) {
+      const r = chars.setSect(st, c, c.sect); // sect core art + join Nyang
+      const roles = await bot.applySectRoles(c.ownerId, c.sect).catch(() => ({ ok: false }));
+      sectNote = [r.coreArt && `core art ${r.coreArt}`, r.nyang && `+${r.nyang} ${st.settings.currencyName}`, roles.ok ? 'Discord sect role updated' : 'Discord role not changed (bot offline or no sect role linked)'].filter(Boolean).join(', ');
+    }
     st.characters[idx] = c;
-    store.log(req.actor, 'character.update', `${c.name}: ${diff(before, c)}`);
-    return { character: c };
+    store.log(req.actor, 'character.update', `${c.name}: ${diff(before, c)}${sectNote ? ` · ${sectNote}` : ''}`);
+    return { character: c, sectNote };
   }));
   app.post('/api/characters/:id/grant', wrap(async (req) => {
     const c = store.state.characters.find((x) => x.id === req.params.id);

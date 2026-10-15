@@ -100,7 +100,7 @@ test('impurity drawbacks at 50 / 75 / 100', () => {
   c.stats = { strength: 20, endurance: 20, mobility: 20, qi: 20 };
   c.impurity = 80;
   const s = effects.compute(state, c);
-  assert.ok(s.fx.qiRegenDisabled);
+  assert.strictEqual(s.fx.yieldMultiplier, 0.5);
   assert.strictEqual(s.effStats.strength, 15);
   const r = chars.addImpurity(state, c, 25);
   assert.ok(r.burst);
@@ -119,10 +119,11 @@ test('poison impurity does not burst meridians unless marked', () => {
 test('Three Hearts script: hearts at 50/75/100, Fake Heart Demon at 125', () => {
   const { state, c } = fresh();
   c.cultivationMethods.push({ id: 'three-hearts-cultivation', name: 'Three Hearts Cultivation Method' });
+  assert.ok(state.arts.some((a) => a.id === 'three-hearts-cultivation'));
   c.stats = { strength: 20, endurance: 20, mobility: 20, qi: 20 };
   c.impurity = 100;
   let s = effects.compute(state, c);
-  assert.strictEqual(s.fx.qiRegenDisabled, false);
+  assert.strictEqual(s.fx.yieldMultiplier, 1);
   assert.strictEqual(s.effStats.endurance, 23);
   assert.strictEqual(s.qiBars.total, 3);
   assert.deepStrictEqual(s.scriptErrors, []);
@@ -131,7 +132,7 @@ test('Three Hearts script: hearts at 50/75/100, Fake Heart Demon at 125', () => 
   const r = chars.addImpurity(state, c, 30);
   assert.ok(r.burst, 'Fake Heart Demon at 125+ lets the burst happen');
   s = effects.compute(state, c);
-  assert.ok(s.fx.qiRegenDisabled);
+  assert.strictEqual(s.fx.yieldMultiplier, 0.5);
 });
 
 test('No Meridians / Heavenly Martial Meridian traits', () => {
@@ -147,8 +148,8 @@ test('No Meridians / Heavenly Martial Meridian traits', () => {
 
 test('absorption: best positive + all negatives (Wood 15, Metal -20)', () => {
   const { state, c } = fresh();
-  state.items.push(defaults.normalizeItem({ id: 'a', name: 'A', type: 'cultivation', cultivation: { absorption: 0, affinities: { Wood: 10, Metal: 5 } } }));
-  state.items.push(defaults.normalizeItem({ id: 'b', name: 'B', type: 'cultivation', cultivation: { absorption: 0, affinities: { Wood: 15, Metal: -25 } } }));
+  state.arts.push(defaults.normalizeArt({ id: 'a', name: 'A', kind: 'cultivation', affinities: { Wood: 10, Metal: 5 } }));
+  state.arts.push(defaults.normalizeArt({ id: 'b', name: 'B', kind: 'cultivation', affinities: { Wood: 15, Metal: -25 } }));
   c.cultivationMethods = [{ id: 'a' }, { id: 'b' }];
   const abs = affinity.absorption(state, c);
   assert.strictEqual(abs.byElement.Wood, 15);
@@ -157,7 +158,7 @@ test('absorption: best positive + all negatives (Wood 15, Metal -20)', () => {
 
 test('pill yield uses absorption and adds impurity + breakthrough bonus', () => {
   const { state, c } = fresh();
-  state.items.push(defaults.normalizeItem({ id: 'w', name: 'Wood Manual', type: 'cultivation', cultivation: { affinities: { Wood: 20 } } }));
+  state.arts.push(defaults.normalizeArt({ id: 'w', name: 'Wood Method', kind: 'cultivation', affinities: { Wood: 20 } }));
   state.items.push(defaults.normalizeItem({ id: 'pill', name: 'Green Pill', type: 'pill', pill: { yieldType: 'qi', yieldAmount: 10, impurity: 15, element: 'Wood', breakthroughBonus: 5 } }));
   c.cultivationMethods = [{ id: 'w' }];
   economy.addItem(c, 'pill', 1);
@@ -236,7 +237,7 @@ test('weapons: default weapon equipped, treasure bonuses change effective stats 
 
 test('pill breakdown: absorption and impurity reduction are shown', () => {
   const { state, c } = fresh();
-  state.items.push(defaults.normalizeItem({ id: 'cm', name: 'Lotus Method', type: 'cultivation', cultivation: { absorption: 0, affinities: { Wood: 20 }, impurityReduction: 30 } }));
+  state.arts.push(defaults.normalizeArt({ id: 'cm', name: 'Lotus Method', kind: 'cultivation', affinities: { Wood: 20 }, impurityReduction: 30 }));
   state.items.push(defaults.normalizeItem({ id: 'pp', name: 'Green Pill', type: 'pill', pill: { yieldType: 'qi', yieldAmount: 10, impurity: 20, element: 'Wood' } }));
   c.cultivationMethods = [{ id: 'cm' }];
   economy.addItem(c, 'pp', 1);
@@ -244,7 +245,7 @@ test('pill breakdown: absorption and impurity reduction are shown', () => {
   assert.strictEqual(c.stats.qi, 12);
   assert.strictEqual(c.impurity, 14);
   const text = r.lines.join('\n');
-  assert.ok(/Absorption:\*\* \+20%/.test(text), text);
+  assert.ok(/Absorption:\*\* 120%/.test(text), text);
   assert.ok(/6 shaved off/.test(text), text);
 });
 
@@ -331,6 +332,61 @@ test('templates fill placeholders and drop empty footers', () => {
   assert.ok(m.embeds[0].description.includes('+50 Stat Points to <@1>'));
   assert.ok(m.embeds[0].description.includes('## Approved by\n<@2>'));
   assert.strictEqual(m.embeds[0].footer, undefined);
+});
+
+
+test('Qi Gathering absorbs only 50% of a pill; a better method absorbs fully', () => {
+  const { state, c } = fresh();
+  state.items.push(defaults.normalizeItem({ id: 'qp', name: 'Qi Pill', type: 'pill', pill: { yieldType: 'qi', yieldAmount: 10 } }));
+  economy.addItem(c, 'qp', 2);
+  const r = chars.consumePill(state, c, state.items.find((i) => i.id === 'qp'));
+  assert.strictEqual(c.stats.qi, 5);
+  assert.ok(r.lines.join(' ').includes('Qi Gathering 50%'), r.lines.join(' '));
+  c.cultivationMethods.push({ id: 'three-hearts-cultivation', name: 'Three Hearts' });
+  chars.consumePill(state, c, state.items.find((i) => i.id === 'qp'));
+  assert.strictEqual(c.stats.qi, 15);
+});
+
+test('Impurity 50+ halves pill yields (stats too)', () => {
+  const { state, c } = fresh();
+  c.cultivationMethods = [];
+  c.impurity = 55;
+  state.items.push(defaults.normalizeItem({ id: 'sp', name: 'Strength Pill', type: 'pill', pill: { yieldType: 'strength', yieldAmount: 10 } }));
+  economy.addItem(c, 'sp', 1);
+  const r = chars.consumePill(state, c, state.items.find((i) => i.id === 'sp'));
+  assert.strictEqual(c.stats.strength, 5);
+  assert.ok(r.lines.join(' ').includes('reduced by 50%'));
+});
+
+test('manuals teach arts from the library', () => {
+  const { state, c } = fresh();
+  assert.strictEqual(c.martialArts.core[0].id, 'plum-blossom-sword', 'Mount Hua gives its Core art');
+  c.martialArts.core = [];
+  state.items.push(defaults.normalizeItem({ id: 'man', name: 'Plum Manual', type: 'manual', manual: { artId: 'plum-blossom-sword' } }));
+  economy.addItem(c, 'man', 1);
+  const r = chars.learnItem(state, c, state.items.find((i) => i.id === 'man'));
+  assert.strictEqual(r.art.name, 'Plum Blossom Sword');
+  assert.strictEqual(c.martialArts.core[0].id, 'plum-blossom-sword');
+  assert.strictEqual(economy.qtyOf(c, 'man'), 0);
+});
+
+test('sect follows Discord roles; join Nyang once; Rogue when the role is removed', () => {
+  const { state, c } = fresh();
+  const wudang = state.sects.find((x) => x.name === 'Wudang Sect');
+  const hua = state.sects.find((x) => x.name === 'Mount Hua Sect');
+  wudang.roleId = 'r-wudang';
+  hua.roleId = 'r-hua';
+  wudang.joinNyang = 100;
+  let r = chars.syncSectFromRoles(state, c, ['r-wudang']);
+  assert.strictEqual(c.sect, 'Wudang Sect');
+  assert.strictEqual(c.nyang, 100);
+  assert.ok(r.changed);
+  chars.syncSectFromRoles(state, c, ['r-hua']);
+  chars.syncSectFromRoles(state, c, ['r-wudang']);
+  assert.strictEqual(c.nyang, 100, 'join bonus only once');
+  chars.syncSectFromRoles(state, c, []);
+  assert.strictEqual(c.sect, '');
+  assert.strictEqual(chars.syncSectFromRoles(state, c, ['unrelated']), null);
 });
 
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

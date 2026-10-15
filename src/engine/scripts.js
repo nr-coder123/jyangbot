@@ -19,9 +19,10 @@ const { clone } = require('../utils');
 const TIMEOUT_MS = 150;
 const HOOKS = ['effects', 'qiGain', 'breakthroughChance', 'consume'];
 
-function refName(state, ref, kind = 'item') {
+/** Name of a character reference. kind: 'art' (martial arts, cultivation, qi core), 'trait' or 'item'. */
+function refName(state, ref, kind = 'art') {
   if (!ref) return null;
-  const pool = kind === 'trait' ? state.traits : state.items;
+  const pool = kind === 'trait' ? state.traits : kind === 'item' ? state.items : state.arts || [];
   const found = ref.id && pool.find((p) => p.id === ref.id);
   return found ? found.name : ref.name || null;
 }
@@ -44,7 +45,7 @@ function scriptSources(state, c, extraSources = []) {
     if (tr) add(tr.scriptId, 'trait', tr.name);
   }
   const fromItem = (ref, type) => {
-    const it = ref && ref.id && state.items.find((i) => i.id === ref.id);
+    const it = ref && ref.id && (state.arts || []).find((i) => i.id === ref.id);
     if (it) add(it.scriptId, type, it.name);
   };
   (c.cultivationMethods || []).forEach((r) => fromItem(r, 'cultivation method'));

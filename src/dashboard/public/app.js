@@ -78,7 +78,7 @@ let DISCORD = { guilds: [] };
 let current = location.hash.slice(1) || 'overview';
 const TABS = [
   ['overview', 'Overview'], ['characters', 'Characters'], ['applications', 'Applications'], ['items', 'Items'], ['recipes', 'Crafting'],
-  ['drops', 'Drop Rates'], ['realms', 'Realms & Qi Bars'], ['combat', 'Stat Comparison'], ['sects', 'Sects'], ['traits', 'Special Traits'],
+  ['drops', 'Drop Rates'], ['realms', 'Realms & Qi Bars'], ['combat', 'Stat Comparison'], ['sects', 'Sects'], ['arts', 'Arts & Traits'],
   ['scripts', 'Custom Code'], ['commands', 'Commands'], ['messages', 'Messages'], ['settings', 'Settings'], ['changelog', 'Changelog'],
   ['backups', 'Save & Backups'], ['accounts', 'Accounts'],
 ];
@@ -96,6 +96,7 @@ function buildDatalists() {
   const T = D.settings.titles;
   $('#datalists').replaceChildren(
     dl('dl-items', D.items.map((i) => i.name)),
+    dl('dl-qicores', D.arts.filter((a) => a.kind === 'qicore').map((a) => a.name)),
     dl('dl-traits', D.traits.map((t) => t.name)),
     dl('dl-sects', D.sects.map((s) => s.name)),
     dl('dl-prefix', T.prefixes), dl('dl-stem', T.stems), dl('dl-suffix', T.suffixes),
@@ -219,6 +220,7 @@ function renderNav() {
 
 async function render() {
   renderNav();
+  if ($('#liveBanner')) liveBanner(false);
   const label = TABS.find(([id]) => id === current)?.[1] || 'Overview';
   $('#viewTitle').textContent = label;
   const view = $('#view');
@@ -232,6 +234,41 @@ async function render() {
   }
 }
 async function refresh() { await load(); await render(); }
+
+// ---------- live updates ----------
+// Lists refresh by themselves when something changes (another editor, a Discord command…).
+// Editor screens show a button instead, so nobody loses unsaved work.
+const LIVE_VIEWS = new Set(['overview', 'characters', 'applications', 'items', 'recipes', 'arts', 'changelog', 'backups', 'accounts']);
+let liveBusy = false;
+function liveBanner(show) {
+  let b = $('#liveBanner');
+  if (!b) {
+    b = h('button', { id: 'liveBanner', class: 'btn small primary hidden', onclick: run(async () => { b.classList.add('hidden'); await refresh(); }) }, '↻ New changes — refresh');
+    $('.topbar').insertBefore(b, $('#saveState'));
+  }
+  b.classList.toggle('hidden', !show);
+}
+async function liveTick() {
+  if (liveBusy || !D || $('#app').classList.contains('hidden') || document.hidden) return;
+  liveBusy = true;
+  try {
+    const r = await fetch('/api/rev', { credentials: 'same-origin' }).then((x) => (x.ok ? x.json() : null));
+    if (!r || r.rev === D.rev) return;
+    const editing = !$('#modal').classList.contains('hidden') || (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && $('#view').contains(document.activeElement));
+    if (LIVE_VIEWS.has(current) && !editing) {
+      const y = window.scrollY;
+      await load();
+      await render();
+      window.scrollTo(0, y);
+      liveBanner(false);
+    } else {
+      liveBanner(true);
+    }
+  } catch {} finally {
+    liveBusy = false;
+  }
+}
+setInterval(liveTick, 5000);
 
 // ---------- views ----------
 const VIEWS = {};
@@ -337,7 +374,7 @@ function editCharacter(c) {
     { section: 'Traits, cultivation & martial arts (one per line — names that match an item/trait link to it)' },
     { k: 'traits', label: 'Special traits', t: 'lines' },
     { k: 'cultivationMethods', label: `Cultivation methods (max ${D.settings.maxCultivationMethods})`, t: 'lines' },
-    { k: 'qiCore', label: 'Qi Core', list: 'dl-items' },
+    { k: 'qiCore', label: 'Qi Core', list: 'dl-qicores' },
     { k: 'martialArts.core', label: 'Core arts', t: 'lines' }, { k: 'martialArts.special', label: 'Special arts', t: 'lines' },
     { k: 'martialArts.forbidden', label: 'Forbidden/Heavenly arts', t: 'lines' }, { k: 'martialArts.generic', label: 'Generic arts', t: 'lines' },
     { k: 'notes', label: 'Staff notes', t: 'textarea' },
@@ -391,7 +428,7 @@ function editCharacter(c) {
     sheet.replaceChildren(discordPreview(r.preview), h('div', { class: 'kv', style: 'margin-top:10px' },
       h('span', { class: 'muted' }, 'Effective'), h('span', {}, `STR ${fmt(sh.effStats.strength)} · END ${fmt(sh.effStats.endurance)} · MOB ${fmt(sh.effStats.mobility)} · Qi ${fmt(sh.effStats.qi)} · Qi Bars ${fmt(sh.qiBars.total)}`),
       h('span', { class: 'muted' }, 'Caps'), h('span', {}, `Stats soft ${fmt(sh.caps.soft)} / hard ${fmt(sh.caps.hard)} · Qi soft ${fmt(sh.caps.softQi)} / hard ${fmt(sh.caps.hardQi)}`),
-      h('span', { class: 'muted' }, 'Absorption'), h('span', {}, `General ${fmt(sh.absorption.general)}% · ${Object.entries(sh.absorption.byElement).map(([k, v]) => `${k} ${v}%`).join(', ') || 'no affinities'}`),
+      h('span', { class: 'muted' }, 'Absorption'), h('span', {}, `Rate ${fmt(sh.absorption.base)}%${sh.absorption.baseSource ? ` (${sh.absorption.baseSource})` : ''} · bonus ${fmt(sh.absorption.general)}% · ${Object.entries(sh.absorption.byElement).map(([k, v]) => `${k} ${v}%`).join(', ') || 'no affinities'}`),
       h('span', { class: 'muted' }, 'Effects'), h('span', {}, plain([...sh.capLines, ...sh.drawbacks, ...sh.notes, ...sh.scriptErrors.map((e) => `⚠️ ${e}`)].join('\n')) || '—'),
     ));
   }).catch((e) => sheet.replaceChildren(e.message));
@@ -466,7 +503,7 @@ VIEWS.items = () => {
       ['', (i) => i.emoji || rarity(i.rarity).emoji],
       ['Name', (i) => h('strong', {}, i.name)],
       ['Rarity', (i) => h('span', {}, h('span', { class: 'dot', style: `background:${rarity(i.rarity).color}` }), i.rarity)],
-      ['Type', (i) => i.type + (i.type === 'manual' ? ` · ${i.manual.category}` : '')],
+      ['Type', (i) => i.type + (i.type === 'manual' ? ` · teaches ${D.arts.find((a) => a.id === i.manual?.artId)?.name || '—'}` : i.type === 'weapon' ? ` · ${i.weapon?.grade || ''}` : '')],
       ['Drop pool', (i) => (i.inDropPool ? `✓ weight ${i.dropWeight}` : '—')],
       ['Shop', (i) => (i.shop.enabled ? `${fmt(i.shop.price)}${i.shop.stock >= 0 ? ` (${i.shop.stock})` : ''}` : '—')],
       ['Tradeable', (i) => (i.tradeable ? '✓' : '✗')],
@@ -483,7 +520,7 @@ VIEWS.items = () => {
 
 function editItem(item, prefill = null) {
   const isNew = !item;
-  const it = item ? clone(item) : prefill ? clone(prefill) : { name: '', rarity: D.rarities[0]?.name, type: 'pill', description: '', tradeable: true, inDropPool: true, dropWeight: 1, shop: { enabled: false, price: 0, stock: -1 }, manual: { category: 'generic' }, cultivation: { absorption: 0, affinities: {} }, pill: { yieldType: 'qi', yieldAmount: 0, impurity: 0, element: '', breakthroughBonus: 0 }, poison: { tier: 1, impurity: 10 }, purification: { tier: 1 }, weapon: { grade: 'Spiritual Treasure' }, bonuses: {}, marketable: true, scriptId: '' };
+  const it = item ? clone(item) : prefill ? clone(prefill) : { name: '', rarity: D.rarities[0]?.name, type: 'pill', description: '', tradeable: true, inDropPool: true, dropWeight: 1, shop: { enabled: false, price: 0, stock: -1 }, manual: { artId: '' }, pill: { yieldType: 'qi', yieldAmount: 0, impurity: 0, element: '', breakthroughBonus: 0 }, poison: { tier: 1, impurity: 10 }, purification: { tier: 1 }, weapon: { grade: 'Spiritual Treasure' }, bonuses: {}, marketable: true, scriptId: '' };
   const els = ['', ...D.settings.elements];
   const tiers = [[1, 'T1 (Earthly)'], [2, 'T2 (Heavenly)'], [3, 'T3 (Immortal)']];
   const fields = [
@@ -501,15 +538,8 @@ function editItem(item, prefill = null) {
     { k: 'shop.price', label: `Shop price (${D.settings.currencyName})`, t: 'number' },
     { k: 'shop.stock', label: 'Shop stock (-1 = unlimited)', t: 'number' },
     { k: 'sellPrice', label: 'Shop buy-back price (empty = auto)', t: 'number', nullable: true },
-    { section: 'Martial art manual', show: ['manual'] },
-    { k: 'manual.category', label: 'Category', t: 'select', opts: [['generic', 'Generic (limit 3)'], ['core', 'Core (limit 1)'], ['special', 'Special (limit 1)'], ['forbidden', 'Forbidden/Heavenly (limit 1)']], show: ['manual'] },
-    { k: 'manual.replacesCore', label: 'Replaces the Core art when learned', t: 'check', show: ['manual'] },
-    { k: 'manual.shareable', label: 'Can be shared', t: 'check', show: ['manual'] },
-    { k: 'manual.shareLimit', label: 'Share limit (0 = none)', t: 'number', show: ['manual'] },
-    { section: 'Absorption (cultivation method / qi core)', show: ['cultivation', 'core'] },
-    { k: 'cultivation.absorption', label: 'General absorption rate %', t: 'number', show: ['cultivation', 'core'], help: 'Applies to every pill\'s yield' },
-    { k: 'cultivation.impurityReduction', label: 'Pill impurity reduction %', t: 'number', show: ['cultivation', 'core'], help: '30 = pills give 30% less impurity; negative = more' },
-    ...D.settings.elements.map((e) => ({ k: `cultivation.affinities.${e}`, label: `${e} affinity %`, t: 'number', show: ['cultivation', 'core'], help: 'negative = worse with that element' })),
+    { section: 'Manual', show: ['manual'] },
+    { k: 'manual.artId', label: 'Teaches', t: 'select', show: ['manual'], opts: () => [['', '— pick a martial art or cultivation method —'], ...D.arts.filter((a) => a.kind !== 'qicore').map((a) => [a.id, `${a.name} — ${D.constants.ART_KIND_LABEL[a.kind]}`])], help: 'Create martial arts and cultivation methods in the Arts & Traits tab.' },
     { section: 'Pill / elixir', show: ['pill'] },
     { k: 'pill.yieldType', label: 'Yield gives', t: 'select', opts: [['none', 'Nothing'], ['qi', 'Qi'], ['strength', 'Strength'], ['endurance', 'Endurance'], ['mobility', 'Mobility'], ['points', 'Stat points to spend (no Qi)'], ['flex', 'Flexible points (Qi ok)']], show: ['pill'] },
     { k: 'pill.yieldAmount', label: 'Yield amount (raw)', t: 'number', show: ['pill'], help: 'Multiplied by the consumer\'s absorption: raw × (1 + rate%)' },
@@ -548,7 +578,6 @@ function editItem(item, prefill = null) {
     h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
     h('button', { class: 'btn primary', onclick: run(async () => {
       const data = deepMerge(it, f.read());
-      data.cultivation.affinities = f.read().cultivation?.affinities || {};
       if (isNew) await api('/items', { method: 'POST', body: data });
       else await api(`/items/${item.id}`, { method: 'PUT', body: data });
       toast('Item saved.');
@@ -639,7 +668,9 @@ VIEWS.sects = () => {
         { k: 'name', label: 'Name' }, { k: 'titleName', label: 'Title form ("Mount Hua\'s …")' },
         { k: 'alignment', label: 'Alignment', t: 'select', opts: ['Orthodox', 'Unorthodox', 'Neutral', 'Other'] },
         { k: 'playable', label: 'Players can choose it', t: 'check' },
-        { k: 'roleId', label: 'Discord role given on approval', t: 'role' },
+        { k: 'roleId', label: 'Discord role (members with it are in this sect)', t: 'role', help: 'Roles win: giving/removing this role in Discord changes the character\'s sect.' },
+        { k: 'coreArtId', label: 'Core martial art given to members', t: 'select', opts: () => [['', '— none —'], ...D.arts.filter((a) => a.kind === 'core').map((a) => [a.id, a.name])], help: 'Only given if the character has no Core art yet.' },
+        { k: 'joinNyang', label: `${D.settings.currencyName} given on joining (once)`, t: 'number' },
         ...D.rarities.map((r) => ({ k: `rarityBonus.${r.name}`, label: `${r.name} drop bonus (weight)`, t: 'number' })),
         { k: 'description', label: 'Description', t: 'textarea', rows: 2 },
       ], s);
@@ -653,36 +684,105 @@ VIEWS.sects = () => {
     h('p', { class: 'muted' }, 'Sects/clans players can pick. Non-playable ones (Beggar Sect, Moyong, Demon Cult) can only be set by staff. Drop bonuses are added to the rarity weights on drop rolls (e.g. The 72 Strongholds).'),
     wrap,
     h('div', { class: 'toolbar' },
-      h('button', { class: 'btn', onclick: () => { collect(); rows.push({ name: 'New sect', titleName: '', alignment: 'Orthodox', playable: true, roleId: '', rarityBonus: {}, description: '' }); draw(); } }, '+ Add sect'),
+      h('button', { class: 'btn', onclick: () => { collect(); rows.push({ name: 'New sect', titleName: '', alignment: 'Orthodox', playable: true, roleId: '', rarityBonus: {}, coreArtId: '', joinNyang: 0, description: '' }); draw(); } }, '+ Add sect'),
       h('button', { class: 'btn primary', onclick: run(async () => { collect(); await api('/sects', { method: 'PUT', body: rows }); toast('Sects saved.'); await refresh(); }) }, 'Save sects'),
     ),
   ];
 };
 
-// ----- traits -----
-VIEWS.traits = () => {
-  const card = (t) => {
-    const f = buildForm([
-      { k: 'name', label: 'Name' },
-      { k: 'scriptId', label: 'Custom code', t: 'select', opts: () => [['', '— none —'], ...D.scripts.map((s) => [s.id, s.name])] },
-      { k: 'description', label: 'Description', t: 'textarea', rows: 2 },
-    ], t || {});
-    return h('div', { class: 'card' }, f.el, h('div', { class: 'toolbar', style: 'margin-top:8px' },
-      t ? h('button', { class: 'btn small danger', onclick: run(async () => { if (!confirm(`Delete ${t.name}?`)) return; await api(`/traits/${t.id}`, { method: 'DELETE' }); toast('Deleted.'); await refresh(); }) }, 'Delete') : null,
-      h('button', { class: 'btn small primary', onclick: run(async () => {
-        if (t) await api(`/traits/${t.id}`, { method: 'PUT', body: f.read() });
-        else await api('/traits', { method: 'POST', body: f.read() });
-        toast('Trait saved.'); await refresh();
-      }) }, t ? 'Save' : 'Create trait'),
-    ));
-  };
+// ----- arts & traits -----
+let ARTS_TAB = 'martial';
+VIEWS.arts = () => {
+  const tabs = [['martial', 'Martial Arts'], ['cultivation', 'Cultivation Methods'], ['qicore', 'Qi Cores'], ['traits', 'Special Traits']];
+  const usedBy = (id) => D.characters.filter((c) => c.qiCore?.id === id || c.cultivationMethods.some((r) => r.id === id) || Object.values(c.martialArts).some((l) => l.some((r) => r.id === id))).length;
+  const manualsOf = (id) => D.items.filter((i) => i.manual?.artId === id);
+  const scriptName = (id) => (id ? D.scripts.find((x) => x.id === id)?.name || id : '');
+  let body;
+  if (ARTS_TAB === 'traits') {
+    body = [
+      h('div', { class: 'toolbar' }, h('p', { class: 'muted grow', style: 'margin:0' }, 'Special traits go on stat sheets (character editor). They can never be sold.'), h('button', { class: 'btn primary', onclick: () => editTrait(null) }, '+ New trait')),
+      table([['Trait', (t) => h('strong', {}, t.name)], ['Description', (t) => t.description], ['Custom code', (t) => scriptName(t.scriptId)],
+        ['Characters', (t) => D.characters.filter((c) => c.traits.some((r) => r.id === t.id)).length]], D.traits, editTrait),
+    ];
+  } else {
+    const kinds = ARTS_TAB === 'martial' ? ['core', 'special', 'forbidden', 'generic'] : [ARTS_TAB];
+    const list = D.arts.filter((a) => kinds.includes(a.kind)).sort((x, y) => kinds.indexOf(x.kind) - kinds.indexOf(y.kind) || x.name.localeCompare(y.name));
+    const help = {
+      martial: 'Martial arts known by characters. To find/sell one in the game, create a manual item that teaches it (button in the editor). Sects can hand out their Core art automatically (Sects tab).',
+      cultivation: 'Absorption Rate = how much of a pill\'s yield is absorbed (Qi Gathering 50% = half). A character uses their best rate; bonuses and affinities add on top. Can be taught by manual items.',
+      qicore: 'Qi Cores are set on characters by staff (character editor). They never appear as items, so they can\'t be sold. They can add absorption, affinities, impurity reduction or custom code.',
+    }[ARTS_TAB];
+    const cols = [['Name', (a) => h('strong', {}, a.name)]];
+    if (ARTS_TAB === 'martial') cols.push(['Type', (a) => D.constants.ART_KIND_LABEL[a.kind].replace(' martial art', '')], ['', (a) => [a.replacesCore ? 'replaces Core' : '', a.shareable ? 'shareable' : ''].filter(Boolean).join(' · ')]);
+    if (ARTS_TAB === 'cultivation') cols.push(['Absorption rate', (a) => `${fmt(a.baseAbsorption)}%`]);
+    if (ARTS_TAB !== 'martial') cols.push(['Bonus', (a) => [a.absorption ? `${a.absorption > 0 ? '+' : ''}${a.absorption}%` : '', ...Object.entries(a.affinities || {}).map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}%`), a.impurityReduction ? `impurity −${a.impurityReduction}%` : ''].filter(Boolean).join(', ')]);
+    cols.push(['Custom code', (a) => scriptName(a.scriptId)], ['Characters', (a) => usedBy(a.id)]);
+    if (ARTS_TAB !== 'qicore') cols.push(['Manuals', (a) => manualsOf(a.id).map((i) => i.name).join(', ')]);
+    body = [
+      h('div', { class: 'toolbar' }, h('p', { class: 'muted grow', style: 'margin:0' }, help), h('button', { class: 'btn primary', onclick: () => editArt(null, ARTS_TAB === 'martial' ? 'core' : ARTS_TAB) }, '+ New')),
+      table(cols, list, (a) => editArt(a)),
+    ];
+  }
   return [
-    h('p', { class: 'muted' }, 'Special traits that can be put on stat sheets. Attach custom code for traits with real mechanics (e.g. No Meridians, Heavenly Martial Meridian).'),
-    ...D.traits.map(card),
-    h('h4', { class: 'section' }, 'New trait'),
-    card(null),
+    h('div', { class: 'toolbar' }, tabs.map(([id, label]) => h('button', { class: `btn ${ARTS_TAB === id ? 'primary' : ''}`, onclick: () => { ARTS_TAB = id; render(); } }, label))),
+    ...body,
   ];
 };
+
+function editArt(a, kind) {
+  const isNew = !a;
+  const v = a ? clone(a) : { name: '', kind, description: '', baseAbsorption: kind === 'cultivation' ? 100 : null, absorption: 0, affinities: {}, impurityReduction: 0, scriptId: '' };
+  const martial = ['core', 'special', 'forbidden', 'generic'];
+  const fields = [
+    { k: 'name', label: 'Name' },
+    martial.includes(v.kind) ? { k: 'kind', label: 'Type', t: 'select', opts: martial.map((k) => [k, D.constants.ART_KIND_LABEL[k]]) } : null,
+    { k: 'description', label: 'Description (Discord markdown works)', t: 'textarea', rows: 6 },
+  ].filter(Boolean);
+  if (martial.includes(v.kind)) {
+    fields.push(
+      { k: 'replacesCore', label: 'Replaces the Core art when learned (Special / Forbidden)', t: 'check' },
+      { k: 'shareable', label: 'Can be shared', t: 'check' },
+      { k: 'shareLimit', label: 'Share limit (0 = none)', t: 'number' },
+    );
+  } else {
+    fields.push({ section: 'Absorption' });
+    if (v.kind === 'cultivation') fields.push({ k: 'baseAbsorption', label: 'Absorption Rate % (100 = full yield)', t: 'number', help: 'Qi Gathering = 50. A character uses the best rate among their methods.' });
+    fields.push(
+      { k: 'absorption', label: 'Bonus % on every pill', t: 'number', help: 'Added on top of the rate; negative hurts' },
+      { k: 'impurityReduction', label: 'Pill impurity reduction %', t: 'number', help: '30 = pills give 30% less impurity; negative = more' },
+      ...D.settings.elements.map((e) => ({ k: `affinities.${e}`, label: `${e} affinity %`, t: 'number' })),
+    );
+  }
+  fields.push({ section: 'Custom code' }, { k: 'scriptId', label: 'Script', t: 'select', opts: () => [['', '— none —'], ...D.scripts.map((x) => [x.id, x.name])], help: v.kind === 'qicore' ? 'e.g. a core that gives more Qi from pills (hooks.consume) or more Qi Bars (hooks.effects)' : 'Runs for every character who knows this' });
+  const f = buildForm(fields, v);
+  openModal(isNew ? `New ${D.constants.ART_KIND_LABEL[v.kind]}` : a.name, f.el, [
+    !isNew ? h('button', { class: 'btn danger left', onclick: run(async () => { if (!confirm(`Delete ${a.name}?`)) return; await api(`/arts/${a.id}`, { method: 'DELETE' }); closeModal(); toast('Deleted.'); await refresh(); }) }, 'Delete') : null,
+    !isNew && v.kind !== 'qicore' ? h('button', { class: 'btn', onclick: () => { closeModal(); editItem(null, { name: `${a.name} Manual`, type: 'manual', rarity: D.rarities[0]?.name, description: a.description, manual: { artId: a.id }, tradeable: true, marketable: true, inDropPool: false, dropWeight: 1, shop: { enabled: false, price: 0, stock: -1 }, pill: {}, poison: { tier: 1 }, purification: { tier: 1 }, weapon: {}, bonuses: {} }); } }, '+ Manual item that teaches it') : null,
+    h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
+    h('button', { class: 'btn primary', onclick: run(async () => {
+      const data = { ...v, ...f.read() };
+      data.affinities = f.read().affinities || {};
+      if (isNew) await api('/arts', { method: 'POST', body: data }); else await api(`/arts/${a.id}`, { method: 'PUT', body: data });
+      closeModal(); toast('Saved.'); await refresh();
+    }) }, 'Save'),
+  ].filter(Boolean));
+}
+
+function editTrait(t) {
+  const f = buildForm([
+    { k: 'name', label: 'Name' },
+    { k: 'scriptId', label: 'Custom code', t: 'select', opts: () => [['', '— none —'], ...D.scripts.map((s) => [s.id, s.name])] },
+    { k: 'description', label: 'Description', t: 'textarea', rows: 3 },
+  ], t || {});
+  openModal(t ? t.name : 'New special trait', f.el, [
+    t ? h('button', { class: 'btn danger left', onclick: run(async () => { if (!confirm(`Delete ${t.name}?`)) return; await api(`/traits/${t.id}`, { method: 'DELETE' }); closeModal(); toast('Deleted.'); await refresh(); }) }, 'Delete') : null,
+    h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
+    h('button', { class: 'btn primary', onclick: run(async () => {
+      if (t) await api(`/traits/${t.id}`, { method: 'PUT', body: f.read() }); else await api('/traits', { method: 'POST', body: f.read() });
+      closeModal(); toast('Trait saved.'); await refresh();
+    }) }, 'Save'),
+  ].filter(Boolean));
+}
 
 // ----- scripts -----
 let SCRIPT_REF = null;
@@ -755,7 +855,8 @@ VIEWS.settings = () => {
     { k: 'martialArtLimits.generic', label: 'Generic art limit', t: 'number' }, { k: 'martialArtLimits.core', label: 'Core art limit', t: 'number' },
     { k: 'martialArtLimits.special', label: 'Special art limit', t: 'number' }, { k: 'martialArtLimits.forbidden', label: 'Forbidden/Heavenly limit', t: 'number' },
     { section: 'Impurity' },
-    { k: 'impurity.noRegenAt', label: 'No Qi regen at', t: 'number' }, { k: 'impurity.debuffAt', label: 'Stat debuff at', t: 'number' },
+    { k: 'impurity.yieldPenaltyAt', label: 'Pill yields reduced at', t: 'number' }, { k: 'impurity.yieldPenaltyPercent', label: 'Yield reduction %', t: 'number' },
+    { k: 'impurity.debuffAt', label: 'Stat debuff at', t: 'number' },
     { k: 'impurity.debuffPercent', label: 'Stat debuff %', t: 'number' }, { k: 'impurity.burstAt', label: 'Meridian burst at', t: 'number' },
     { k: 'impurity.burstPercent', label: 'Burst permanent loss %', t: 'number' },
     { k: 'monthlyImpurityReset', label: 'Reset everyone\'s impurity monthly', t: 'check' },
@@ -771,7 +872,8 @@ VIEWS.settings = () => {
     { k: 'channels.submissions', label: 'Character submissions channel', t: 'channel' },
     { k: 'channels.progress', label: 'Progress submissions channel', t: 'channel' },
     { k: 'channels.announcements', label: 'Announcements channel (approvals, reports, breakthroughs)', t: 'channel' },
-    { k: 'channels.log', label: 'Changelog channel (optional)', t: 'channel' },
+    { k: 'channels.log', label: 'Changelog channel — EVERY change is posted here (optional)', t: 'channel' },
+    { k: 'channels.consumption', label: 'Consumption log — every pill consumed, with where and when (optional)', t: 'channel' },
     { k: 'staffRoleIds', label: 'Staff roles', t: 'roles', help: 'Used by commands set to "Staff" (Commands tab). Members with Manage Server always count as staff. Ctrl/Cmd-click for several.' },
     { k: 'approvedRoleIds', label: 'Roles given when a character is approved', t: 'roles' },
     { section: 'Elements & title reference' },
@@ -817,7 +919,8 @@ VIEWS.changelog = () => {
   let t;
   q.oninput = () => { clearTimeout(t); t = setTimeout(() => { offset = 0; draw(); }, 250); };
   draw();
-  return [h('div', { class: 'toolbar' }, q), wrap, pager];
+  const chip = (label, text) => h('button', { class: 'btn small', onclick: () => { q.value = text; offset = 0; draw(); } }, label);
+  return [h('div', { class: 'toolbar' }, q, chip('All', ''), chip('💊 Pills consumed', 'item.consume'), chip('🎁 Rewards', 'give.'), chip('➖ Deductions', 'take.'), chip('✅ Approvals', 'character.approve'), chip('🏯 Sect changes', 'sect.'), chip('🖥️ Dashboard edits', 'dashboard')), wrap, pager];
 };
 
 // ----- backups -----

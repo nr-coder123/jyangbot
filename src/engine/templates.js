@@ -207,9 +207,9 @@ const DEFS = {
   },
   applicationApproved: {
     group: 'Announcements', label: 'Character approved',
-    placeholders: ['player', 'character', 'staff', 'points', 'roles'],
-    sample: { player: '<@100000000000000001>', character: 'Chung Myung', staff: '<@100000000000000002>', points: '50', roles: 'Roles: <@&100000000000000003>' },
-    default: E({ color: 0x3aa55d, title: '✅ {character} has been approved!', description: 'Approved by {staff}.\nYou have **{points}** starting points to spend anywhere (Qi included).\nType **/menu** and press **{e.stats} Stats** to build your sheet.\n{roles}' }, '{player}'),
+    placeholders: ['player', 'character', 'sect', 'staff', 'points', 'perks', 'roles'],
+    sample: { player: '<@100000000000000001>', character: 'Chung Myung', sect: 'Mount Hua Sect', staff: '<@100000000000000002>', points: '50', perks: 'Core art: **Plum Blossom Sword**', roles: 'Roles: <@&100000000000000003>' },
+    default: E({ color: 0x3aa55d, title: '✅ {character} has been approved!', description: 'Approved by {staff}.\nYou have **{points}** starting points to spend anywhere (Qi included).\nType **/menu** and press **{e.stats} Stats** to build your sheet.\n{perks}\n{roles}' }, '{player}'),
   },
   applicationRejected: {
     group: 'Announcements', label: 'Character rejected (sent by DM)',

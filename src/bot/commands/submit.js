@@ -3,6 +3,7 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle } = require('discord.js');
 const store = require('../../store');
 const chars = require('../../engine/characters');
+const sectsync = require('../sectsync');
 const { EPH, requireAccess, actor, listChoices, message, sendToChannel } = require('../util');
 const { UserError, newId, norm, fmt, truncate } = require('../../utils');
 
@@ -15,11 +16,11 @@ const submit = new SlashCommandBuilder()
 
 const approveCmd = new SlashCommandBuilder()
   .setName('approve')
-  .setDescription('Approve a character and create their stat sheet')
-  .addUserOption((o) => o.setName('player').setDescription('Owner of the character').setRequired(true))
-  .addStringOption((o) => o.setName('name').setDescription('Character name').setRequired(true))
-  .addStringOption((o) => o.setName('sect').setDescription('Sect or clan').setAutocomplete(true))
-  .addStringOption((o) => o.setName('document').setDescription('Link to the character document'));
+  .setDescription("Approve a player's submitted character and create their stat sheet")
+  .addUserOption((o) => o.setName('player').setDescription('The player whose submission you approve').setRequired(true))
+  .addStringOption((o) => o.setName('sect').setDescription('Sect or clan (default: what they submitted) — gives the sect role').setAutocomplete(true))
+  .addStringOption((o) => o.setName('name').setDescription('Only if they never used /submit: the character name'))
+  .addStringOption((o) => o.setName('document').setDescription('Only if they never used /submit: link to the document'));
 
 function appVars(app) {
   return { player: `<@${app.userId}>`, character: app.name, sect: app.sect || 'Rogue', document: app.docLink, id: app.id };
@@ -44,20 +45,25 @@ async function approve(i, { userId, userTag, name, sect, docLink, application })
   const st = store.state;
   const c = chars.createCharacter(st, { ownerId: userId, ownerTag: userTag, name, sect, docLink, approvedBy: { id: i.user.id, name: i.user.username } });
   if (application) Object.assign(application, { status: 'approved', characterId: c.id, decidedBy: i.user.username, decidedAt: new Date().toISOString() });
-  store.log(actor(i), 'character.approve', `${c.name} — owner ${userTag} (${userId})${c.sect ? `, ${c.sect}` : ''}`);
+  const perks = c.creationPerks || {};
+  const perkText = [perks.coreArt && `Core art: **${perks.coreArt}**`, perks.nyang && `+${fmt(perks.nyang)} ${st.settings.currencyName} for joining ${c.sect}`].filter(Boolean).join('\n');
+  store.log(actor(i), 'character.approve', `${c.name} — owner ${userTag} (${userId})${c.sect ? `, ${c.sect}` : ''}${perkText ? ` · ${perkText.replace(/\*/g, '').replace(/\n/g, ', ')}` : ''}`);
 
-  const roleIds = [...(st.settings.approvedRoleIds || []), chars.sectOf(st, c.sect)?.roleId].filter(Boolean);
   let roles = '';
-  if (roleIds.length && i.guild) {
+  if (i.guild) {
     try {
       const member = await i.guild.members.fetch(userId);
-      await member.roles.add(roleIds);
-      roles = `Roles: ${roleIds.map((r) => `<@&${r}>`).join(' ')}`;
+      const base = (st.settings.approvedRoleIds || []).filter(Boolean);
+      if (base.length) await member.roles.add(base);
+      await sectsync.applySectRoles(i.client, userId, c.sect); // their sect's role, and no other sect role
+      const sectRole = chars.sectOf(st, c.sect)?.roleId;
+      const given = [...base, sectRole].filter(Boolean);
+      if (given.length) roles = `Roles: ${given.map((r) => `<@&${r}>`).join(' ')}`;
     } catch (e) {
       roles = `⚠️ Couldn't give roles (${e.message}). The bot needs Manage Roles and its role must be above them.`;
     }
   }
-  return message('applicationApproved', { player: `<@${userId}>`, character: c.name, staff: `<@${i.user.id}>`, points: fmt(c.pools.flex), roles }, { ping: [userId] });
+  return message('applicationApproved', { player: `<@${userId}>`, character: c.name, staff: `<@${i.user.id}>`, points: fmt(c.pools.flex), roles, perks: perkText, sect: c.sect || 'Rogue' }, { ping: [userId] });
 }
 
 async function executeSubmit(i) {
@@ -83,19 +89,23 @@ async function executeSubmit(i) {
 }
 
 async function executeApprove(i) {
+  const st = store.state;
   const user = i.options.getUser('player');
-  const name = i.options.getString('name');
-  const pending = store.state.applications.find((a) => a.status === 'pending' && a.userId === user.id && norm(a.name) === norm(name));
+  // The player's own submission is used — no need to retype the name.
+  const pending = st.applications.filter((a) => a.status === 'pending' && a.userId === user.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0];
+  const name = pending ? pending.name : (i.options.getString('name') || '').trim();
+  if (!name) throw new UserError(`<@${user.id}> has no pending submission. Ask them to use \`/submit\`, or fill in **name** to approve a character directly.`);
+  await i.deferReply();
   const msg = await approve(i, {
     userId: user.id, userTag: user.username, name,
     sect: i.options.getString('sect') || pending?.sect || '',
-    docLink: i.options.getString('document') || pending?.docLink || '',
+    docLink: pending?.docLink || i.options.getString('document') || '',
     application: pending,
   });
   if (pending) await refreshPost(i.client, pending);
   const where = await announce(i, msg, user.id);
-  if (where === 'announced') return i.reply({ content: `Approved **${name}** — announced.`, flags: EPH });
-  return i.reply(msg);
+  if (where === 'announced') return i.editReply({ content: `✅ Approved **${name}** for <@${user.id}> — announced.`, allowedMentions: { parse: [] } });
+  return i.editReply(msg);
 }
 
 /** Post to the announcements channel if one is set, otherwise DM the player. */
@@ -132,8 +142,9 @@ async function onAppButton(i) {
   if (!app) throw new UserError('Application not found.');
   if (app.status !== 'pending') throw new UserError(`This application was already ${app.status}.`);
   if (action === 'approve') {
+    await i.deferUpdate();
     const msg = await approve(i, { userId: app.userId, userTag: app.userTag, name: app.name, sect: app.sect, docLink: app.docLink, application: app });
-    await i.update(appPost(app));
+    await i.editReply(appPost(app));
     // The submissions channel is usually staff-only, so tell the player elsewhere.
     const where = await announce(i, msg, app.userId);
     return i.followUp({ content: `Approved **${app.name}**. ${where === 'announced' ? 'Announced.' : where === 'dm' ? 'The player was told by DM.' : "⚠️ Couldn't reach the player (no announcements channel and DMs closed)."}`, flags: EPH });

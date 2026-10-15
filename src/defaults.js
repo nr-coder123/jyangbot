@@ -4,7 +4,10 @@
  */
 const { newId, num, numOrNull, arr, slug } = require('./utils');
 
-const ITEM_TYPES = ['manual', 'cultivation', 'core', 'pill', 'poison', 'purification', 'material', 'weapon', 'treasure', 'misc'];
+const ITEM_TYPES = ['manual', 'pill', 'poison', 'purification', 'material', 'weapon', 'treasure', 'misc'];
+// Martial arts, cultivation methods and qi cores live in their own library (state.arts), not as items.
+const ART_KINDS = ['core', 'special', 'forbidden', 'generic', 'cultivation', 'qicore'];
+const ART_KIND_LABEL = { core: 'Core martial art', special: 'Special martial art', forbidden: 'Forbidden/Heavenly martial art', generic: 'Generic martial art', cultivation: 'Cultivation method', qicore: 'Qi Core' };
 const MANUAL_CATEGORIES = ['generic', 'core', 'special', 'forbidden'];
 const YIELD_TYPES = ['none', 'qi', 'strength', 'endurance', 'mobility', 'points', 'flex'];
 const ELEMENTS = ['Wood', 'Fire', 'Earth', 'Metal', 'Water', 'Yin', 'Yang'];
@@ -39,7 +42,7 @@ const RARITIES = [
 ];
 
 const S = (name, alignment, titleName, description, playable = true, rarityBonus = {}) => ({
-  id: slug(name), name, alignment, titleName, description, playable, roleId: '', rarityBonus,
+  id: slug(name), name, alignment, titleName, description, playable, roleId: '', rarityBonus, coreArtId: name === 'Mount Hua Sect' ? 'plum-blossom-sword' : '', joinNyang: 0,
 });
 const SECTS = [
   S('Wudang Sect', 'Orthodox', 'Wudang', 'The most "benevolent" sect, but everything is black and white (Yin/Yang). Welcoming to allies they deem good, merciless to those they deem evil.'),
@@ -87,8 +90,8 @@ hooks.effects = (ctx, fx) => {
     return fx;
   }
   if (imp >= 50) {
-    fx.qiRegenDisabled = false;
-    fx.notes.push('💗 **Heart of Essence** — Qi regeneration is NOT disabled. *(A light shines on the left side of the chest.)*');
+    fx.yieldMultiplier = 1;
+    fx.notes.push('💗 **Heart of Essence** — pill yields are NOT reduced. *(A light shines on the left side of the chest.)*');
   }
   if (imp >= 75) {
     fx.statMultiplier = 1;
@@ -146,12 +149,12 @@ hooks.qiGain = (ctx, amount) => amount * QI_GAIN_RATE;
 //                     qiCore, martialArts{core,special,forbidden,generic}, weapon{name,grade,bonuses}, inventory[], nyang }
 // ctx.realm      -> the character's current realm row
 // ctx.source     -> { type, name } of the item/trait this script is attached to
-// ctx.thresholds -> impurity thresholds from Settings (noRegenAt, debuffAt, burstAt ...)
+// ctx.thresholds -> impurity thresholds from Settings (yieldPenaltyAt, yieldPenaltyPercent, debuffAt, burstAt ...)
 // ctx.extra      -> hook-specific info (ctx.extra.source for qiGain, ctx.extra.item for consume)
 
 // 1) Sheet effects / impurity drawbacks.
 hooks.effects = (ctx, fx) => {
-  // fx.qiRegenDisabled      true/false
+  // fx.yieldMultiplier      pill yields: 1 = normal, 0.5 = -50% (Impurity 50+)
   // fx.statMultiplier       1 = normal, 0.75 = -25%
   // fx.preventMeridianBurst true stops the permanent 100-impurity burst
   // fx.tempStats.strength / endurance / mobility / qi   temporary bonuses
@@ -186,7 +189,7 @@ const TRAITS = [
 ];
 
 const THREE_HEARTS_DESCRIPTION = `- Upon reaching **\`50\` Impurity**, create the '__Heart of Essence.__'
-  - __Does not disable Qi regeneration.__ _A light will be shown on the left side of your chest._
+  - __Does not reduce yields by 50%.__ _A light will be shown on the left side of your chest._
 - Upon reaching **\`75\` Impurity**, create the '__Heart of Energy.__'
   - __Does not reduce stats by 25%.__ You are also granted temporary \`+3\` Endurance Points. _A light will be shown on the right side of your chest._
 - Upon reaching **\`100\` Impurity**, create the '__Heart of Spirit.__'
@@ -240,6 +243,34 @@ const QI_BAR_BONUSES = [
   { minQi: 751, bars: 6 },
 ];
 
+function normalizeArt(a = {}) {
+  const kind = ART_KINDS.includes(a.kind) ? a.kind : 'generic';
+  return {
+    id: a.id || slug(a.name || newId('art-')),
+    name: String(a.name || 'Unnamed art').trim(),
+    kind,
+    description: a.description || '',
+    // martial arts
+    replacesCore: !!a.replacesCore,
+    shareable: !!a.shareable,
+    shareLimit: Math.max(0, Math.floor(num(a.shareLimit))),
+    // cultivation methods & qi cores
+    baseAbsorption: kind === 'cultivation' ? Math.max(0, num(a.baseAbsorption, 100)) : null,
+    absorption: num(a.absorption),
+    affinities: Object.fromEntries(Object.entries(a.affinities || {}).map(([k, v]) => [k, num(v)]).filter(([, v]) => v !== 0)),
+    impurityReduction: num(a.impurityReduction),
+    scriptId: a.scriptId || '',
+  };
+}
+
+const QI_GATHERING_DESCRIPTION = 'The most basic cultivation method in the Jianghu. It gathers ambient Qi, but wastes much of it.\n\n**Absorption Rate**: 50% — only half of a pill\'s yield is absorbed.\n**Affinity**: _None._';
+
+const ARTS = [
+  { id: 'qi-gathering', name: 'Qi Gathering', kind: 'cultivation', baseAbsorption: 50, description: QI_GATHERING_DESCRIPTION },
+  { id: 'normal-qi-core', name: 'Normal Qi Core', kind: 'qicore', description: 'An ordinary Qi Core with no special properties.' },
+  { id: 'plum-blossom-sword', name: 'Plum Blossom Sword', kind: 'core', description: 'Mount Hua\'s sword style, known for fluid and precise attacks.' },
+];
+
 const DEFAULT_SETTINGS = {
   currencyName: 'Nyang',
   currencyEmoji: '🪙',
@@ -256,14 +287,14 @@ const DEFAULT_SETTINGS = {
   discardPointsPastHardCap: true,
   breakthroughCooldownHours: 0,
   breakthroughFailureImpurity: 0,
-  impurity: { noRegenAt: 50, debuffAt: 75, debuffPercent: 25, burstAt: 100, burstPercent: 25 },
+  impurity: { yieldPenaltyAt: 50, yieldPenaltyPercent: 50, debuffAt: 75, debuffPercent: 25, burstAt: 100, burstPercent: 25 },
   monthlyImpurityReset: true,
   staffQiResetsImpurity: true,
   pillQiResetsImpurity: false,
   maxCultivationMethods: 2,
   martialArtLimits: { generic: 3, core: 1, special: 1, forbidden: 1 },
   elements: ELEMENTS,
-  channels: { submissions: '', progress: '', announcements: '', log: '' },
+  channels: { submissions: '', progress: '', announcements: '', log: '', consumption: '' },
   staffRoleIds: [],
   approvedRoleIds: [],
   shopSellbackPercent: 50,
@@ -297,8 +328,7 @@ function normalizeItem(i = {}) {
     dropWeight: num(i.dropWeight, 1),
     shop: { enabled: false, price: 0, stock: -1, ...(i.shop || {}) },
     sellPrice: numOrNull(i.sellPrice),
-    manual: { category: 'generic', replacesCore: false, shareable: false, shareLimit: 0, ...(i.manual || {}) },
-    cultivation: { absorption: 0, affinities: {}, impurityReduction: 0, ...(i.cultivation || {}) },
+    manual: { artId: i.manual?.artId || '' },
     weapon: { grade: WEAPON_GRADES.includes(i.weapon?.grade) ? i.weapon.grade : 'Default' },
     bonuses: Object.fromEntries(BONUS_KEYS.map((k) => [k, num(i.bonuses?.[k])])),
     pill: { yieldType: 'none', yieldAmount: 0, impurity: 0, element: '', breakthroughBonus: 0, ...(i.pill || {}) },
@@ -342,6 +372,7 @@ function normalizeCharacter(c = {}) {
     gender: c.gender || '',
     title: typeof c.title === 'string' ? c.title : legacyTitle(c.titles),
     weaponId: c.weaponId || '',
+    joinedSects: arr(c.joinedSects),
     realm: Number.isInteger(c.realm) ? c.realm : 0,
     stats: { strength: 0, endurance: 0, mobility: 0, qi: 0, ...(c.stats || {}) },
     pools: { normal: 0, flex: 0, ...(c.pools || {}) },
@@ -384,28 +415,18 @@ function defaultWeaponItem() {
 function createDefaultState() {
   const month = new Date().toISOString().slice(0, 7);
   return {
-    version: 1,
+    version: 2,
     settings: JSON.parse(JSON.stringify(DEFAULT_SETTINGS)),
     rarities: JSON.parse(JSON.stringify(RARITIES)),
     realms: JSON.parse(JSON.stringify(REALMS)),
     sects: JSON.parse(JSON.stringify(SECTS)),
     traits: JSON.parse(JSON.stringify(TRAITS)),
     scripts: JSON.parse(JSON.stringify(SCRIPTS)),
-    items: [
-      defaultWeaponItem(),
-      normalizeItem({
-        id: 'three-hearts-cultivation',
-        name: 'Three Hearts Cultivation Method',
-        rarity: 'Immortal',
-        type: 'cultivation',
-        emoji: '💠',
-        description: THREE_HEARTS_DESCRIPTION,
-        inDropPool: false,
-        tradeable: false,
-        cultivation: { absorption: 0, affinities: {} },
-        scriptId: 'three-hearts',
-      }),
-    ],
+    items: [defaultWeaponItem()],
+    arts: [
+      ...ARTS,
+      { id: 'three-hearts-cultivation', name: 'Three Hearts Cultivation Method', kind: 'cultivation', description: THREE_HEARTS_DESCRIPTION, scriptId: 'three-hearts' },
+    ].map(normalizeArt),
     characters: [],
     recipes: [],
     combat: JSON.parse(JSON.stringify(COMBAT)),
@@ -423,6 +444,6 @@ function createDefaultState() {
 }
 
 module.exports = {
-  ITEM_TYPES, MANUAL_CATEGORIES, YIELD_TYPES, ELEMENTS, REALMS, RARITIES, SECTS, TITLES, TRAITS, SCRIPTS,
+  ART_KINDS, ART_KIND_LABEL, normalizeArt, THREE_HEARTS_DESCRIPTION, ITEM_TYPES, MANUAL_CATEGORIES, YIELD_TYPES, ELEMENTS, REALMS, RARITIES, SECTS, TITLES, TRAITS, SCRIPTS,
   WEAPON_GRADES, BONUS_KEYS, DEFAULT_WEAPON_ID, defaultWeaponItem, DEFAULT_SETTINGS, COMBAT, QI_BAR_BONUSES, normalizeItem, normalizeCharacter, normalizeRecipe, createDefaultState,
 };
