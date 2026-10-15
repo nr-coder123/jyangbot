@@ -5,21 +5,23 @@ One Node.js process runs **both** the bot and the dashboard, so a single Render 
 
 **What it does**
 
-- **`/menu`** — one button-driven menu per player: the stat sheet first, then 📊 Stats (tap +1 / +5 or type several stats at once), 🎒 Inventory (consume pills, learn manuals, sell, roll drops, shop), ☯️ Realm (Realm Breakthrough) and ⚒️ Craft
+- **`/menu`** — one button-driven menu per player. It opens on the **character sheet**, then: Stats (tap +1 / +5, or type several stats at once), Inventory (consume pills, learn manuals, equip weapons, sell, list on the market, roll drops, crafting), Market, and Realm (Realm Breakthrough)
 - **`/submit`** a character → staff approve with a button in a staff-only channel → stat sheet created (who approved it is recorded)
 - The **50% rule**, soft caps and hard caps are enforced automatically; Qi gives extra Qi Bars (26+ Qi = +1 … 751+ = +6)
-- Staff rewards and deductions: `/give all` (stats only), `/give allqi` (any stat incl. Qi), `/give qi` (a Breakthrough — resets Impurity), Nyang, rolls, Qi Bars, items — and `/take` for all of them, including lowering a stat with an optional refund. Each one posts a **Progression Report** / Deduction Report
+- **Weapons**: everyone starts with a *Default Weapon*; staff add Spiritual / Dharma / Numinous / Immortal Treasures that can raise stats or Qi Bars while equipped (`/equip`). Boosted stats are __underlined__ on the sheet and explained in a Bonuses field
+- **Pills** (`/consume`) show every step: absorption from cultivation methods, impurity shaved off, caps, Qi overflow
+- Staff rewards and deductions: `/give` and `/take` for points, Qi, Nyang, rolls, Qi Bars, items and single stats — each posts a **Progression Report** / Deduction Report
+- **Titles** are typed by staff (`/title @player Rising Dragon`); players can't pick them
 - 12 editable realms with requirements, caps, Qi Bars and breakthrough chances; pills can raise the chance
-- Impurity (50 / 75 / 100), poisons that don't burst meridians, Feng Shui `/purify` calculator, absorption & affinity
-- Items (up to 300) with rarity, type, description, drop weight, shop price, pill yield / impurity / affinity, poison & purification tiers
+- Impurity (50 / 75 / 100), poisons that don't burst meridians, detox pills, Feng Shui `/purify` calculator
+- Items (up to 300) with rarity, type, description, drop weight, shop price, pill yield / impurity / affinity, poison & purification tiers, weapon grade & bonuses
 - Drops by rarity: Earthly 75% · Heavenly 20% · Immortal 5% (editable, plus per-sect bonuses)
-- **Crafting** recipes (combine items + Nyang → new items, with a success chance)
-- **`/compare`** two characters: damage tier (Strength vs Endurance), Clash and Speed, with the Realm Tier rules
-- Shop, player trades (gifts = trade for nothing), player market
-- **Custom code** for special items/traits, written in the dashboard
-- **Dashboard control of every command**: who can use it (everyone / staff / specific roles), which channels, on/off, description
-- **Message designer**: every announcement is editable with a live Discord-style preview, and can be opened in / imported from [Discohook](https://discohook.app)
-- Save / load / backups, and a changelog of every edit (who, what, when)
+- **Market**: the shop and player listings in one place, with a *Player market* filter. Each item has a "can be sold on the player market" switch
+- **Crafting** recipes, **`/compare @player`** (damage, clash, speed with the Realm Tier rules), trades and gifts
+- **Custom code** for special items/traits, with a full reference in the dashboard
+- **Dashboard control of every command**: who can use it, which channels, on/off, description
+- **Every panel is editable**: the character sheet, stats, inventory, market, realm, crafting, compare and all announcements are templates with a live Discord-style preview (Discohook import/export). **Every emoji and button** can be changed or removed, including custom server emojis
+- Save / load / backups, and a changelog of every edit
 
 ---
 
@@ -107,27 +109,29 @@ Anyone who knows those can log in; you can also create one account per editor in
 
 ## Commands
 
-Only 15 commands — most things happen through buttons in `/menu`.
+17 commands — most things happen through buttons in `/menu`.
 
 ### Players
 | Command | What it does |
 |---|---|
 | `/submit name document [sect]` | Send your character for approval |
-| `/menu [player] [public]` | Your stat sheet + buttons: **📜 Sheet · 📊 Stats · 🎒 Inventory · ☯️ Realm · ⚒️ Craft** |
+| `/menu [player] [public]` | Your character sheet + tabs: **Sheet · Stats · Inventory · Market · Realm** |
+| `/market [show]` | Opens the menu on the Market (everything / player market only / shop only) |
+| `/consume pill` | Consume one of your pills or elixirs |
+| `/equip weapon` | Choose your main weapon |
 | `/progress link summary [breakthrough]` | Submit a finished RP or fight for rewards |
 | `/trade player …` | Trade items / Nyang. Ask for nothing in return to **gift** |
-| `/market list · view · buy · cancel` | Sell items to anyone |
-| `/compare first second` | Damage, Clash and Speed between two characters |
+| `/compare player [against]` | Damage, Clash and Speed between your character and theirs (or two other players) |
 | `/item name` | Read any item's description |
 | `/purify` | Feng Shui purification calculator |
 | `/help` | How to play |
 
 **Inside `/menu`:**
-- **📜 Sheet** — the full stat sheet. New characters also get a picker to choose their title Stem once.
-- **📊 Stats** — `+1` / `+5` buttons for each stat, **✏️ Spend points…** (a form with all four stats), **⌨️ Type in chat** (5 minutes of typing `strength 5` lines), **↩️ Undo**, remaining points and the 50% limit. Also "Forget a martial art".
-- **🎒 Inventory** — pick an item to **Consume** (pills), **Learn** (manuals / cultivation methods / qi cores) or **Sell**; **🎲 Roll** for a drop; **🏮 Shop** to buy.
-- **☯️ Realm** — requirements with ✅/❌, the exact breakthrough chance, and the **Attempt Realm Breakthrough** button (asks to confirm).
-- **⚒️ Craft** — recipes you can make right now are marked ✅.
+- **Sheet** — the full character sheet.
+- **Stats** — `+1` / `+5` buttons for each stat, **Spend points…** (a form with all four stats), **Type in chat** (5 minutes of typing `strength 5` lines), **Undo**, remaining points and the 50% limit. Also "Forget a martial art".
+- **Inventory** — pick an item to **Consume**, **Learn**, **Equip**, **Sell to shop** or **List on market**; **Roll** for a drop; **Crafting**; **Drop rates**.
+- **Market** — shop items and player listings together; filter buttons **All / Player market / Shop**. Pick an entry to buy 1 or any amount; your own listings have **Take down**.
+- **Realm** — requirements with ✅/❌, the exact breakthrough chance, and **Attempt Realm Breakthrough** (asks to confirm).
 
 `/menu` is private by default (only you see it); `public:true` shows it in the channel. Only the person who opened a menu can press its buttons.
 
@@ -136,16 +140,34 @@ Only 15 commands — most things happen through buttons in `/menu`.
 
 | Command | What it does |
 |---|---|
-| Approve / Reject buttons on applications, or `/approve player name` | Creates the sheet, gives starting points and base roles |
+| Approve / Reject buttons on applications, or `/approve player name` | Creates the sheet, gives starting points, the Default Weapon and base roles |
 | `/give all @player 25` | 25 points for Strength / Endurance / Mobility only |
 | `/give allqi @player 25` | 25 points usable in any stat, **including Qi** |
 | `/give qi @player 1` | A Breakthrough: Qi directly, resets Impurity |
-| `/give nyang · rolls · qibars · item` | Currency, drop rolls, bonus Qi Bars, items |
-| `/take all · allqi · stat · nyang · rolls · qibars · item` | Remove any of those. `/take stat` lowers a stat; `refund:true` gives the points back to re-spend (respec) |
+| `/give nyang · rolls · qibars · item` | Currency, drop rolls, bonus Qi Bars, items (only staff can hand out items) |
+| `/take all · allqi · stat · nyang · rolls · qibars · item` | Remove any of those. `/take stat` lowers a stat; `refund:true` gives the points back to re-spend |
 | **Grant reward** button on progress posts | Same as `/give`, from a form |
 | `/impurity add · remove · reset` | `poison:true` never bursts meridians unless `can_burst:true` |
-| `/title player prefix stem suffix` | Set titles (`none` clears a part) |
+| `/title player title` | Set a title exactly as typed (`none` removes it) |
 | `/admin backup · dashboard · sync` | Backup now, dashboard link, re-send commands to Discord |
+
+## Weapons
+
+- Item type **weapon** with a **grade** (Default, Spiritual Treasure, Dharma Treasure, Numinous Treasure, Immortal Treasure) and optional **bonuses while equipped** (Strength, Endurance, Mobility, Qi, Qi Bars). Anything more complex: attach custom code to the weapon.
+- New characters receive the **Default Weapon** and have it equipped. Pick a different default in Settings.
+- Players equip from `/equip` or Inventory → item → **Equip**. If they trade the weapon away, they fall back to the Default Weapon.
+- Bonuses only change the *shown* stats (they don't count toward caps or the 50% rule). Changed stats are __underlined__ and listed in the sheet's **Bonuses** field.
+
+## Pills, absorption and impurity
+
+`/consume` (or Inventory → Consume) shows each step, for example:
+```
+Yield: 10 Qi
+Absorption: +20% (Wood +20%) → +2 Qi
+Gained: +12 Qi (now 46)
+Impurity: 15 − 30% (cultivation) → 10.5 · now 30.5 (4.5 shaved off)
+```
+Cultivation methods and Qi cores have a general **absorption %**, per-element **affinity %**, and a **pill impurity reduction %** (best positive value + all negatives, like absorption). A pill with negative impurity is a detox pill and removes impurity.
 
 ## Command permissions (Dashboard → Commands)
 
@@ -160,11 +182,15 @@ Make the submissions channel visible only to staff / approvers in Discord's chan
 
 ## Messages (Dashboard → Messages)
 
-Every announcement — Progression Report, Deduction Report, application post, approved/rejected, progress post, breakthrough success/failure, drop roll, crafting — can be redesigned:
+Every panel — the **character sheet**, stats, inventory, item details, market, realm, crafting, drop rates, pill results, `/compare` — and every announcement can be redesigned:
 - Edit text, embed color, author, title, description, fields, images and footer with a **live Discord-style preview**.
 - Click a placeholder chip like `{player}` to insert it; it's filled in when the bot sends the message.
 - **Open in Discohook** opens the current design in discohook.app; design it there, copy the JSON from Discohook's *JSON Data Editor* and use **Import JSON**. Placeholders survive the round trip.
 - **Send test** posts a sample in a channel (mentions never ping), **Reset to default** restores the original.
+- Fields whose value comes out empty are hidden automatically (e.g. *Bonuses* when there are none).
+- The preview also shows the panel's **buttons**.
+
+**Emojis & Buttons** (top of the Messages tab): change or remove every emoji (Strength, Qi, Qi Bars, Impurity, Nyang…) and every button's label and emoji. For a custom server emoji, type `\:name:` in Discord, send it, and paste the result (`<:name:123456789012345678>`). In any message, `{e.strength}`, `{e.qi}` etc. insert those emojis.
 
 Default Progression Report:
 ```
@@ -229,7 +255,7 @@ Poison impurity (`/impurity add poison:true`) never triggers the burst unless `c
 
 ## Custom code (Custom Code tab)
 
-Some items and traits need real mechanics. Write a script in the dashboard, then attach it to an item (*Items → Custom code*) or a trait (*Special Traits*). It runs for every character who knows that item / has that trait.
+Some items and traits need real mechanics. Write a script in the dashboard, then attach it to an item (*Items → Custom code*) or a trait (*Special Traits*). It runs for every character who has the trait, knows the cultivation method / qi core / martial art, has the weapon equipped, or is consuming the pill. **The Custom Code tab has a complete reference** (every hook, every field of `ctx`, `fx` and pill results, plus ready-made recipes), so staff never need to look at GitHub.
 
 ```js
 hooks.effects = (ctx, fx) => {            // sheet effects & impurity drawbacks

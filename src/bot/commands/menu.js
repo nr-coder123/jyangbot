@@ -1,46 +1,94 @@
 'use strict';
 /**
- * /menu — the one place players need. Opens their stat sheet with buttons:
- *   📜 Sheet · 📊 Stats (spend points) · 🎒 Inventory (use/learn/sell, roll, shop) · ☯️ Realm (breakthrough) · ⚒️ Craft
+ * /menu — the one place players need. Opens their character sheet with tabs:
+ *   Sheet · Stats (spend points) · Inventory (consume, learn, equip, sell, list, roll, craft) · Market · Realm
+ * /market opens the same menu on the Market tab.
  *
  * Custom ids: m:<v|a|s>:<viewerId>:<charId>:<name>[:<arg>[:<arg2>]]   (v = view, a = action, s = select)
  *             mm:<modal>:<viewerId>:<charId>[:<arg>]
- * Only the person who opened the menu can press its buttons; only the owner can change the character.
+ * A "~n" suffix is added automatically if two components would share an id (Discord forbids that).
  */
 const {
-  SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
-  ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags,
+  SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, StringSelectMenuBuilder,
+  ModalBuilder, TextInputBuilder, TextInputStyle, MessageFlags, parseEmoji,
 } = require('discord.js');
 const store = require('../../store');
 const stats = require('../../engine/stats');
-const effects = require('../../engine/effects');
 const chars = require('../../engine/characters');
 const economy = require('../../engine/economy');
 const rolls = require('../../engine/rolls');
 const crafting = require('../../engine/crafting');
+const ui = require('../../engine/ui');
+const weapons = require('../../engine/weapons');
 const allocation = require('../allocation');
 const botStatus = require('../status');
-const { sheetEmbed, itemEmbed, inventoryEmbed, itemIcon } = require('../render');
+const panels = require('../panels');
 const { EPH, actor, requireChar, requireAccess, message, sendToChannel } = require('../util');
 const { UserError, fmt, truncate, clone } = require('../../utils');
 
 const menu = new SlashCommandBuilder()
   .setName('menu')
-  .setDescription('Your character: sheet, stats, inventory, shop, realm and crafting')
+  .setDescription('Your character: sheet, stats, inventory, market and realm')
   .addUserOption((o) => o.setName('player').setDescription("Look at another player's character"))
   .addBooleanOption((o) => o.setName('public').setDescription('Show it in the channel instead of only to you'));
 
-// ---------- helpers ----------
-const cid = (kind, ctx, name, ...args) => ['m', kind, ctx.viewer, ctx.c.id, name, ...args].join(':').slice(0, 100);
-const row = (...comps) => new ActionRowBuilder().addComponents(...comps.filter(Boolean));
-const btn = (id, label, style = ButtonStyle.Secondary, disabled = false, emoji) => {
-  const b = new ButtonBuilder().setCustomId(id).setLabel(label).setStyle(style).setDisabled(!!disabled);
-  if (emoji) b.setEmoji(emoji);
-  return b;
-};
-const S = () => store.state.settings;
-const undoStacks = new Map(); // userId -> [{ charId, snap, label }]
+const marketCmd = new SlashCommandBuilder()
+  .setName('market')
+  .setDescription('Browse the market: the shop and items other players are selling')
+  .addStringOption((o) => o.setName('show').setDescription('What to show').addChoices(
+    { name: 'Everything', value: 'all' }, { name: 'Player market only', value: 'players' }, { name: 'Shop only', value: 'shop' },
+  ));
 
+// ---------- component helpers ----------
+const st = () => store.state;
+const S = () => store.state.settings;
+const cid = (kind, ctx, name, ...args) => ['m', kind, ctx.viewer, ctx.c.id, name, ...args.map((a) => (a === undefined || a === null ? '' : a))].join(':').replace(/:+$/, '').slice(0, 95);
+const row = (...comps) => {
+  const list = comps.filter(Boolean);
+  return list.length ? new ActionRowBuilder().addComponents(...list) : null;
+};
+
+/** A button whose label/emoji come from the dashboard (Messages → Emojis & Buttons). */
+function btn(id, key, { style = ButtonStyle.Secondary, disabled = false, vars = {} } = {}) {
+  const look = ui.button(st(), key, vars);
+  const b = new ButtonBuilder().setCustomId(id).setStyle(style).setDisabled(!!disabled);
+  if (look.label) b.setLabel(look.label);
+  if (look.emoji) {
+    try { b.setEmoji(look.emoji); } catch { if (!look.label) b.setLabel(key); }
+  }
+  return b;
+}
+
+function select(id, placeholder, options) {
+  return new StringSelectMenuBuilder().setCustomId(id).setPlaceholder(truncate(placeholder, 150)).addOptions(options.slice(0, 25).map((o) => {
+    const opt = { label: truncate(o.label, 100), value: o.value, ...(o.description ? { description: truncate(o.description, 100) } : {}), ...(o.default ? { default: true } : {}) };
+    const em = o.emoji && parseEmoji(o.emoji);
+    if (em && (em.id || em.name)) opt.emoji = em.id ? { id: em.id, name: em.name, animated: !!em.animated } : { name: em.name };
+    return opt;
+  }));
+}
+
+function navRow(ctx, active) {
+  const b = (view, key) => btn(cid('v', ctx, view), key, { style: view === active ? ButtonStyle.Primary : ButtonStyle.Secondary });
+  return row(b('sheet', 'sheet'), b('stats', 'stats'), b('inv', 'inventory'), b('market', 'market'), b('realm', 'realm'));
+}
+
+/** Discord rejects duplicate custom ids in one message — make every id unique. */
+function dedupe(components) {
+  const seen = new Map();
+  for (const r of components) {
+    for (const comp of r.components) {
+      const id = comp.data.custom_id;
+      if (!id) continue;
+      const n = seen.get(id) || 0;
+      seen.set(id, n + 1);
+      if (n) comp.setCustomId(`${id}~${n}`.slice(0, 100));
+    }
+  }
+  return components;
+}
+
+const undoStacks = new Map(); // userId -> [{ charId, snap, label }]
 function pushUndo(userId, c, label) {
   const list = undoStacks.get(userId) || [];
   list.push({ charId: c.id, label, snap: clone({ stats: c.stats, pools: c.pools, impurity: c.impurity, burstApplied: c.burstApplied }) });
@@ -48,268 +96,190 @@ function pushUndo(userId, c, label) {
   undoStacks.set(userId, list);
 }
 
-function navRow(ctx, active) {
-  const b = (view, label, emoji) => btn(cid('v', ctx, view), label, view === active ? ButtonStyle.Primary : ButtonStyle.Secondary, false, emoji);
-  return row(b('sheet', 'Sheet', '📜'), b('stats', 'Stats', '📊'), b('inv', 'Inventory', '🎒'), b('realm', 'Realm', '☯️'), b('craft', 'Craft', '⚒️'));
-}
-
 // ---------- views ----------
 const VIEWS = {};
 
 VIEWS.sheet = (ctx) => {
-  const st = store.state;
-  const { c } = ctx;
+  const mine = st().characters.filter((x) => x.ownerId === ctx.c.ownerId && x.status === 'active');
   const components = [navRow(ctx, 'sheet')];
-  if (ctx.isOwner && !c.titles.stem && st.settings.titles.stems.length) {
-    components.push(row(new StringSelectMenuBuilder().setCustomId(cid('s', ctx, 'stem')).setPlaceholder('🏯 Choose your title Stem (you can pick once)')
-      .addOptions(st.settings.titles.stems.slice(0, 25).map((s) => ({ label: truncate(s, 100), value: truncate(s, 100), description: truncate(st.settings.titles.notes?.[s] || 'Fits your story or personality', 100) })))));
-  }
-  const mine = st.characters.filter((x) => x.ownerId === c.ownerId && x.status === 'active');
   if (ctx.isOwner && mine.length > 1) {
-    components.push(row(new StringSelectMenuBuilder().setCustomId(cid('s', ctx, 'switch')).setPlaceholder('🔁 Switch character')
-      .addOptions(mine.slice(0, 25).map((x) => ({ label: truncate(x.name, 100), value: x.id, default: x.id === c.id })))));
+    components.push(row(select(cid('s', ctx, 'switch'), '🔁 Switch character', mine.map((x) => ({ label: x.name, value: x.id, default: x.id === ctx.c.id })))));
   }
-  return { embeds: [sheetEmbed(c)], components };
+  return { ...panels.sheet(ctx.c), components };
 };
 
 VIEWS.stats = (ctx) => {
-  const st = store.state;
   const { c } = ctx;
-  const sh = effects.compute(st, c);
-  const line = (emoji, k) => `${emoji} **${stats.LABEL[k]}**  ${fmt(c.stats[k])}${Math.abs(sh.effStats[k] - c.stats[k]) > 1e-9 ? ` → **${fmt(sh.effStats[k])}**` : ''}`;
-  const max = stats.maxPerStat(st, c);
-  const has = c.pools.normal + c.pools.flex;
-  const e = new EmbedBuilder()
-    .setColor('#b3261e')
-    .setTitle(`📊 ${c.name} — Stats`)
-    .setDescription([
-      line('💪', 'strength'), line('🛡️', 'endurance'), line('💨', 'mobility'), line('🌀', 'qi'),
-      `Stat total: **${fmt(sh.normalTotal)}** *(Qi not counted)* · Qi Bars: **${fmt(sh.qiBars.total)}**`,
-      '',
-      '**Points to spend**',
-      `• **${fmt(c.pools.normal)}** stat points — Strength / Endurance / Mobility`,
-      `• **${fmt(c.pools.flex)}** flexible points — any stat, including Qi`,
-      max !== Infinity ? `No stat may go above **${fmt(max)}** (${st.settings.maxSingleStatPercent}% rule).` : '',
-      '',
-      `Caps for ${sh.realm.name}: ${stats.capSummary(st, c)}`,
-      ...sh.capLines,
-    ].filter((x) => x !== null).join('\n'))
-    .setFooter({ text: ctx.isOwner ? (has > 0 ? 'Tap +1 / +5, or ✏️ Spend to enter several stats at once.' : 'No points to spend — staff reward you after RPs and fights.') : `Viewing ${c.name}` });
   const components = [navRow(ctx, 'stats')];
   if (ctx.isOwner) {
-    const canNormal = (n) => c.pools.normal + c.pools.flex >= n;
-    const canQi = (n) => c.pools.flex >= n;
-    const plus = (n) => row(
-      btn(cid('a', ctx, 'add', 'strength', n), `+${n} STR`, ButtonStyle.Success, !canNormal(n), '💪'),
-      btn(cid('a', ctx, 'add', 'endurance', n), `+${n} END`, ButtonStyle.Success, !canNormal(n), '🛡️'),
-      btn(cid('a', ctx, 'add', 'mobility', n), `+${n} MOB`, ButtonStyle.Success, !canNormal(n), '💨'),
-      btn(cid('a', ctx, 'add', 'qi', n), `+${n} Qi`, ButtonStyle.Success, !canQi(n), '🌀'),
-    );
+    const has = c.pools.normal + c.pools.flex;
+    const plus = (n) => row(...stats.ALL.map((k) => btn(cid('a', ctx, 'add', k, n), 'addStat', {
+      style: ButtonStyle.Success,
+      disabled: k === 'qi' ? c.pools.flex < n : has < n,
+      vars: { n, stat: ui.statShort(st(), k), statEmoji: ui.emoji(st(), k) },
+    })));
     components.push(plus(1), plus(5));
     const undo = (undoStacks.get(ctx.viewer) || []).filter((u) => u.charId === c.id).length;
     components.push(row(
-      btn(cid('a', ctx, 'spend'), 'Spend points…', ButtonStyle.Primary, has <= 0, '✏️'),
-      botStatus.messageContent ? btn(cid('a', ctx, 'type'), 'Type in chat', ButtonStyle.Secondary, has <= 0, '⌨️') : null,
-      btn(cid('a', ctx, 'undo'), `Undo${undo ? ` (${undo})` : ''}`, ButtonStyle.Secondary, !undo, '↩️'),
+      btn(cid('a', ctx, 'spend'), 'spend', { style: ButtonStyle.Primary, disabled: has <= 0 }),
+      botStatus.messageContent ? btn(cid('a', ctx, 'type'), 'typeChat', { disabled: has <= 0 }) : null,
+      btn(cid('a', ctx, 'undo'), 'undo', { disabled: !undo }),
     ));
     const known = [...Object.entries(c.martialArts).flatMap(([cat, list]) => list.map((r) => ({ r, label: `${cat} art` }))), ...c.cultivationMethods.map((r) => ({ r, label: 'cultivation method' }))]
-      .map((x) => ({ name: chars.refName(st, x.r), label: x.label })).filter((x) => x.name);
-    if (known.length) {
-      components.push(row(new StringSelectMenuBuilder().setCustomId(cid('s', ctx, 'forget')).setPlaceholder('🍂 Forget a martial art / cultivation method (frees a slot)')
-        .addOptions(known.slice(0, 25).map((x) => ({ label: truncate(x.name, 100), value: truncate(x.name, 100), description: x.label })))));
-    }
+      .map((x) => ({ name: chars.refName(st(), x.r), label: x.label })).filter((x) => x.name);
+    if (known.length) components.push(row(select(cid('s', ctx, 'forget'), '🍂 Forget a martial art / cultivation method (frees a slot)', known.map((x) => ({ label: x.name, value: truncate(x.name, 100), description: x.label })))));
   }
-  return { embeds: [e], components };
+  return { ...panels.statsPanel(c, ctx.isOwner), components };
 };
 
 VIEWS.inv = (ctx) => {
-  const st = store.state;
   const { c } = ctx;
-  const owned = Object.entries(c.inventory).map(([id, q]) => ({ it: st.items.find((i) => i.id === id), q })).filter((x) => x.it && x.q > 0)
-    .sort((a, b) => a.it.name.localeCompare(b.it.name));
+  const owned = panels.ownedItems(c).sort((a, b) => a.it.name.localeCompare(b.it.name));
   const components = [navRow(ctx, 'inv')];
   if (owned.length) {
-    components.push(row(new StringSelectMenuBuilder().setCustomId(cid('s', ctx, 'item')).setPlaceholder('🔎 Pick an item to see, use, learn or sell')
-      .addOptions(owned.slice(0, 25).map((x) => ({ label: truncate(`${x.it.name} ×${x.q}`, 100), value: x.it.id, description: truncate(`${x.it.rarity} ${x.it.type}`, 100) })))));
-  }
-  if (ctx.isOwner) {
-    components.push(row(
-      btn(cid('a', ctx, 'roll'), `Roll for a drop (${c.rolls})`, ButtonStyle.Success, c.rolls < 1, '🎲'),
-      btn(cid('v', ctx, 'shop', 0), 'Shop', ButtonStyle.Primary, false, '🏮'),
-      btn(cid('v', ctx, 'rates'), 'Drop rates', ButtonStyle.Secondary, false, '📈'),
-    ));
-  }
-  const e = inventoryEmbed(c);
-  if (owned.length > 25) e.setDescription(`Showing the first 25 items in the picker. Use \`/item\` to look up any item.`);
-  return { embeds: [e], components };
-};
-
-VIEWS.rates = (ctx) => {
-  const rows = rolls.chanceTable(store.state, ctx.c);
-  const e = new EmbedBuilder().setTitle('📈 Drop rates').setColor('#7a5c2e')
-    .setDescription(rows.map((r) => `${r.emoji} **${r.name}** — ${fmt(r.percent)}% · ${r.items} item(s) can drop`).join('\n'))
-    .setFooter({ text: ctx.c.sect ? `Includes ${ctx.c.sect} bonuses, if any.` : 'Each roll uses one drop roll. Staff give rolls as rewards.' });
-  return { embeds: [e], components: [navRow(ctx, 'inv'), row(btn(cid('v', ctx, 'inv'), 'Back', ButtonStyle.Secondary, false, '◀'))] };
-};
-
-VIEWS.item = (ctx, itemId) => {
-  const st = store.state;
-  const it = st.items.find((i) => i.id === itemId);
-  if (!it) return VIEWS.inv(ctx);
-  const q = economy.qtyOf(ctx.c, it.id);
-  const e = itemEmbed(it).addFields({ name: 'Owned', value: `×${q}`, inline: true });
-  const sell = economy.shopSellPrice(st, it);
-  const buttons = [];
-  if (ctx.isOwner && q > 0) {
-    if (it.type === 'pill') buttons.push(btn(cid('a', ctx, 'use', it.id), 'Consume', ButtonStyle.Success, false, '💊'));
-    if (['manual', 'cultivation', 'core'].includes(it.type)) buttons.push(btn(cid('a', ctx, 'learn', it.id), 'Learn', ButtonStyle.Success, false, '📖'));
-    if (sell > 0) buttons.push(btn(cid('a', ctx, 'sell', it.id), `Sell 1 for ${fmt(sell)}`, ButtonStyle.Secondary, false, '💰'));
-  }
-  buttons.push(btn(cid('v', ctx, 'inv'), 'Back', ButtonStyle.Secondary, false, '◀'));
-  if (ctx.isOwner && it.tradeable) e.setFooter({ text: 'To give or sell this to a player: /trade (ask 0 for a gift) or /market' });
-  return { embeds: [e], components: [navRow(ctx, 'inv'), row(...buttons)] };
-};
-
-VIEWS.shop = (ctx, page = 0) => {
-  const st = store.state;
-  const list = economy.shopItems(st);
-  const per = 20;
-  const pages = Math.max(1, Math.ceil(list.length / per));
-  page = Math.max(0, Math.min(pages - 1, Number(page) || 0));
-  const slice = list.slice(page * per, page * per + per);
-  const e = new EmbedBuilder().setTitle('🏮 Shop').setColor('#c0392b')
-    .setDescription(slice.map((it) => `${itemIcon(it)} **${it.name}** — ${S().currencyEmoji} ${fmt(it.shop.price)}${it.shop.stock >= 0 ? ` · ${it.shop.stock} left` : ''}`).join('\n') || 'The shop is empty.')
-    .setFooter({ text: `Page ${page + 1}/${pages} · Your purse: ${fmt(ctx.c.nyang)} ${S().currencyName}` });
-  const components = [navRow(ctx, 'inv')];
-  if (slice.length) {
-    components.push(row(new StringSelectMenuBuilder().setCustomId(cid('s', ctx, 'shopitem')).setPlaceholder('🛒 Pick an item to buy')
-      .addOptions(slice.map((it) => ({ label: truncate(`${it.name} — ${fmt(it.shop.price)} ${S().currencyName}`, 100), value: it.id, description: truncate(`${it.rarity} ${it.type}`, 100) })))));
+    components.push(row(select(cid('s', ctx, 'item'), '🔎 Pick an item to see, use, learn, equip or sell',
+      owned.map((x) => ({ label: `${x.it.name} ×${x.q}`, value: x.it.id, description: `${x.it.rarity} ${x.it.type}`, emoji: x.it.emoji || panels.rarityOf(x.it.rarity).emoji })))));
   }
   components.push(row(
-    btn(cid('v', ctx, 'shop', page - 1), 'Prev', ButtonStyle.Secondary, page <= 0, '⬅'),
-    btn(cid('v', ctx, 'shop', page + 1), 'Next', ButtonStyle.Secondary, page >= pages - 1, '➡'),
-    btn(cid('v', ctx, 'inv'), 'Inventory', ButtonStyle.Secondary, false, '🎒'),
+    ctx.isOwner ? btn(cid('a', ctx, 'roll'), 'roll', { style: ButtonStyle.Success, disabled: c.rolls < 1, vars: { rolls: c.rolls } }) : null,
+    btn(cid('v', ctx, 'craft'), 'craft'),
+    btn(cid('v', ctx, 'rates'), 'rates'),
   ));
-  return { embeds: [e], components };
+  return { ...panels.inventory(c), components };
 };
 
-VIEWS.shopitem = (ctx, itemId) => {
-  const it = store.state.items.find((i) => i.id === itemId && i.shop?.enabled);
-  if (!it) return VIEWS.shop(ctx, 0);
-  const e = itemEmbed(it).addFields({ name: 'Your purse', value: `${S().currencyEmoji} ${fmt(ctx.c.nyang)} ${S().currencyName}`, inline: true });
-  const p = it.shop.price;
+VIEWS.rates = (ctx) => ({ ...panels.dropRates(ctx.c), components: [navRow(ctx, 'inv'), row(btn(cid('v', ctx, 'inv'), 'back'))] });
+
+VIEWS.item = (ctx, itemId) => {
+  const it = st().items.find((i) => i.id === itemId);
+  if (!it) return VIEWS.inv(ctx);
+  const { c } = ctx;
+  const q = economy.qtyOf(c, it.id);
+  const buttons = [];
+  if (ctx.isOwner && q > 0) {
+    if (it.type === 'pill') buttons.push(btn(cid('a', ctx, 'use', it.id), 'consume', { style: ButtonStyle.Success }));
+    if (['manual', 'cultivation', 'core'].includes(it.type)) buttons.push(btn(cid('a', ctx, 'learn', it.id), 'learn', { style: ButtonStyle.Success }));
+    if (it.type === 'weapon') {
+      const equipped = weapons.mainWeapon(st(), c)?.id === it.id;
+      buttons.push(btn(cid('a', ctx, 'equip', it.id), 'equip', { style: ButtonStyle.Success, disabled: equipped }));
+    }
+    const sell = economy.shopSellPrice(st(), it);
+    if (sell > 0) buttons.push(btn(cid('a', ctx, 'sell', it.id), 'sellShop', { vars: { price: fmt(sell) } }));
+    if (it.tradeable && it.marketable) buttons.push(btn(cid('a', ctx, 'list', it.id), 'list'));
+  }
+  return { ...panels.itemInfo(it, c), components: [navRow(ctx, 'inv'), row(...buttons.slice(0, 5)), row(btn(cid('v', ctx, 'inv'), 'back'))].filter(Boolean) };
+};
+
+VIEWS.market = (ctx, filter = 'all', page = 0) => {
+  filter = ['all', 'players', 'shop'].includes(filter) ? filter : 'all';
+  const m = panels.market(ctx.c, filter, page);
+  const components = [navRow(ctx, 'market')];
+  if (m.slice.length) {
+    components.push(row(select(cid('s', ctx, 'entry', filter), '🛒 Pick something to buy', m.slice.map((x) => ({
+      label: `${x.it.name}${x.kind === 'L' ? ` ×${x.qty}` : ''} — ${fmt(x.price)} ${S().currencyName}`,
+      value: `${x.kind}.${x.id}`,
+      description: x.kind === 'S' ? `Shop · ${x.it.rarity} ${x.it.type}` : `Player: ${x.seller?.name || '?'} · ${x.it.rarity} ${x.it.type}`,
+      emoji: x.kind === 'S' ? ui.emoji(st(), 'shop') : ui.emoji(st(), 'player'),
+    })))));
+  }
+  const f = (key, value) => btn(cid('v', ctx, 'market', value, 0), key, { style: filter === value ? ButtonStyle.Primary : ButtonStyle.Secondary });
+  components.push(row(
+    f('filterAll', 'all'), f('filterPlayers', 'players'), f('filterShop', 'shop'),
+    m.pages > 1 ? btn(cid('v', ctx, 'market', filter, m.page - 1), 'prev', { disabled: m.page <= 0 }) : null,
+    m.pages > 1 ? btn(cid('v', ctx, 'market', filter, m.page + 1), 'next', { disabled: m.page >= m.pages - 1 }) : null,
+  ));
+  return { content: m.content, embeds: m.embeds, components };
+};
+
+VIEWS.entry = (ctx, key, filter = 'all') => {
+  const entry = panels.findEntry(key);
+  if (!entry) return VIEWS.market(ctx, filter, 0);
+  const { c } = ctx;
+  const own = entry.kind === 'L' && entry.listing.sellerUserId === ctx.viewer;
+  const canBuy = ctx.isOwner && !own && c.nyang >= entry.price && entry.qty !== 0;
   return {
-    embeds: [e],
-    components: [navRow(ctx, 'inv'), row(
-      btn(cid('a', ctx, 'buy', it.id, 1), `Buy 1 (${fmt(p)})`, ButtonStyle.Success, !ctx.isOwner || ctx.c.nyang < p, '🛒'),
-      btn(cid('a', ctx, 'buy', it.id, 5), `Buy 5 (${fmt(p * 5)})`, ButtonStyle.Success, !ctx.isOwner || ctx.c.nyang < p * 5),
-      btn(cid('a', ctx, 'buyq', it.id), 'Buy amount…', ButtonStyle.Secondary, !ctx.isOwner),
-      btn(cid('v', ctx, 'shop', 0), 'Shop', ButtonStyle.Secondary, false, '◀'),
+    ...panels.marketEntry(c, entry),
+    components: [navRow(ctx, 'market'), row(
+      !own ? btn(cid('a', ctx, 'buy', key, 1), 'buy1', { style: ButtonStyle.Success, disabled: !canBuy, vars: { price: fmt(entry.price) } }) : null,
+      !own ? btn(cid('a', ctx, 'buyq', key), 'buyAmount', { disabled: !ctx.isOwner || entry.qty === 0 }) : null,
+      own ? btn(cid('a', ctx, 'unlist', entry.id), 'unlist', { style: ButtonStyle.Danger }) : null,
+      btn(cid('v', ctx, 'market', filter, 0), 'back'),
     )],
   };
 };
 
 VIEWS.realm = (ctx, confirm) => {
-  const st = store.state;
-  const { c } = ctx;
-  const sh = effects.compute(st, c);
-  const chk = stats.breakthroughCheck(st, c);
-  const ch = chars.breakthroughChance(st, c);
-  const mark = (ok) => (ok ? '✅' : '❌');
-  const ladder = st.realms.map((r, idx) => `${idx === c.realm ? '▶' : idx < c.realm ? '·' : '　'} ${idx === c.realm ? `**${r.name}**` : r.name}`).join('\n');
-  const e = new EmbedBuilder().setColor('#6a4c93').setTitle(`☯️ ${c.name} — ${sh.realm.name}`).setDescription([
-    `Qi Bars: **${fmt(sh.qiBars.total)}** · Stat total: **${fmt(sh.normalTotal)}** · Qi: **${fmt(c.stats.qi)}**`,
-    stats.capSummary(st, c),
-    ...sh.capLines,
-    '',
-    chk.next
-      ? [`**Next realm: ${chk.next.name}**`,
-        `${mark(sh.normalTotal >= chk.next.reqStats)} ${fmt(chk.next.reqStats)} stat points`,
-        `${mark(c.stats.qi >= chk.next.reqQi)} ${fmt(chk.next.reqQi)} Qi`,
-        '',
-        `**Breakthrough chance: ${fmt(ch.total)}%**`,
-        `-# Base ${fmt(ch.base)}%${ch.pills ? ` · pills +${fmt(ch.pills)}%` : ''}${ch.scriptDelta ? ` · effects ${ch.scriptDelta > 0 ? '+' : ''}${fmt(ch.scriptDelta)}%` : ''} — consume breakthrough pills first to raise it.`].join('\n')
-      : '🏔️ You have reached the final realm.',
-  ].join('\n')).addFields({ name: 'Realms', value: truncate(ladder, 1024) });
+  const r = panels.realm(ctx.c);
   const components = [navRow(ctx, 'realm')];
-  if (ctx.isOwner && chk.next) {
+  if (ctx.isOwner && r.check.next) {
     components.push(confirm
-      ? row(btn(cid('a', ctx, 'btgo'), `Yes — attempt (${fmt(ch.total)}%)`, ButtonStyle.Danger, false, '🌟'), btn(cid('v', ctx, 'realm'), 'Cancel', ButtonStyle.Secondary))
-      : row(btn(cid('v', ctx, 'realm', 'confirm'), 'Attempt Realm Breakthrough', ButtonStyle.Success, !chk.ok, '🌟')));
+      ? row(btn(cid('a', ctx, 'btgo'), 'confirm', { style: ButtonStyle.Danger, vars: { chance: fmt(r.chance.total) } }), btn(cid('v', ctx, 'realm', 'no'), 'cancel'))
+      : row(btn(cid('v', ctx, 'realm', 'confirm'), 'breakthrough', { style: ButtonStyle.Success, disabled: !r.check.ok })));
   }
-  return { embeds: [e], components };
+  return { content: r.content, embeds: r.embeds, components };
 };
 
 VIEWS.craft = (ctx, page = 0) => {
-  const st = store.state;
-  const list = st.recipes.filter((r) => r.enabled);
-  const per = 20;
-  const pages = Math.max(1, Math.ceil(list.length / per));
-  page = Math.max(0, Math.min(pages - 1, Number(page) || 0));
-  const slice = list.slice(page * per, page * per + per);
-  const lines = slice.map((r) => `${crafting.check(st, ctx.c, r).ok ? '✅' : '▫️'} **${r.name}** — ${crafting.describe(st, r)}`);
-  const e = new EmbedBuilder().setTitle('⚒️ Crafting').setColor('#2e8b57')
-    .setDescription(truncate(lines.join('\n') || 'No recipes yet. Staff add them in the dashboard.', 4096))
-    .setFooter({ text: `✅ = you can craft it now · Page ${page + 1}/${pages}` });
-  const components = [navRow(ctx, 'craft')];
-  if (slice.length) {
-    components.push(row(new StringSelectMenuBuilder().setCustomId(cid('s', ctx, 'recipe')).setPlaceholder('⚒️ Pick a recipe')
-      .addOptions(slice.map((r) => ({ label: truncate(r.name, 100), value: r.id, description: truncate(crafting.describe(st, r), 100) })))));
-  }
-  if (pages > 1) components.push(row(btn(cid('v', ctx, 'craft', page - 1), 'Prev', ButtonStyle.Secondary, page <= 0, '⬅'), btn(cid('v', ctx, 'craft', page + 1), 'Next', ButtonStyle.Secondary, page >= pages - 1, '➡')));
-  return { embeds: [e], components };
+  const m = panels.craftList(ctx.c, page);
+  const components = [navRow(ctx, 'inv')];
+  if (m.slice.length) components.push(row(select(cid('s', ctx, 'recipe'), '⚒️ Pick a recipe', m.slice.map((r) => ({ label: r.name, value: r.id, description: crafting.describe(st(), r) })))));
+  components.push(row(
+    m.pages > 1 ? btn(cid('v', ctx, 'craft', m.page - 1), 'prev', { disabled: m.page <= 0 }) : null,
+    m.pages > 1 ? btn(cid('v', ctx, 'craft', m.page + 1), 'next', { disabled: m.page >= m.pages - 1 }) : null,
+    btn(cid('v', ctx, 'inv'), 'back'),
+  ));
+  return { content: m.content, embeds: m.embeds, components };
 };
 
 VIEWS.recipe = (ctx, recipeId) => {
-  const st = store.state;
-  const r = st.recipes.find((x) => x.id === recipeId);
+  const r = st().recipes.find((x) => x.id === recipeId);
   if (!r) return VIEWS.craft(ctx, 0);
-  const chk = crafting.check(st, ctx.c, r);
-  const e = new EmbedBuilder().setTitle(`⚒️ ${r.name}`).setColor('#2e8b57').setDescription(truncate([
-    r.description,
-    '**Needs**',
-    ...chk.inputs.map((x) => `${x.have >= x.need ? '✅' : '❌'} ${x.need}× ${x.item?.name || '?'} *(you have ${x.have})*`),
-    r.nyangCost ? `${ctx.c.nyang >= r.nyangCost ? '✅' : '❌'} ${fmt(r.nyangCost)} ${S().currencyName}` : '',
-    r.minRealm ? `${(ctx.c.realm || 0) >= r.minRealm ? '✅' : '❌'} Realm ${st.realms[r.minRealm]?.name} or higher` : '',
-    '',
-    '**Makes**',
-    ...r.outputs.map((o) => `${o.qty}× ${st.items.find((i) => i.id === o.itemId)?.name || '?'}`),
-    '',
-    `Success chance: **${fmt(r.successChance)}%**${r.successChance < 100 ? (r.consumeOnFail ? ' — materials are lost on failure' : ' — materials are kept on failure') : ''}`,
-  ].filter((x) => x !== '').join('\n'), 4096));
+  const p = panels.recipe(ctx.c, r);
   return {
-    embeds: [e],
-    components: [navRow(ctx, 'craft'), row(
-      btn(cid('a', ctx, 'craft', r.id), 'Craft', ButtonStyle.Success, !ctx.isOwner || !chk.ok, '⚒️'),
-      btn(cid('v', ctx, 'craft', 0), 'Recipes', ButtonStyle.Secondary, false, '◀'),
-    )],
+    content: p.content,
+    embeds: p.embeds,
+    components: [navRow(ctx, 'inv'), row(btn(cid('a', ctx, 'craft', r.id), 'craftDo', { style: ButtonStyle.Success, disabled: !ctx.isOwner || !p.check.ok }), btn(cid('v', ctx, 'craft', 0), 'back'))],
   };
 };
 
-function render(ctx, view, arg, notice) {
-  const v = (VIEWS[view] || VIEWS.sheet)(ctx, arg);
-  return { content: notice ? truncate(notice, 2000) : '', ...v, allowedMentions: { parse: [] } };
+/** Build a full message for a view. `notice` replaces the text above the embed; `extra` embeds go first. */
+function render(ctx, view, arg, notice, extra = [], arg2) {
+  const v = (VIEWS[view] || VIEWS.sheet)(ctx, arg, arg2);
+  return {
+    content: notice ? truncate(notice, 2000) : v.content || '',
+    embeds: [...extra, ...(v.embeds || [])].slice(0, 10),
+    components: dedupe(v.components.filter(Boolean)),
+    allowedMentions: { parse: [] },
+  };
 }
 
-// ---------- /menu ----------
-async function execute(i) {
+// ---------- commands ----------
+function openFor(i, view, arg) {
   const user = i.options.getUser('player');
   const c = user && user.id !== i.user.id ? requireChar(user.id, true) : requireChar(i.user.id);
   const ctx = { viewer: i.user.id, c, isOwner: c.ownerId === i.user.id };
   const pub = i.options.getBoolean('public') ?? !!S().menuPublicByDefault;
-  return i.reply({ ...render(ctx, 'sheet'), flags: pub ? undefined : EPH });
+  return i.reply({ ...render(ctx, view, arg), flags: pub ? undefined : EPH });
+}
+
+const executeMenu = (i) => openFor(i, 'sheet');
+const executeMarket = (i) => openFor(i, 'market', i.options.getString('show') || 'all');
+
+// ---------- interactions ----------
+function parse(i) {
+  return i.customId.replace(/~\d+$/, '').split(':');
 }
 
 function contextFrom(i, parts) {
   const [, , viewer, charId] = parts;
   if (viewer !== i.user.id) throw new UserError('This menu belongs to someone else — open your own with `/menu`.');
-  const c = store.state.characters.find((x) => x.id === charId);
+  const c = st().characters.find((x) => x.id === charId);
   if (!c) throw new UserError('That character no longer exists.');
   return { viewer, c, isOwner: c.ownerId === i.user.id };
 }
 
 function ownerOnly(ctx) {
-  if (!ctx.isOwner) throw new UserError("You can only change your own character. Open yours with `/menu`.");
+  if (!ctx.isOwner) throw new UserError('You can only change your own character. Open yours with `/menu`.');
 }
 
 const isEphemeral = (i) => !!i.message?.flags?.has?.(MessageFlags.Ephemeral);
@@ -321,41 +291,55 @@ async function announce(i, payload, { preferAnnouncements = false } = {}) {
   try { await i.channel?.send(payload); } catch {}
 }
 
+function buyEntry(i, ctx, key, qty) {
+  const state = st();
+  const { c } = ctx;
+  const entry = panels.findEntry(key);
+  if (!entry) throw new UserError('That is no longer for sale.');
+  if (entry.kind === 'S') {
+    const r = economy.buyFromShop(state, c, entry.it, qty);
+    store.log(actor(i), 'shop.buy', `${c.name} bought ${r.qty}× ${entry.it.name} for ${r.cost}`);
+    return `🛒 Bought ${r.qty}× **${entry.it.name}** for ${ui.emoji(state, 'nyang')} ${fmt(r.cost)}. Purse: ${fmt(c.nyang)}.`;
+  }
+  const r = economy.buyFromMarket(state, c, entry.listing, qty);
+  store.log(actor(i), 'market.buy', `${c.name} bought ${qty}× ${entry.it.name} from ${r.seller?.name} for ${r.cost}`);
+  return `🛒 Bought ${qty}× **${entry.it.name}** from **${r.seller?.name || 'a former seller'}** for ${ui.emoji(state, 'nyang')} ${fmt(r.cost)}. Purse: ${fmt(c.nyang)}.`;
+}
+
 async function onButton(i) {
   requireAccess(i, 'menu');
-  const parts = i.customId.split(':');
+  const parts = parse(i);
   const ctx = contextFrom(i, parts);
   const [, kind, , , name, arg, arg2] = parts;
-  const st = store.state;
+  const state = st();
   const { c } = ctx;
 
-  if (kind === 'v') return i.update(render(ctx, name, arg));
+  if (kind === 'v') return i.update(render(ctx, name, arg, null, [], arg2));
 
   ownerOnly(ctx);
   switch (name) {
     case 'add': {
       pushUndo(i.user.id, c, `${stats.LABEL[arg]} +${arg2}`);
       try {
-        const [r] = stats.applyAllocation(st, c, [{ stat: arg, amount: Number(arg2) }]);
+        const [r] = stats.applyAllocation(state, c, [{ stat: arg, amount: Number(arg2) }]);
         store.log(actor(i), 'stats.allocate', `${c.name}: ${stats.LABEL[r.stat]} +${fmt(r.gained)} (${fmt(r.spent)} pts)`);
-        const note = `✅ ${stats.LABEL[r.stat]} **+${fmt(r.gained)}**${r.softCapped ? ` *(soft cap: ${fmt(r.spent)} pts → ${fmt(r.gained)})*` : ''}${r.reset ? ' · Impurity reset' : ''}`;
-        return i.update(render(ctx, 'stats', null, note));
+        return i.update(render(ctx, 'stats', null, `${ui.emoji(state, 'ok')} ${stats.LABEL[r.stat]} **+${fmt(r.gained)}**${r.softCapped ? ` *(soft cap: ${fmt(r.spent)} pts → ${fmt(r.gained)})*` : ''}${r.reset ? ' · Impurity reset' : ''}`));
       } catch (e) {
         undoStacks.get(i.user.id)?.pop();
         throw e;
       }
     }
     case 'spend': {
-      const field = (id, label) => row(new TextInputBuilder().setCustomId(id).setLabel(label).setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('0'));
+      const field = (id, label) => new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId(id).setLabel(label).setStyle(TextInputStyle.Short).setRequired(false).setPlaceholder('0'));
       return i.showModal(new ModalBuilder().setCustomId(['mm', 'spend', ctx.viewer, c.id].join(':')).setTitle('Spend points').addComponents(
-        field('strength', `💪 Strength (stat + flexible points)`),
-        field('endurance', '🛡️ Endurance'),
-        field('mobility', '💨 Mobility'),
-        field('qi', `🌀 Qi (flexible points only: ${fmt(c.pools.flex)})`.slice(0, 45)),
+        field('strength', 'Strength'),
+        field('endurance', 'Endurance'),
+        field('mobility', 'Mobility'),
+        field('qi', `Qi (flexible points only: ${fmt(c.pools.flex)})`.slice(0, 45)),
       ));
     }
     case 'type': {
-      if (!botStatus.messageContent) throw new UserError('Typing in chat is turned off — use the buttons or ✏️ Spend instead.');
+      if (!botStatus.messageContent) throw new UserError('Typing in chat is turned off — use the buttons or Spend points instead.');
       const w = allocation.open(i.channel, i.user.id, c);
       return i.reply({ content: `⌨️ For the next ${w.minutes} minutes, type your stats in this channel, e.g.\n\`\`\`\nstrength 5\nmobility 5\nqi 3\n\`\`\`\`points\` shows what's left · \`undo\` reverts · \`done\` closes.`, flags: EPH });
     }
@@ -371,67 +355,86 @@ async function onButton(i) {
     case 'roll': {
       if (c.rolls < 1) throw new UserError('You have no drop rolls. Staff give them as rewards.');
       c.rolls -= 1;
-      const r = rolls.rollDrop(st, c);
+      const r = rolls.rollDrop(state, c);
       if (!r.item) {
         c.rolls += 1;
         throw new UserError(`You rolled **${r.rarity.name}**, but no ${r.rarity.name} items can drop yet. Your roll was refunded.`);
       }
       economy.addItem(c, r.item.id, 1);
       store.log(actor(i), 'roll', `${c.name} rolled ${r.rarity.name}: ${r.item.name}`);
-      if (S().announceRolls) {
-        await announce(i, message('rollResult', { player: `<@${c.ownerId}>`, character: c.name, item: r.item.name, rarity: r.rarity.name, emoji: r.rarity.emoji || '', description: truncate(r.item.description, 500) }, { color: r.rarity.color }));
-      }
-      return i.update(render(ctx, 'item', r.item.id, `🎲 You rolled **${r.rarity.emoji || ''} ${r.rarity.name}** — **${r.item.name}**! (${c.rolls} roll(s) left)`));
+      if (S().announceRolls) await announce(i, message('rollResult', { player: `<@${c.ownerId}>`, character: c.name, item: r.item.name, rarity: r.rarity.name, emoji: r.rarity.emoji || '', description: truncate(r.item.description, 500) }, { color: r.rarity.color }));
+      return i.update(render(ctx, 'item', r.item.id, `${ui.emoji(state, 'rolls')} You rolled **${r.rarity.emoji || ''} ${r.rarity.name}** — **${r.item.name}**! (${c.rolls} roll(s) left)`));
     }
     case 'use': {
-      const it = st.items.find((x) => x.id === arg);
+      const it = state.items.find((x) => x.id === arg);
       if (!it) throw new UserError('Item not found.');
-      const r = chars.consumePill(st, c, it);
-      store.log(actor(i), 'item.use', `${c.name} consumed ${it.name}: ${r.lines.join('; ')}`);
-      const note = `💊 **${it.name}** consumed:\n${[...r.lines, ...(r.result.errors || []).map((e) => `⚠️ ${e}`)].join('\n') || 'Nothing happened.'}`;
-      return i.update(render(ctx, economy.qtyOf(c, it.id) > 0 ? 'item' : 'inv', it.id, note));
+      const r = chars.consumePill(state, c, it);
+      store.log(actor(i), 'item.use', `${c.name} consumed ${it.name}: ${r.lines.join('; ').replace(/\*/g, '')}`);
+      const result = panels.consumeResult(c, it, [...r.lines, ...(r.result.errors || []).map((e) => `${ui.emoji(state, 'warning')} ${e}`)]);
+      return i.update(render(ctx, economy.qtyOf(c, it.id) > 0 ? 'item' : 'inv', it.id, null, result.embeds));
     }
     case 'learn': {
-      const it = st.items.find((x) => x.id === arg);
+      const it = state.items.find((x) => x.id === arg);
       if (!it) throw new UserError('Item not found.');
-      const r = chars.learnItem(st, c, it);
+      const r = chars.learnItem(state, c, it);
       store.log(actor(i), 'item.learn', `${c.name} learned ${it.name}`);
       return i.update(render(ctx, 'inv', null, `📖 You learned **${it.name}**! ${r.note}`));
     }
-    case 'sell': {
-      const it = st.items.find((x) => x.id === arg);
+    case 'equip': {
+      const it = state.items.find((x) => x.id === arg);
       if (!it) throw new UserError('Item not found.');
-      const r = economy.sellToShop(st, c, it, 1);
+      weapons.equip(state, c, it);
+      store.log(actor(i), 'item.equip', `${c.name} equipped ${it.name}`);
+      return i.update(render(ctx, 'item', it.id, `${ui.emoji(state, 'weapon')} **${it.name}** is now your main weapon.`));
+    }
+    case 'sell': {
+      const it = state.items.find((x) => x.id === arg);
+      if (!it) throw new UserError('Item not found.');
+      const r = economy.sellToShop(state, c, it, 1);
       store.log(actor(i), 'shop.sell', `${c.name} sold 1× ${it.name} for ${r.total}`);
-      return i.update(render(ctx, economy.qtyOf(c, it.id) > 0 ? 'item' : 'inv', it.id, `💰 Sold **${it.name}** for ${S().currencyEmoji} ${fmt(r.total)}. Purse: ${fmt(c.nyang)}.`));
+      return i.update(render(ctx, economy.qtyOf(c, it.id) > 0 ? 'item' : 'inv', it.id, `💰 Sold **${it.name}** for ${ui.emoji(state, 'nyang')} ${fmt(r.total)}. Purse: ${fmt(c.nyang)}.`));
+    }
+    case 'list': {
+      const it = state.items.find((x) => x.id === arg);
+      if (!it) throw new UserError('Item not found.');
+      if (!it.tradeable || !it.marketable) throw new UserError(`**${it.name}** can't be sold on the player market.`);
+      const input = (id, label, value) => new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId(id).setLabel(label).setStyle(TextInputStyle.Short).setRequired(true).setValue(value));
+      return i.showModal(new ModalBuilder().setCustomId(['mm', 'list', ctx.viewer, c.id, it.id].join(':')).setTitle(truncate(`Sell ${it.name}`, 45)).addComponents(
+        input('price', `Price per item (${S().currencyName})`.slice(0, 45), String(economy.shopSellPrice(state, it) || it.shop?.price || 10)),
+        input('qty', `How many? (you have ${economy.qtyOf(c, it.id)})`.slice(0, 45), '1'),
+      ));
     }
     case 'buy': {
-      const it = st.items.find((x) => x.id === arg);
-      if (!it) throw new UserError('Item not found.');
-      const r = economy.buyFromShop(st, c, it, Number(arg2) || 1);
-      store.log(actor(i), 'shop.buy', `${c.name} bought ${r.qty}× ${it.name} for ${r.cost}`);
-      return i.update(render(ctx, 'shopitem', it.id, `🛒 Bought ${r.qty}× **${it.name}** for ${S().currencyEmoji} ${fmt(r.cost)}. Purse: ${fmt(c.nyang)}.`));
+      const note = buyEntry(i, ctx, arg, Number(arg2) || 1);
+      return i.update(render(ctx, panels.findEntry(arg) ? 'entry' : 'market', arg, note));
     }
     case 'buyq': {
       return i.showModal(new ModalBuilder().setCustomId(['mm', 'buyq', ctx.viewer, c.id, arg].join(':')).setTitle('How many?').addComponents(
-        row(new TextInputBuilder().setCustomId('qty').setLabel('Quantity').setStyle(TextInputStyle.Short).setRequired(true).setValue('1')),
+        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('qty').setLabel('Quantity').setStyle(TextInputStyle.Short).setRequired(true).setValue('1')),
       ));
     }
+    case 'unlist': {
+      const l = state.market.find((x) => x.id === arg);
+      if (!l) throw new UserError('That listing is gone.');
+      if (l.sellerUserId !== i.user.id) throw new UserError('That is not your listing.');
+      economy.cancelListing(state, l);
+      store.log(actor(i), 'market.cancel', `${c.name} took down ${l.qty}× ${state.items.find((x) => x.id === l.itemId)?.name}`);
+      return i.update(render(ctx, 'market', 'players', '🗑️ Listing taken down — the items are back in your inventory.'));
+    }
     case 'btgo': {
-      const r = chars.attemptBreakthrough(st, c);
+      const r = chars.attemptBreakthrough(state, c);
       store.log(actor(i), 'realm.breakthrough', `${c.name}: ${r.from} → ${r.to} ${r.success ? 'SUCCESS' : 'FAILED'} (rolled ${fmt(r.roll)} vs ${fmt(r.chance.total)}%)`);
       const vars = { player: `<@${c.ownerId}>`, character: c.name, from: r.from, realm: r.to, chance: fmt(r.chance.total), roll: fmt(r.roll) };
-      const msg = message(r.success ? 'breakthroughSuccess' : 'breakthroughFail', vars, { ping: [c.ownerId] });
-      if (S().announceBreakthroughs) await announce(i, msg, { preferAnnouncements: true });
+      if (S().announceBreakthroughs) await announce(i, message(r.success ? 'breakthroughSuccess' : 'breakthroughFail', vars, { ping: [c.ownerId] }), { preferAnnouncements: true });
       const note = r.success
         ? `🌟 **Breakthrough!** You reached **${r.to}** (rolled ${fmt(r.roll)} under ${fmt(r.chance.total)}%).`
         : `💢 You failed to reach **${r.to}** (rolled ${fmt(r.roll)}, needed under ${fmt(r.chance.total)}%).${r.failImpurity ? ` Backlash: Impurity now ${fmt(r.failImpurity.impurity)}.` : ''}`;
       return i.update(render(ctx, 'realm', null, note));
     }
     case 'craft': {
-      const recipe = st.recipes.find((x) => x.id === arg);
+      const recipe = state.recipes.find((x) => x.id === arg);
       if (!recipe) throw new UserError('Recipe not found.');
-      const r = crafting.craft(st, c, recipe);
+      const r = crafting.craft(state, c, recipe);
       const items = r.outputs.map((o) => `${o.qty}× ${o.item?.name}`).join(', ');
       store.log(actor(i), 'craft', `${c.name}: ${recipe.name} ${r.success ? 'success' : 'FAILED'} (${items})`);
       if (S().announceCrafting) await announce(i, message(r.success ? 'craftSuccess' : 'craftFail', { player: `<@${c.ownerId}>`, character: c.name, recipe: recipe.name, items }));
@@ -443,34 +446,26 @@ async function onButton(i) {
 }
 
 async function onSelect(i) {
-  // Select menus share the "m" prefix; route by kind.
   requireAccess(i, 'menu');
-  const parts = i.customId.split(':');
+  const parts = parse(i);
   const ctx = contextFrom(i, parts);
   const name = parts[4];
   const value = i.values[0];
-  const st = store.state;
-  const { c } = ctx;
+  const state = st();
   if (name === 'item') return i.update(render(ctx, 'item', value));
-  if (name === 'shopitem') return i.update(render(ctx, 'shopitem', value));
+  if (name === 'entry') return i.update(render(ctx, 'entry', value, null, [], parts[5] || 'all'));
   if (name === 'recipe') return i.update(render(ctx, 'recipe', value));
   ownerOnly(ctx);
-  if (name === 'stem') {
-    if (c.titles.stem) throw new UserError(`You already have the stem **${c.titles.stem}**. Ask staff to change it.`);
-    if (!st.settings.titles.stems.includes(value)) throw new UserError('Pick a stem from the list.');
-    c.titles.stem = value;
-    store.log(actor(i), 'title.stem', `${c.name} chose ${value}`);
-    return i.update(render(ctx, 'sheet', null, `🏯 You are now known as **${chars.titleString(st, c)}**.`));
-  }
+  const { c } = ctx;
   if (name === 'switch') {
-    const next = st.characters.find((x) => x.id === value && x.ownerId === i.user.id && x.status === 'active');
+    const next = state.characters.find((x) => x.id === value && x.ownerId === i.user.id && x.status === 'active');
     if (!next) throw new UserError('Character not found.');
-    st.users[i.user.id] = { ...(st.users[i.user.id] || {}), activeCharacterId: next.id };
+    state.users[i.user.id] = { ...(state.users[i.user.id] || {}), activeCharacterId: next.id };
     store.markDirty();
     return i.update(render({ ...ctx, c: next }, 'sheet', null, `🔁 Active character: **${next.name}**`));
   }
   if (name === 'forget') {
-    const r = chars.forget(st, c, value);
+    const r = chars.forget(state, c, value);
     store.log(actor(i), 'item.forget', `${c.name} forgot ${r.name}`);
     return i.update(render(ctx, 'stats', null, `🍂 Forgot the ${r.label} **${r.name}**.`));
   }
@@ -482,37 +477,42 @@ async function onModal(i) {
   const parts = i.customId.split(':');
   const ctx = contextFrom(i, ['m', 'x', parts[2], parts[3]]);
   ownerOnly(ctx);
-  const st = store.state;
+  const state = st();
   const { c } = ctx;
+  const numIn = (k) => Number(String(i.fields.getTextInputValue(k) || '0').replace(',', '.'));
   if (parts[1] === 'spend') {
-    const entries = stats.ALL.map((k) => ({ stat: k, amount: Number(String(i.fields.getTextInputValue(k) || '0').replace(',', '.')) || 0 })).filter((e) => e.amount > 0);
+    const entries = stats.ALL.map((k) => ({ stat: k, amount: numIn(k) || 0 })).filter((e) => e.amount > 0);
     if (!entries.length) throw new UserError('Type a number in at least one box.');
     pushUndo(i.user.id, c, entries.map((e) => `${stats.LABEL[e.stat]} +${e.amount}`).join(', '));
     try {
-      const res = stats.applyAllocation(st, c, entries);
+      const res = stats.applyAllocation(state, c, entries);
       store.log(actor(i), 'stats.allocate', `${c.name}: ${res.map((r) => `${stats.LABEL[r.stat]} +${fmt(r.gained)} (${fmt(r.spent)} pts)`).join(', ')}`);
-      const note = `✅ ${res.map((r) => `${stats.LABEL[r.stat]} **+${fmt(r.gained)}**${r.softCapped ? ' *(soft cap)*' : ''}`).join(' · ')}`;
-      return i.update(render(ctx, 'stats', null, note));
+      return i.update(render(ctx, 'stats', null, `${ui.emoji(state, 'ok')} ${res.map((r) => `${stats.LABEL[r.stat]} **+${fmt(r.gained)}**${r.softCapped ? ' *(soft cap)*' : ''}`).join(' · ')}`));
     } catch (e) {
       undoStacks.get(i.user.id)?.pop();
       throw e;
     }
   }
   if (parts[1] === 'buyq') {
-    const it = st.items.find((x) => x.id === parts[4]);
+    const note = buyEntry(i, ctx, parts[4], Math.floor(numIn('qty')));
+    return i.update(render(ctx, panels.findEntry(parts[4]) ? 'entry' : 'market', parts[4], note));
+  }
+  if (parts[1] === 'list') {
+    const it = state.items.find((x) => x.id === parts[4]);
     if (!it) throw new UserError('Item not found.');
-    const r = economy.buyFromShop(st, c, it, Number(i.fields.getTextInputValue('qty')));
-    store.log(actor(i), 'shop.buy', `${c.name} bought ${r.qty}× ${it.name} for ${r.cost}`);
-    return i.update(render(ctx, 'shopitem', it.id, `🛒 Bought ${r.qty}× **${it.name}** for ${S().currencyEmoji} ${fmt(r.cost)}. Purse: ${fmt(c.nyang)}.`));
+    const l = economy.listOnMarket(state, c, it, Math.floor(numIn('qty')), numIn('price'));
+    store.log(actor(i), 'market.list', `${c.name}: ${l.qty}× ${it.name} @ ${l.price}`);
+    return i.update(render(ctx, 'entry', `L.${l.id}`, `🏷️ Listed ${l.qty}× **${it.name}** at ${ui.emoji(state, 'nyang')} ${fmt(l.price)} each. Anyone can buy it from the Market.`, [], 'players'));
   }
 }
 
-async function onComponent(i) {
-  return i.isAnySelectMenu() ? onSelect(i) : onButton(i);
-}
+const onComponent = (i) => (i.isAnySelectMenu() ? onSelect(i) : onButton(i));
 
 module.exports = {
-  commands: [{ data: menu, execute }],
+  commands: [
+    { data: menu, execute: executeMenu },
+    { data: marketCmd, execute: executeMarket },
+  ],
   buttons: { m: onComponent },
   modals: { mm: onModal },
   render,

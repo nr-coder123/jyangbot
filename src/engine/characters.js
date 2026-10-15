@@ -6,6 +6,7 @@ const effects = require('./effects');
 const affinity = require('./affinity');
 const economy = require('./economy');
 const scripts = require('./scripts');
+const { mainWeapon, equip } = require('./weapons');
 const { r2, fmt, num, norm, clamp, findByName, UserError } = require('../utils');
 
 const sectOf = (state, name) => (name ? state.sects.find((s) => norm(s.name) === norm(name) || norm(s.titleName) === norm(name)) : null);
@@ -20,14 +21,9 @@ function resolveRef(state, name, kind = 'item') {
 }
 const refName = (state, ref, kind) => scripts.refName(state, ref, kind);
 
-/** "Mount Hua's Rising Dragon", "Rogue Silent Viper", "Heavenly Rising Dragon"... */
+/** The character's title as typed by staff (empty = none). */
 function titleString(state, c) {
-  const t = c.titles || {};
-  const core = [t.stem, t.suffix].filter(Boolean).join(' ');
-  if (!core && !t.prefix) return '—';
-  if (t.prefix) return [t.prefix, core].filter(Boolean).join(' ');
-  const sect = sectOf(state, c.sect);
-  return `${sect ? `${sect.titleName || sect.name}'s` : 'Rogue'} ${core}`.trim();
+  return String(c.title || '').trim();
 }
 
 function activeCharacterOf(state, userId) {
@@ -61,6 +57,11 @@ function createCharacter(state, { ownerId, ownerTag, name, sect, docLink, approv
     cultivationMethods: (s.defaultCultivationMethods || []).map((n) => resolveRef(state, n)).filter(Boolean),
     qiCore: resolveRef(state, s.defaultQiCore),
   });
+  const dw = state.items.find((i) => i.id === s.defaultWeaponId);
+  if (dw) {
+    c.inventory[dw.id] = 1;
+    c.weaponId = dw.id;
+  }
   state.characters.push(c);
   state.users[ownerId] = { ...(state.users[ownerId] || {}), activeCharacterId: c.id };
   return c;
@@ -133,27 +134,39 @@ function forget(state, c, name) {
   throw new UserError(`**${c.name}** doesn't know "${name}".`);
 }
 
-/** Consume a pill: yield (with absorption), impurity, breakthrough bonus. */
+const YIELD_LABEL = { qi: 'Qi', strength: 'Strength', endurance: 'Endurance', mobility: 'Mobility', points: 'stat points', flex: 'flexible points' };
+const signed = (n) => `${n > 0 ? '+' : n < 0 ? '−' : ''}${fmt(Math.abs(n))}`;
+
+/**
+ * Consume a pill. Absorption (cultivation methods + qi core) changes the yield, impurity reduction changes
+ * the impurity, then "consume" scripts may change the result. Returns lines explaining every step.
+ */
 function consumePill(state, c, item) {
   if (item.type !== 'pill') throw new UserError(`**${item.name}** is not a pill/elixir.`);
   if (economy.qtyOf(c, item.id) < 1) throw new UserError(`You don't have **${item.name}**.`);
   const p = item.pill || {};
   const abs = affinity.absorption(state, c);
+  const elementRate = p.element ? abs.byElement[p.element] || 0 : 0;
   const rate = affinity.rateFor(abs, p.element);
-  const mult = Math.max(0, 1 + rate / 100);
-  let result = {
+  const baseYield = num(p.yieldAmount);
+  const baseImpurity = num(p.impurity);
+  const reduction = baseImpurity > 0 ? abs.impurityReduction : 0;
+  const pre = {
     yieldType: p.yieldType || 'none',
-    yieldAmount: r2(num(p.yieldAmount) * mult),
-    baseYield: num(p.yieldAmount),
-    impurity: num(p.impurity),
-    breakthroughBonus: num(p.breakthroughBonus),
+    baseYield,
     rate,
+    yieldAmount: r2(Math.max(0, baseYield * (1 + rate / 100))),
+    baseImpurity,
+    impurityReduction: reduction,
+    impurity: baseImpurity > 0 ? r2(Math.max(0, baseImpurity * (1 - reduction / 100))) : baseImpurity,
+    breakthroughBonus: num(p.breakthroughBonus),
     element: p.element || '',
     notes: [],
   };
+  let result = { ...pre };
   const chain = scripts.runChain(state, c, 'consume', result, {
     extraSources: [{ scriptId: item.scriptId, type: 'pill', name: item.name }],
-    extra: { item: { id: item.id, name: item.name, pill: p } },
+    extra: { item: { id: item.id, name: item.name, pill: p, element: p.element || '' } },
   });
   if (chain.value && typeof chain.value === 'object') result = { ...result, ...chain.value };
   result.notes = Array.isArray(result.notes) ? result.notes.map(String) : [];
@@ -161,39 +174,62 @@ function consumePill(state, c, item) {
 
   economy.removeItem(state, c, item.id, 1);
   const lines = [];
+  const label = YIELD_LABEL[result.yieldType];
   const amt = num(result.yieldAmount);
-  const rateTxt = rate ? ` *(absorption ${rate > 0 ? '+' : ''}${fmt(rate)}%)*` : '';
-  switch (result.yieldType) {
-    case 'qi': {
-      const g = stats.gainQi(state, c, amt, { resetImpurity: state.settings.pillQiResetsImpurity, source: 'pill' });
-      lines.push(`+${fmt(g.gained)} Qi${rateTxt}${g.capped ? ' — ⛔ Qi hard cap reached' : ''}${g.reset ? ' — Impurity reset' : ''}`);
-      break;
+  if (label && (baseYield || amt)) {
+    lines.push(`**Yield:** ${fmt(baseYield)} ${label}`);
+    if (rate) {
+      const why = [abs.general ? `general ${signed(abs.general)}%` : '', elementRate ? `${p.element} ${signed(elementRate)}%` : ''].filter(Boolean).join(', ');
+      lines.push(`**Absorption:** ${signed(rate)}% (${why}) → ${signed(r2(pre.yieldAmount - baseYield))} ${label}`);
     }
-    case 'strength':
-    case 'endurance':
-    case 'mobility': {
-      const g = stats.gainStat(state, c, result.yieldType, amt);
-      lines.push(`+${fmt(g)} ${stats.LABEL[result.yieldType]}${rateTxt}${g < amt ? ' — reduced by soft/hard cap' : ''}`);
-      break;
+    if (Math.abs(amt - pre.yieldAmount) > 1e-9) lines.push(`**Cultivation effects:** ${signed(r2(amt - pre.yieldAmount))} ${label}`);
+    switch (result.yieldType) {
+      case 'qi': {
+        const g = stats.gainQi(state, c, amt, { resetImpurity: state.settings.pillQiResetsImpurity, source: 'pill' });
+        let t = `**Gained:** +${fmt(g.gained)} Qi (now ${fmt(c.stats.qi)})`;
+        if (g.effective < amt) t += ` · ${fmt(r2(amt - g.effective))} lost to Qi overflow`;
+        if (g.capped) t += ` · ${fmt(r2(g.effective - g.gained))} lost to the Qi hard cap`;
+        lines.push(t);
+        if (g.reset) lines.push('🧹 Receiving Qi reset your Impurity.');
+        break;
+      }
+      case 'strength':
+      case 'endurance':
+      case 'mobility': {
+        const g = stats.gainStat(state, c, result.yieldType, amt);
+        lines.push(`**Gained:** +${fmt(g)} ${label} (now ${fmt(c.stats[result.yieldType])})${g < amt ? ` · ${fmt(r2(amt - g))} lost to the soft/hard cap` : ''}`);
+        break;
+      }
+      case 'points':
+      case 'flex': {
+        const g = stats.grantPoints(state, c, result.yieldType === 'flex' ? 'allqi' : 'all', amt);
+        lines.push(`**Gained:** +${fmt(g.granted)} ${label} to spend${g.discarded ? ` · ${fmt(g.discarded)} lost to the hard cap` : ''}`);
+        break;
+      }
+      default:
+        break;
     }
-    case 'points':
-    case 'flex': {
-      const g = stats.grantPoints(state, c, result.yieldType === 'flex' ? 'allqi' : 'all', amt);
-      lines.push(`+${fmt(g.granted)} ${result.yieldType === 'flex' ? 'flexible' : 'stat'} points to spend${rateTxt}${g.discarded ? ` (${fmt(g.discarded)} lost to the hard cap)` : ''}`);
-      break;
-    }
-    default:
-      break;
   }
   if (result.breakthroughBonus) {
     c.breakthroughBonus = r2(c.breakthroughBonus + num(result.breakthroughBonus));
-    lines.push(`+${fmt(result.breakthroughBonus)}% Realm Breakthrough chance (stored until your next attempt)`);
+    lines.push(`**Realm Breakthrough:** ${signed(num(result.breakthroughBonus))}% chance (now +${fmt(c.breakthroughBonus)}%, used on your next attempt)`);
   }
-  if (result.impurity) {
-    const imp = addImpurity(state, c, num(result.impurity));
-    lines.push(`+${fmt(result.impurity)} Impurity → **${fmt(imp.impurity)}**`);
-    if (imp.burst) lines.push(`💥 **Meridians burst!** Stats and Qi permanently reduced by ${state.settings.impurity.burstPercent}%.`);
-    if (imp.prevented) lines.push('🛡️ A cultivation effect prevented your meridians from bursting.');
+  const imp = num(result.impurity);
+  if (baseImpurity || imp) {
+    const before = c.impurity;
+    const res = addImpurity(state, c, imp);
+    let t;
+    if (imp < 0) t = `**Impurity removed:** ${fmt(-imp)} (${fmt(before)} → ${fmt(c.impurity)})`;
+    else {
+      t = `**Impurity:** ${fmt(baseImpurity)}`;
+      if (reduction) t += ` ${reduction > 0 ? '−' : '+'} ${fmt(Math.abs(reduction))}% (cultivation) → ${fmt(pre.impurity)}`;
+      if (Math.abs(imp - pre.impurity) > 1e-9) t += ` → ${fmt(imp)} (effects)`;
+      t += ` · now **${fmt(c.impurity)}**`;
+      if (baseImpurity > imp) t += ` *(${fmt(r2(baseImpurity - imp))} shaved off)*`;
+    }
+    lines.push(t);
+    if (res.burst) lines.push(`💥 **Meridians burst!** Stats and Qi permanently reduced by ${state.settings.impurity.burstPercent}%.`);
+    if (res.prevented) lines.push('🛡️ A cultivation effect prevented your meridians from bursting.');
   }
   return { result, lines: [...lines, ...result.notes] };
 }
@@ -229,6 +265,6 @@ function attemptBreakthrough(state, c) {
 }
 
 module.exports = {
-  sectOf, resolveRef, refName, titleString, activeCharacterOf, createCharacter, addImpurity, learnItem, forget,
+  sectOf, resolveRef, refName, titleString, mainWeapon, equip, activeCharacterOf, createCharacter, addImpurity, learnItem, forget,
   consumePill, breakthroughChance, attemptBreakthrough,
 };

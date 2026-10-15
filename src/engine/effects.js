@@ -5,6 +5,7 @@
 const scripts = require('./scripts');
 const stats = require('./stats');
 const affinity = require('./affinity');
+const weapons = require('./weapons');
 const { r2 } = require('../utils');
 
 function baseFx(state, c) {
@@ -54,13 +55,20 @@ function compute(state, c) {
   if (fx.statMultiplier < 1) drawbacks.push(`📉 Stats temporarily reduced by ${Math.round((1 - fx.statMultiplier) * 100)}%.`);
   if (c.burstApplied) drawbacks.push(`💥 Meridians burst — stats and Qi were permanently reduced by ${th.burstPercent}%.`);
 
+  // Bonuses that change the shown stats: equipped weapon + temporary script effects.
+  const bonuses = weapons.weaponBonuses(state, c);
+  for (const k of [...stats.ALL]) if (fx.tempStats[k]) bonuses.push({ stat: k, amount: fx.tempStats[k], source: 'Effects' });
+  if (fx.tempQiBars) bonuses.push({ stat: 'qiBars', amount: fx.tempQiBars, source: 'Effects (temporary)' });
+  const bonusOf = (k) => bonuses.filter((b) => b.stat === k && b.source !== 'Effects' && b.source !== 'Effects (temporary)').reduce((a, b) => a + b.amount, 0);
+
   const effStats = {};
-  for (const k of stats.NORMAL) effStats[k] = r2((c.stats[k] + fx.tempStats[k]) * fx.statMultiplier);
-  effStats.qi = r2(c.stats.qi + fx.tempStats.qi);
+  for (const k of stats.NORMAL) effStats[k] = r2((c.stats[k] + fx.tempStats[k] + bonusOf(k)) * fx.statMultiplier);
+  effStats.qi = r2(c.stats.qi + fx.tempStats.qi + bonusOf('qi'));
 
   const realm = stats.realmOf(state, c);
   const qiBonus = qiBarBonusFor(state, c.stats.qi);
-  const baseBars = r2((Number(realm.qiBars) || 0) + qiBonus + (Number(c.bonusQiBars) || 0) + fx.qiBarBonus);
+  const weaponBars = bonusOf('qiBars');
+  const baseBars = r2((Number(realm.qiBars) || 0) + qiBonus + (Number(c.bonusQiBars) || 0) + fx.qiBarBonus + weaponBars);
   const total = fx.qiBarsOverride !== null ? fx.qiBarsOverride : r2(baseBars + fx.tempQiBars);
 
   return {
@@ -68,11 +76,13 @@ function compute(state, c) {
     next: stats.nextRealmOf(state, c),
     normalTotal: stats.normalTotal(c),
     effStats,
+    bonuses,
+    weapon: weapons.mainWeapon(state, c),
     fx,
     drawbacks,
     notes: fx.notes,
     scriptErrors: run.errors,
-    qiBars: { base: baseBars, temp: fx.tempQiBars, total: Math.max(0, total), overridden: fx.qiBarsOverride !== null, realm: Number(realm.qiBars) || 0, fromQi: qiBonus, staff: Number(c.bonusQiBars) || 0, effects: fx.qiBarBonus },
+    qiBars: { base: baseBars, temp: fx.tempQiBars, total: Math.max(0, total), overridden: fx.qiBarsOverride !== null, realm: Number(realm.qiBars) || 0, fromQi: qiBonus, staff: Number(c.bonusQiBars) || 0, effects: fx.qiBarBonus, weapon: weaponBars },
     caps: stats.caps(state, c),
     capLines: stats.capLines(state, c),
     absorption: affinity.absorption(state, c),

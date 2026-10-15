@@ -8,6 +8,10 @@ const ITEM_TYPES = ['manual', 'cultivation', 'core', 'pill', 'poison', 'purifica
 const MANUAL_CATEGORIES = ['generic', 'core', 'special', 'forbidden'];
 const YIELD_TYPES = ['none', 'qi', 'strength', 'endurance', 'mobility', 'points', 'flex'];
 const ELEMENTS = ['Wood', 'Fire', 'Earth', 'Metal', 'Water', 'Yin', 'Yang'];
+const WEAPON_GRADES = ['Default', 'Spiritual Treasure', 'Dharma Treasure', 'Numinous Treasure', 'Immortal Treasure'];
+const BONUS_KEYS = ['strength', 'endurance', 'mobility', 'qi', 'qiBars'];
+const DEFAULT_WEAPON_ID = 'default-weapon';
+const DEFAULT_WEAPON_DESCRIPTION = 'This is a default weapon. Having this as the main weapon likely means the character is using something simple, like a normal sword, maybe a pair of them, _or whatever._ Sometimes, not even a weapon at all. No need for a specific description on what they use here.';
 
 // name, qiBars, required stats/qi to ENTER, soft cap stats/qi, hard cap stats/qi, breakthrough chance (to the NEXT realm)
 const R = (name, qiBars, reqStats, reqQi, softCapStats, softCapQi, hardCapStats, hardCapQi, breakthroughChance) => ({
@@ -135,14 +139,15 @@ hooks.qiGain = (ctx, amount) => amount * QI_GAIN_RATE;
     description: 'Shows every hook you can use. Not attached to anything.',
     enabled: true,
     code: `// Every hook is optional — delete the ones you do not need.
+// Full reference: dashboard → Custom Code → "Custom code reference".
 //
-// ctx.character  -> { name, sect, gender, realm, realmIndex, stats{strength,endurance,mobility,qi},
+// ctx.character  -> { name, sect, gender, title, realm, realmIndex, stats{strength,endurance,mobility,qi},
 //                     pools{normal,flex}, impurity, burstApplied, bonusQiBars, traits[], cultivationMethods[],
-//                     qiCore, martialArts{core,special,forbidden,generic}, titles }
+//                     qiCore, martialArts{core,special,forbidden,generic}, weapon{name,grade,bonuses}, inventory[], nyang }
 // ctx.realm      -> the character's current realm row
 // ctx.source     -> { type, name } of the item/trait this script is attached to
 // ctx.thresholds -> impurity thresholds from Settings (noRegenAt, debuffAt, burstAt ...)
-// ctx.extra      -> hook-specific info (e.g. ctx.extra.item for "consume")
+// ctx.extra      -> hook-specific info (ctx.extra.source for qiGain, ctx.extra.item for consume)
 
 // 1) Sheet effects / impurity drawbacks.
 hooks.effects = (ctx, fx) => {
@@ -164,7 +169,7 @@ hooks.qiGain = (ctx, amount) => amount;
 hooks.breakthroughChance = (ctx, chance) => chance;
 
 // 4) Result of consuming a pill. ctx.extra.item is the pill.
-// result = { yieldType, yieldAmount, impurity, breakthroughBonus, rate, notes[] }
+// result = { yieldType, baseYield, rate, yieldAmount, baseImpurity, impurityReduction, impurity, breakthroughBonus, element, notes[] }
 hooks.consume = (ctx, result) => result;
 `,
   },
@@ -269,6 +274,8 @@ const DEFAULT_SETTINGS = {
   maxChangelog: 5000,
   titles: TITLES,
   qiBarBonuses: QI_BAR_BONUSES,
+  defaultWeaponId: DEFAULT_WEAPON_ID,
+  ui: { emojis: {}, buttons: {} },
   menuPublicByDefault: false,
   announceRolls: true,
   announceCrafting: true,
@@ -285,12 +292,15 @@ function normalizeItem(i = {}) {
     emoji: i.emoji || '',
     description: i.description || '',
     tradeable: i.tradeable !== false,
+    marketable: i.marketable !== false,
     inDropPool: i.inDropPool !== false,
     dropWeight: num(i.dropWeight, 1),
     shop: { enabled: false, price: 0, stock: -1, ...(i.shop || {}) },
     sellPrice: numOrNull(i.sellPrice),
     manual: { category: 'generic', replacesCore: false, shareable: false, shareLimit: 0, ...(i.manual || {}) },
-    cultivation: { absorption: 0, affinities: {}, ...(i.cultivation || {}) },
+    cultivation: { absorption: 0, affinities: {}, impurityReduction: 0, ...(i.cultivation || {}) },
+    weapon: { grade: WEAPON_GRADES.includes(i.weapon?.grade) ? i.weapon.grade : 'Default' },
+    bonuses: Object.fromEntries(BONUS_KEYS.map((k) => [k, num(i.bonuses?.[k])])),
     pill: { yieldType: 'none', yieldAmount: 0, impurity: 0, element: '', breakthroughBonus: 0, ...(i.pill || {}) },
     poison: { tier: 1, element: '', impurity: 10, debuff: '', gimmick: '', activation: '', repeatable: false, triggersBurst: false, ...(i.poison || {}) },
     purification: { tier: 1, element: '', gimmick: '', ...(i.purification || {}) },
@@ -316,6 +326,12 @@ function normalizeRecipe(r = {}) {
   };
 }
 
+/** Old saves stored titles as prefix/stem/suffix. */
+function legacyTitle(t) {
+  if (!t || typeof t !== 'object') return '';
+  return [t.prefix, t.stem, t.suffix].filter(Boolean).join(' ');
+}
+
 function normalizeCharacter(c = {}) {
   return {
     id: c.id || newId('ch-'),
@@ -324,7 +340,8 @@ function normalizeCharacter(c = {}) {
     name: String(c.name || 'Unnamed').trim(),
     sect: c.sect || '',
     gender: c.gender || '',
-    titles: { prefix: '', stem: '', suffix: '', ...(c.titles || {}) },
+    title: typeof c.title === 'string' ? c.title : legacyTitle(c.titles),
+    weaponId: c.weaponId || '',
     realm: Number.isInteger(c.realm) ? c.realm : 0,
     stats: { strength: 0, endurance: 0, mobility: 0, qi: 0, ...(c.stats || {}) },
     pools: { normal: 0, flex: 0, ...(c.pools || {}) },
@@ -349,6 +366,21 @@ function normalizeCharacter(c = {}) {
   };
 }
 
+function defaultWeaponItem() {
+  return normalizeItem({
+    id: DEFAULT_WEAPON_ID,
+    name: 'Default Weapon',
+    rarity: 'Earthly',
+    type: 'weapon',
+    emoji: '🗡️',
+    description: DEFAULT_WEAPON_DESCRIPTION,
+    tradeable: false,
+    marketable: false,
+    inDropPool: false,
+    weapon: { grade: 'Default' },
+  });
+}
+
 function createDefaultState() {
   const month = new Date().toISOString().slice(0, 7);
   return {
@@ -360,6 +392,7 @@ function createDefaultState() {
     traits: JSON.parse(JSON.stringify(TRAITS)),
     scripts: JSON.parse(JSON.stringify(SCRIPTS)),
     items: [
+      defaultWeaponItem(),
       normalizeItem({
         id: 'three-hearts-cultivation',
         name: 'Three Hearts Cultivation Method',
@@ -391,5 +424,5 @@ function createDefaultState() {
 
 module.exports = {
   ITEM_TYPES, MANUAL_CATEGORIES, YIELD_TYPES, ELEMENTS, REALMS, RARITIES, SECTS, TITLES, TRAITS, SCRIPTS,
-  DEFAULT_SETTINGS, COMBAT, QI_BAR_BONUSES, normalizeItem, normalizeCharacter, normalizeRecipe, createDefaultState,
+  WEAPON_GRADES, BONUS_KEYS, DEFAULT_WEAPON_ID, defaultWeaponItem, DEFAULT_SETTINGS, COMBAT, QI_BAR_BONUSES, normalizeItem, normalizeCharacter, normalizeRecipe, createDefaultState,
 };

@@ -25,7 +25,9 @@ function absorption(state, c) {
     }
   }
   const byElement = Object.fromEntries(Object.entries(per).map(([k, v]) => [k, combine(v)]));
-  return { general, byElement, sources: items.map((i) => i.name) };
+  // Impurity reduction %: same rule (best positive + all negatives). Negative = pills are MORE toxic.
+  const impurityReduction = combine(items.map((i) => i.cultivation?.impurityReduction || 0));
+  return { general, byElement, impurityReduction, sources: items.map((i) => i.name) };
 }
 
 /** Total % bonus for a pill of `element` (general + element). */

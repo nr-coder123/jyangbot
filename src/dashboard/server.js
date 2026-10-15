@@ -11,6 +11,7 @@ const effects = require('../engine/effects');
 const chars = require('../engine/characters');
 const { grant, take, GRANT_TYPES, TAKE_TYPES } = require('../engine/grants');
 const templates = require('../engine/templates');
+const ui = require('../engine/ui');
 const { UserError, newId, slug, norm, num, numOrNull, clone, truncate, arr } = require('../utils');
 
 const COOKIE = 'jh_session';
@@ -55,6 +56,10 @@ function sanitizeItem(body, existing) {
   it.poison.tier = Math.min(3, Math.max(1, Math.floor(num(it.poison.tier, 1))));
   it.poison.impurity = num(it.poison.impurity);
   it.purification.tier = Math.min(3, Math.max(1, Math.floor(num(it.purification.tier, 1))));
+  it.cultivation.impurityReduction = num(it.cultivation.impurityReduction);
+  it.marketable = it.marketable !== false;
+  for (const k of defaults.BONUS_KEYS) it.bonuses[k] = num(it.bonuses[k]);
+  if (it.id === st.settings.defaultWeaponId && it.type !== 'weapon') throw new UserError('The Default Weapon must stay a weapon (change the default weapon in Settings first).');
   it.updatedAt = new Date().toISOString();
   return it;
 }
@@ -71,6 +76,8 @@ function sanitizeCharacter(body, existing) {
   for (const k of ['normal', 'flex']) c.pools[k] = num(c.pools[k]);
   c.realm = Math.max(0, Math.min(st.realms.length - 1, Math.floor(num(c.realm))));
   c.inventory = Object.fromEntries(Object.entries(c.inventory || {}).map(([k, v]) => [k, Math.floor(num(v))]).filter(([k, v]) => v > 0 && st.items.some((i) => i.id === k)));
+  c.title = String(c.title || '').trim();
+  if (c.weaponId && !st.items.some((i) => i.id === c.weaponId && i.type === 'weapon')) c.weaponId = '';
   if (!c.name) throw new UserError('Name is required.');
   if (!c.ownerId) throw new UserError('Owner Discord ID is required.');
   return c;
@@ -155,7 +162,7 @@ function create(bot) {
       settings: s.settings, rarities: s.rarities, realms: s.realms, sects: s.sects, traits: s.traits, scripts: s.scripts,
       items: s.items, characters: s.characters, applications: s.applications.slice(0, 300), progress: s.progress.slice(0, 100),
       market: s.market, meta: s.meta,
-      constants: { ITEM_TYPES: defaults.ITEM_TYPES, MANUAL_CATEGORIES: defaults.MANUAL_CATEGORIES, YIELD_TYPES: defaults.YIELD_TYPES, GRANT_TYPES, TAKE_TYPES, HOOKS: scripts.HOOKS },
+      constants: { WEAPON_GRADES: defaults.WEAPON_GRADES, BONUS_KEYS: defaults.BONUS_KEYS, ITEM_TYPES: defaults.ITEM_TYPES, MANUAL_CATEGORIES: defaults.MANUAL_CATEGORIES, YIELD_TYPES: defaults.YIELD_TYPES, GRANT_TYPES, TAKE_TYPES, HOOKS: scripts.HOOKS },
       recipes: s.recipes, combat: s.combat,
       server: { storage: store.backend.kind, lastSavedAt: store.lastSavedAt, saveError: store.lastError, bot: bot.status, publicUrl: config.publicUrl },
     };
@@ -252,7 +259,9 @@ function create(bot) {
     const st = store.state;
     const it = st.items.find((x) => x.id === req.params.id);
     if (!it) throw new UserError('Item not found.');
+    if (it.id === st.settings.defaultWeaponId) throw new UserError('This is the Default Weapon everyone falls back to. Pick another default weapon in Settings before deleting it.');
     st.items = st.items.filter((x) => x !== it);
+    for (const c of st.characters) if (c.weaponId === it.id) c.weaponId = '';
     for (const c of st.characters) delete c.inventory[it.id];
     st.market = st.market.filter((l) => l.itemId !== it.id);
     store.log(req.actor, 'item.delete', it.name);
@@ -343,7 +352,7 @@ function create(bot) {
     run('qiGain', num(amount, 10));
     run('breakthroughChance', num(st.realms[c.realm]?.breakthroughChance, 50));
     run('consume', { yieldType: 'qi', yieldAmount: num(amount, 10), impurity: 10, breakthroughBonus: 0, rate: 0, notes: [] });
-    return { character: c.name, impurity: c.impurity, results: out };
+    return { character: c.name, impurity: c.impurity, results: out, ctx };
   }));
 
   // ----- characters -----
@@ -351,7 +360,7 @@ function create(bot) {
     const c = store.state.characters.find((x) => x.id === req.params.id);
     if (!c) throw new UserError('Character not found.');
     const sh = effects.compute(store.state, c);
-    return { title: chars.titleString(store.state, c), sheet: sh };
+    return { title: chars.titleString(store.state, c), sheet: sh, preview: require('../bot/panels').sheet(c) };
   }));
   app.post('/api/characters', wrap(async (req) => {
     const st = store.state;
@@ -453,8 +462,37 @@ function create(bot) {
 
   // ----- message templates -----
   app.get('/api/templates', wrap(async () => ({
-    templates: Object.entries(templates.DEFS).map(([key, d]) => ({ key, label: d.label, placeholders: d.placeholders, value: templates.get(store.state, key), custom: !!store.state.templates[key], default: d.default })),
+    templates: Object.entries(templates.DEFS).map(([key, d]) => ({
+      key, label: d.label, group: d.group, help: d.help || '', placeholders: d.placeholders, sample: d.sample || {}, buttons: d.buttons || [],
+      value: templates.get(store.state, key), custom: !!store.state.templates[key], default: d.default,
+    })),
+    ui: uiConfig(),
   })));
+
+  // ----- emojis & buttons -----
+  function uiConfig() {
+    const st = store.state;
+    return {
+      emojis: Object.entries(ui.EMOJIS).map(([key, [def, label]]) => ({ key, label, default: def, value: ui.emojis(st)[key] })),
+      buttons: Object.entries(ui.BUTTONS).map(([key, [label, emoji, where]]) => ({ key, where, default: { label, emoji }, value: { label: st.settings.ui?.buttons?.[key]?.label ?? label, emoji: st.settings.ui?.buttons?.[key]?.emoji ?? emoji } })),
+      statShort: Object.entries(ui.STAT_SHORT).map(([key, def]) => ({ key, default: def, value: st.settings.ui?.statShort?.[key] ?? def })),
+    };
+  }
+  app.get('/api/ui', wrap(async () => uiConfig()));
+  app.put('/api/ui', wrap(async (req) => {
+    const b = req.body || {};
+    const clean = (v) => String(v ?? '').trim().slice(0, 80);
+    const next = { emojis: {}, buttons: {}, statShort: {} };
+    for (const [k, v] of Object.entries(b.emojis || {})) if (ui.EMOJIS[k]) next.emojis[k] = clean(v);
+    for (const [k, v] of Object.entries(b.buttons || {})) if (ui.BUTTONS[k]) next.buttons[k] = { label: clean(v?.label), emoji: clean(v?.emoji) };
+    for (const [k, v] of Object.entries(b.statShort || {})) if (ui.STAT_SHORT[k]) next.statShort[k] = clean(v) || ui.STAT_SHORT[k];
+    for (const [k, v] of Object.entries(next.buttons)) if (!v.label && !v.emoji) throw new UserError(`The "${k}" button needs a label or an emoji.`);
+    store.state.settings.ui = next;
+    // The currency emoji follows the Nyang emoji.
+    if (next.emojis.nyang !== undefined) store.state.settings.currencyEmoji = next.emojis.nyang;
+    store.log(req.actor, 'ui.update', 'Emojis & buttons saved');
+    return uiConfig();
+  }));
   app.put('/api/templates/:key', wrap(async (req) => {
     if (!templates.DEFS[req.params.key]) throw new UserError('Unknown template.');
     const t = templates.normalizeImport(req.body || {});

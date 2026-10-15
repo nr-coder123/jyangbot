@@ -1,54 +1,60 @@
 'use strict';
-/** /compare, /item, /purify, /help */
+/** /consume, /equip, /compare, /item, /purify, /help */
 const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const store = require('../../store');
-const combat = require('../../engine/combat');
+const chars = require('../../engine/characters');
+const weapons = require('../../engine/weapons');
+const ui = require('../../engine/ui');
 const { purify, TIER_NAMES } = require('../../engine/fengshui');
-const { EPH, findItem, findCharacter, itemChoices, characterChoices } = require('../util');
-const { itemEmbed } = require('../render');
-const { fmt, truncate } = require('../../utils');
+const { EPH, actor, requireChar, findItem, itemChoices, inventoryChoices } = require('../util');
+const panels = require('../panels');
+
+// ---------- /consume ----------
+const consume = new SlashCommandBuilder()
+  .setName('consume')
+  .setDescription('Consume one of your pills / elixirs')
+  .addStringOption((o) => o.setName('pill').setDescription('Pill or elixir from your inventory').setRequired(true).setAutocomplete(true));
+
+async function executeConsume(i) {
+  const st = store.state;
+  const c = requireChar(i.user.id);
+  const it = findItem(i.options.getString('pill'));
+  const r = chars.consumePill(st, c, it);
+  store.log(actor(i), 'item.use', `${c.name} consumed ${it.name}: ${r.lines.join('; ').replace(/\*/g, '')}`);
+  const out = panels.consumeResult(c, it, [...r.lines, ...(r.result.errors || []).map((e) => `${ui.emoji(st, 'warning')} ${e}`)]);
+  return i.reply({ ...out, allowedMentions: { parse: [] } });
+}
+
+// ---------- /equip ----------
+const equip = new SlashCommandBuilder()
+  .setName('equip')
+  .setDescription('Choose your main weapon')
+  .addStringOption((o) => o.setName('weapon').setDescription('Weapon from your inventory').setRequired(true).setAutocomplete(true));
+
+async function executeEquip(i) {
+  const st = store.state;
+  const c = requireChar(i.user.id);
+  const it = findItem(i.options.getString('weapon'));
+  weapons.equip(st, c, it);
+  store.log(actor(i), 'item.equip', `${c.name} equipped ${it.name}`);
+  const grade = it.weapon?.grade && it.weapon.grade !== 'Default' ? ` (${it.weapon.grade})` : '';
+  return i.reply({ content: `${ui.emoji(st, 'weapon')} **${c.name}** now wields **${it.name}**${grade}.`, allowedMentions: { parse: [] } });
+}
 
 // ---------- /compare ----------
 const compare = new SlashCommandBuilder()
   .setName('compare')
-  .setDescription('Compare two characters: damage, clash and speed')
-  .addStringOption((o) => o.setName('first').setDescription('First character').setRequired(true).setAutocomplete(true))
-  .addStringOption((o) => o.setName('second').setDescription('Second character').setRequired(true).setAutocomplete(true));
-
-function tierText(res, diff) {
-  if (!res.row) return '—';
-  const r = res.row;
-  let t = `**${r.tier ? `${r.tier} ` : ''}${r.name}** *(${diff > 0 ? '+' : ''}${fmt(diff)})*\n${r.desc}`;
-  if (res.capped) t += `\n-# Would be ${res.wanted.tier || ''} ${res.wanted.name}, but that needs +${res.wanted.reqRT} Realm Tier${res.wanted.reqRT > 1 ? 's' : ''} above the enemy.`;
-  return truncate(t, 1024);
-}
+  .setDescription("Compare two players' characters: damage, clash and speed")
+  .addUserOption((o) => o.setName('player').setDescription('Player to compare').setRequired(true))
+  .addUserOption((o) => o.setName('against').setDescription('Compare against this player (default: you)'));
 
 async function executeCompare(i) {
-  const st = store.state;
-  const a = findCharacter(i.options.getString('first'));
-  const b = findCharacter(i.options.getString('second'));
-  const r = combat.compare(st, a, b);
-  const A = r.a.s;
-  const B = r.b.s;
-  const rtTxt = r.rt === 0 ? 'Same realm tier' : `${r.rt > 0 ? a.name : b.name} is ${Math.abs(r.rt)} realm tier${Math.abs(r.rt) > 1 ? 's' : ''} higher`;
-  const statLine = (label, k) => `**${label}**: ${fmt(A[k])} vs ${fmt(B[k])}`;
-  const e = new EmbedBuilder()
-    .setTitle(`⚔️ ${a.name} vs ${b.name}`)
-    .setColor('#b3261e')
-    .setDescription([
-      `**${a.name}** — ${r.a.realm} · **${b.name}** — ${r.b.realm} · ${rtTxt}`,
-      statLine('💪 Strength', 'strength'), statLine('🛡️ Endurance', 'endurance'), statLine('💨 Mobility', 'mobility'), statLine('🌀 Qi', 'qi'),
-      '-# Current effective stats (impurity and temporary effects included).',
-    ].join('\n'))
-    .addFields(
-      { name: `🗡️ ${a.name} hits ${b.name} (STR ${fmt(A.strength)} − END ${fmt(B.endurance)})`, value: tierText(r.aHitsB, r.aHitsB.diff) },
-      { name: `🗡️ ${b.name} hits ${a.name} (STR ${fmt(B.strength)} − END ${fmt(A.endurance)})`, value: tierText(r.bHitsA, r.bHitsA.diff) },
-      { name: `💥 Clash (Strength vs Strength)${r.clash.winner ? ` — ${r.clash.winner.name} wins` : ''}`, value: tierText(r.clash, r.clash.diff) },
-      { name: `💨 Speed (Mobility)${r.speed.faster ? ` — ${r.speed.faster.name} is faster` : ''}`, value: tierText(r.speed, r.speed.diff) },
-    );
-  const note = `${st.combat.damageNote || ''} ${st.combat.clashNote || ''}`.trim();
-  if (note) e.setFooter({ text: truncate(note, 2048) });
-  return i.reply({ embeds: [e] });
+  const u1 = i.options.getUser('player');
+  const u2 = i.options.getUser('against') || i.user;
+  const a = requireChar(u2.id, u2.id !== i.user.id);
+  const b = requireChar(u1.id, u1.id !== i.user.id);
+  if (a.id === b.id) return i.reply({ content: 'Pick two different players.', flags: EPH });
+  return i.reply({ ...panels.compare(a, b), allowedMentions: { parse: [] } });
 }
 
 // ---------- /item ----------
@@ -56,7 +62,7 @@ const item = new SlashCommandBuilder()
   .setName('item')
   .setDescription('Look up any item and read its description')
   .addStringOption((o) => o.setName('name').setDescription('Item').setRequired(true).setAutocomplete(true));
-const executeItem = (i) => i.reply({ embeds: [itemEmbed(findItem(i.options.getString('name')))] });
+const executeItem = (i) => i.reply({ ...panels.itemInfo(findItem(i.options.getString('name'))), allowedMentions: { parse: [] } });
 
 // ---------- /purify ----------
 const ELEMENTS = ['Wood', 'Fire', 'Earth', 'Metal', 'Water', 'None'];
@@ -88,17 +94,18 @@ async function executePurify(i) {
 }
 
 // ---------- /help ----------
-const help = new SlashCommandBuilder().setName('help').setDescription('How to use the bot');
+const help = new SlashCommandBuilder().setName('help').setDescription('How to play');
 async function executeHelp(i) {
   const s = store.state.settings;
   const e = new EmbedBuilder().setTitle('📜 How to play').setColor('#b3261e').setDescription([
     '**1. `/submit`** your character document. Staff review it.',
     '**2. `/menu`** — everything about your character lives here:',
-    '　📜 **Sheet** · 📊 **Stats** (tap to spend points) · 🎒 **Inventory** (use pills, learn manuals, roll drops, shop) · ☯️ **Realm** (Realm Breakthrough) · ⚒️ **Craft**',
+    '　**Sheet** · **Stats** (tap to spend points) · **Inventory** (consume, learn, equip, sell, roll drops, crafting) · **Market** · **Realm** (Realm Breakthrough)',
     '**3. `/progress`** your finished RPs and fights to earn points.',
     '',
-    `**Trading:** \`/trade\` items or ${s.currencyName} with a player (ask for 0 to gift) · \`/market\` to sell to anyone`,
-    '**Tools:** `/compare` two characters · `/item` to read any item · `/purify` Feng Shui calculator',
+    '**Quick commands:** `/consume` a pill · `/equip` a weapon · `/market` to buy and sell',
+    `**Trading:** \`/trade\` items or ${s.currencyName} with a player (ask for nothing to make it a gift)`,
+    '**Tools:** `/compare @player` · `/item` to read any item · `/purify` Feng Shui calculator',
     '',
     `-# Rules: no stat above ${s.maxSingleStatPercent}% of your stat points (Qi not counted). "Stat points" only go into Strength/Endurance/Mobility; "flexible points" can also go into Qi.`,
   ].join('\n'));
@@ -107,7 +114,16 @@ async function executeHelp(i) {
 
 module.exports = {
   commands: [
-    { data: compare, execute: executeCompare, autocomplete: characterChoices },
+    { data: consume, execute: executeConsume, autocomplete: (i) => inventoryChoices(i, i.user.id, (it) => it.type === 'pill') },
+    {
+      data: equip,
+      execute: executeEquip,
+      autocomplete: (i) => {
+        const dw = store.state.settings.defaultWeaponId;
+        return inventoryChoices(i, i.user.id, (it) => it.type === 'weapon' || it.id === dw);
+      },
+    },
+    { data: compare, execute: executeCompare },
     { data: item, execute: executeItem, autocomplete: (i) => itemChoices(i) },
     { data: purifyCmd, execute: executePurify },
     { data: help, execute: executeHelp },

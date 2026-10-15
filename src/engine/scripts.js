@@ -49,6 +49,8 @@ function scriptSources(state, c, extraSources = []) {
   };
   (c.cultivationMethods || []).forEach((r) => fromItem(r, 'cultivation method'));
   fromItem(c.qiCore, 'qi core');
+  const w = (c.weaponId && state.items.find((i) => i.id === c.weaponId && (c.inventory?.[i.id] || 0) > 0)) || state.items.find((i) => i.id === state.settings.defaultWeaponId);
+  if (w) add(w.scriptId, 'main weapon', w.name);
   for (const [cat, list] of Object.entries(c.martialArts || {})) (list || []).forEach((r) => fromItem(r, `${cat} martial art`));
   for (const e of extraSources) if (e) add(e.scriptId, e.type, e.name);
   return out;
@@ -73,7 +75,13 @@ function buildContext(state, c, source, extra) {
       cultivationMethods: (c.cultivationMethods || []).map((r) => refName(state, r)).filter(Boolean),
       qiCore: refName(state, c.qiCore),
       martialArts: Object.fromEntries(Object.entries(c.martialArts || {}).map(([k, v]) => [k, (v || []).map((r) => refName(state, r)).filter(Boolean)])),
-      titles: clone(c.titles),
+      title: c.title || '',
+      weapon: (() => {
+        const w = (c.weaponId && state.items.find((i) => i.id === c.weaponId && (c.inventory?.[i.id] || 0) > 0)) || state.items.find((i) => i.id === state.settings.defaultWeaponId);
+        return w ? { name: w.name, grade: w.weapon?.grade || 'Default', bonuses: clone(w.bonuses || {}) } : null;
+      })(),
+      nyang: c.nyang,
+      inventory: Object.entries(c.inventory || {}).map(([id, qty]) => ({ name: state.items.find((i) => i.id === id)?.name || id, qty })).filter((x) => x.qty > 0),
     },
     realm: clone(realm),
     source,

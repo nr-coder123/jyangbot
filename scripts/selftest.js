@@ -208,14 +208,63 @@ test('trade swaps items and Nyang', () => {
   assert.strictEqual(d.nyang, 40);
 });
 
-test('title formatting', () => {
+test('title is typed by staff; old prefix/stem/suffix saves are converted', () => {
   const { state, c } = fresh();
-  c.titles = { prefix: '', stem: 'Rising', suffix: 'Dragon' };
-  assert.strictEqual(chars.titleString(state, c), "Mount Hua's Rising Dragon");
-  c.sect = '';
-  assert.strictEqual(chars.titleString(state, c), 'Rogue Rising Dragon');
+  c.title = 'Rising Dragon';
+  assert.strictEqual(chars.titleString(state, c), 'Rising Dragon');
+  const store = require('../src/store');
+  const migrated = store.migrate({ items: [], characters: [{ name: 'X', ownerId: '9', sect: 'Mount Hua Sect', titles: { prefix: '', stem: 'Rising', suffix: 'Dragon' } }] });
+  assert.strictEqual(migrated.characters[0].title, "Mount Hua's Rising Dragon");
+  assert.ok(migrated.items.some((i) => i.id === 'default-weapon'), 'default weapon added to old saves');
 });
 
+test('weapons: default weapon equipped, treasure bonuses change effective stats only', () => {
+  const { state, c } = fresh();
+  assert.strictEqual(require('../src/engine/weapons').mainWeapon(state, c).id, 'default-weapon');
+  state.items.push(defaults.normalizeItem({ id: 'sw', name: 'Plum Sword', type: 'weapon', weapon: { grade: 'Spiritual Treasure' }, bonuses: { strength: 5, qiBars: 0.5 } }));
+  c.stats.strength = 35;
+  assert.throws(() => require('../src/engine/weapons').equip(state, c, state.items.find((i) => i.id === 'sw')), /don't have/);
+  economy.addItem(c, 'sw', 1);
+  require('../src/engine/weapons').equip(state, c, state.items.find((i) => i.id === 'sw'));
+  const sh = effects.compute(state, c);
+  assert.strictEqual(sh.effStats.strength, 40);
+  assert.strictEqual(c.stats.strength, 35);
+  assert.strictEqual(sh.qiBars.total, 2.5);
+  economy.removeItem(state, c, 'sw', 1);
+  assert.strictEqual(effects.compute(state, c).effStats.strength, 35, 'traded away -> back to default weapon');
+});
+
+test('pill breakdown: absorption and impurity reduction are shown', () => {
+  const { state, c } = fresh();
+  state.items.push(defaults.normalizeItem({ id: 'cm', name: 'Lotus Method', type: 'cultivation', cultivation: { absorption: 0, affinities: { Wood: 20 }, impurityReduction: 30 } }));
+  state.items.push(defaults.normalizeItem({ id: 'pp', name: 'Green Pill', type: 'pill', pill: { yieldType: 'qi', yieldAmount: 10, impurity: 20, element: 'Wood' } }));
+  c.cultivationMethods = [{ id: 'cm' }];
+  economy.addItem(c, 'pp', 1);
+  const r = chars.consumePill(state, c, state.items.find((i) => i.id === 'pp'));
+  assert.strictEqual(c.stats.qi, 12);
+  assert.strictEqual(c.impurity, 14);
+  const text = r.lines.join('\n');
+  assert.ok(/Absorption:\*\* \+20%/.test(text), text);
+  assert.ok(/6 shaved off/.test(text), text);
+});
+
+test('detox pill removes impurity', () => {
+  const { state, c } = fresh();
+  c.impurity = 50;
+  state.items.push(defaults.normalizeItem({ id: 'dx', name: 'Detox', type: 'pill', pill: { yieldType: 'none', impurity: -30 } }));
+  economy.addItem(c, 'dx', 1);
+  const r = chars.consumePill(state, c, state.items.find((i) => i.id === 'dx'));
+  assert.strictEqual(c.impurity, 20);
+  assert.ok(r.lines.join(' ').includes('Impurity removed'));
+});
+
+test('items marked not marketable cannot be listed', () => {
+  const { state, c } = fresh();
+  const it = defaults.normalizeItem({ id: 'nm', name: 'Sect Token', marketable: false });
+  state.items.push(it);
+  economy.addItem(c, 'nm', 1);
+  assert.throws(() => economy.listOnMarket(state, c, it, 1, 10), /player market/);
+});
 
 test('Qi Bar bonus from Qi: 26 -> +1, 101 -> +2, 751 -> +6', () => {
   const { state, c } = fresh();

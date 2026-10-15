@@ -131,7 +131,7 @@ function listOnMarket(state, c, item, qty, price) {
   qty = positiveInt(qty);
   price = r2(price);
   if (!(price > 0)) throw new UserError('Price must be above 0.');
-  if (!item.tradeable) throw new UserError(`**${item.name}** cannot be traded or sold to players.`);
+  if (!item.tradeable || item.marketable === false) throw new UserError(`**${item.name}** can't be sold on the player market.`);
   removeItem(state, c, item.id, qty); // escrow
   const l = { id: newId('L').slice(0, 7).toUpperCase(), sellerCharId: c.id, sellerUserId: c.ownerId, itemId: item.id, qty, price, createdAt: new Date().toISOString() };
   state.market.unshift(l);

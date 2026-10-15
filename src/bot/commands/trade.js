@@ -2,9 +2,8 @@
 const { SlashCommandBuilder, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const store = require('../../store');
 const economy = require('../../engine/economy');
-const { EPH, actor, requireChar, findItem, itemChoices, inventoryChoices, isStaff } = require('../util');
-const { itemIcon } = require('../render');
-const { UserError, fmt, norm, truncate } = require('../../utils');
+const { actor, requireChar, findItem, itemChoices, inventoryChoices } = require('../util');
+const { UserError } = require('../../utils');
 
 // ---------- /trade ----------
 const trade = new SlashCommandBuilder()
@@ -85,85 +84,9 @@ async function onTradeButton(i) {
   }
 }
 
-// ---------- /market ----------
-const market = new SlashCommandBuilder()
-  .setName('market')
-  .setDescription('Player market — sell items to other players')
-  .addSubcommand((s) =>
-    s.setName('list').setDescription('Put an item up for sale')
-      .addStringOption((o) => o.setName('item').setDescription('Item from your inventory').setRequired(true).setAutocomplete(true))
-      .addNumberOption((o) => o.setName('price').setDescription('Price PER UNIT in Nyang').setRequired(true).setMinValue(1))
-      .addIntegerOption((o) => o.setName('quantity').setDescription('How many (default 1)').setMinValue(1)))
-  .addSubcommand((s) =>
-    s.setName('view').setDescription('Browse listings')
-      .addStringOption((o) => o.setName('search').setDescription('Filter by item name'))
-      .addIntegerOption((o) => o.setName('page').setDescription('Page').setMinValue(1)))
-  .addSubcommand((s) =>
-    s.setName('buy').setDescription('Buy from a listing')
-      .addStringOption((o) => o.setName('listing').setDescription('Listing').setRequired(true).setAutocomplete(true))
-      .addIntegerOption((o) => o.setName('quantity').setDescription('How many (default 1)').setMinValue(1)))
-  .addSubcommand((s) => s.setName('cancel').setDescription('Take your listing down').addStringOption((o) => o.setName('listing').setDescription('Your listing').setRequired(true).setAutocomplete(true)));
-
-function listingLabel(l) {
-  const st = store.state;
-  const it = st.items.find((x) => x.id === l.itemId);
-  const seller = st.characters.find((c) => c.id === l.sellerCharId);
-  return { it, seller, text: `${l.qty}× ${it?.name || '?'} @ ${fmt(l.price)} each — ${seller?.name || '?'} [${l.id}]` };
-}
-
-async function executeMarket(i) {
-  const st = store.state;
-  const s = st.settings;
-  const sub = i.options.getSubcommand();
-  if (sub === 'view') {
-    const q = norm(i.options.getString('search'));
-    const list = st.market.filter((l) => !q || norm(listingLabel(l).it?.name).includes(q));
-    const per = 15;
-    const pages = Math.max(1, Math.ceil(list.length / per));
-    const page = Math.min(pages, i.options.getInteger('page') || 1);
-    const lines = list.slice((page - 1) * per, page * per).map((l) => {
-      const { it, seller } = listingLabel(l);
-      return `\`${l.id}\` ${it ? itemIcon(it) : ''} **${it?.name || '?'}** ×${l.qty} — ${s.currencyEmoji} **${fmt(l.price)}** each · by ${seller?.name || '?'}`;
-    });
-    return i.reply({ embeds: [new EmbedBuilder().setTitle('🏪 Player Market').setColor('#16a085').setDescription(lines.join('\n') || 'No listings.').setFooter({ text: `Page ${page}/${pages} · /market buy` })] });
-  }
-  const c = requireChar(i.user.id);
-  if (sub === 'list') {
-    const it = findItem(i.options.getString('item'));
-    const l = economy.listOnMarket(st, c, it, i.options.getInteger('quantity') || 1, i.options.getNumber('price'));
-    store.log(actor(i), 'market.list', `${c.name}: ${l.qty}× ${it.name} @ ${l.price}`);
-    return i.reply({ content: `🏪 Listed ${l.qty}× **${it.name}** at ${s.currencyEmoji} **${fmt(l.price)}** each. Listing \`${l.id}\`.` });
-  }
-  const l = st.market.find((x) => x.id === i.options.getString('listing') || x.id === String(i.options.getString('listing')).toUpperCase());
-  if (!l) throw new UserError('Listing not found.');
-  if (sub === 'buy') {
-    const q = i.options.getInteger('quantity') || 1;
-    const { it } = listingLabel(l);
-    const r = economy.buyFromMarket(st, c, l, q);
-    store.log(actor(i), 'market.buy', `${c.name} bought ${q}× ${it?.name} from ${r.seller?.name} for ${r.cost}`);
-    return i.reply({ content: `🛍️ **${c.name}** bought ${q}× **${it?.name}** from **${r.seller?.name || 'a former seller'}** for ${s.currencyEmoji} **${fmt(r.cost)}**.${r.seller ? ` <@${r.seller.ownerId}>` : ''}` });
-  }
-  if (sub === 'cancel') {
-    if (l.sellerUserId !== i.user.id && !isStaff(i)) throw new UserError('That is not your listing.');
-    const seller = economy.cancelListing(st, l);
-    store.log(actor(i), 'market.cancel', `${listingLabel(l).text}`);
-    return i.reply({ content: `Listing \`${l.id}\` removed; items returned to **${seller?.name || '—'}**.`, flags: EPH });
-  }
-}
-
-async function autocompleteMarket(i) {
-  const st = store.state;
-  const sub = i.options.getSubcommand();
-  if (sub === 'list') return inventoryChoices(i, i.user.id, (it) => it.tradeable);
-  const q = norm(i.options.getFocused());
-  const list = st.market.filter((l) => (sub === 'cancel' ? l.sellerUserId === i.user.id : true)).map((l) => ({ l, label: listingLabel(l).text })).filter((x) => !q || norm(x.label).includes(q));
-  return i.respond(list.slice(0, 25).map((x) => ({ name: truncate(x.label, 100), value: x.l.id })));
-}
-
 module.exports = {
   commands: [
         { data: trade, execute: executeTrade, autocomplete: autocompleteTrade },
-    { data: market, execute: executeMarket, autocomplete: autocompleteMarket },
   ],
   buttons: { trade: onTradeButton },
 };

@@ -167,3 +167,22 @@ details.cmd > summary::marker { color: var(--muted); }
 .cmd-name { font-family: var(--mono); font-size: 15px; }
 .cmd-desc { flex: 1 1 260px; }
 .pill.bad { color: var(--bad); border-color: #6b1d16; }
+.d-rows { display: grid; gap: 6px; margin-top: 8px; }
+.d-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.d-btn { display: inline-flex; align-items: center; gap: 6px; background: #4e5058; color: #fff; border-radius: 4px; padding: 4px 12px; font-size: 14px; font-weight: 500; min-height: 32px; }
+.d-btn.primary { background: #5865f2; }
+.d-btn.ok { background: #248046; }
+.d-btn.bad { background: #da373c; }
+.d-btn .d-emoji, .emoji-prev .d-emoji { width: 20px; height: 20px; }
+.d-select { display: flex; justify-content: space-between; align-items: center; background: #1e1f22; border: 1px solid #1a1b1e; color: #949ba4; border-radius: 4px; padding: 8px 10px; width: 100%; max-width: 420px; font-size: 14px; }
+.discord-mini { background: #313338; }
+.emoji-prev { font-size: 22px; }
+.ref { display: grid; gap: 8px; }
+.ref .lead { margin: 0 0 4px; }
+.ref details { border: 1px solid var(--line); border-radius: 8px; padding: 8px 12px; background: var(--panel-2); }
+.ref summary { cursor: pointer; font-weight: 600; color: var(--accent-2); }
+.ref p, .ref li { color: var(--text); }
+.ref code { font-family: var(--mono); font-size: 12.5px; background: #100e0c; padding: 1px 4px; border-radius: 4px; }
+.ref pre.out { margin: 8px 0; }
+.reftable { width: 100%; border-collapse: collapse; margin: 6px 0; background: none; }
+.reftable th, .reftable td { border-bottom: 1px solid var(--line); padding: 6px 8px; font-size: 13px; vertical-align: top; }

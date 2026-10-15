@@ -323,8 +323,9 @@ function editCharacter(c) {
     { k: 'sect', label: 'Sect (empty = Rogue)', list: 'dl-sects' }, { k: 'gender', label: 'Gender' },
     { k: 'status', label: 'Status', t: 'select', opts: ['active', 'retired'] },
     { k: 'docLink', label: 'Document link', wide: true },
-    { section: 'Titles' },
-    { k: 'titles.prefix', label: 'Prefix', list: 'dl-prefix' }, { k: 'titles.stem', label: 'Stem', list: 'dl-stem' }, { k: 'titles.suffix', label: 'Suffix', list: 'dl-suffix' },
+    { section: 'Title & weapon' },
+    { k: 'title', label: 'Title (typed exactly as shown, empty = none)', wide: true, help: 'e.g. Rising Dragon · Mount Hua\'s Rising Dragon · Heavenly Sword Saint' },
+    { k: 'weaponId', label: 'Main weapon', t: 'select', opts: () => [['', 'Default Weapon'], ...D.items.filter((i) => i.type === 'weapon').map((i) => [i.id, `${i.name}${i.weapon?.grade && i.weapon.grade !== 'Default' ? ` — ${i.weapon.grade}` : ''}`])], help: 'They must own it (Inventory below), otherwise the Default Weapon is used.' },
     { section: 'Realm & stats' },
     { k: 'realm', label: 'Realm', t: 'select', opts: () => D.realms.map((r, i) => [i, r.name]) },
     { k: 'stats.strength', label: 'Strength', t: 'number' }, { k: 'stats.endurance', label: 'Endurance', t: 'number' }, { k: 'stats.mobility', label: 'Mobility', t: 'number' }, { k: 'stats.qi', label: 'Qi', t: 'number' },
@@ -387,8 +388,7 @@ function editCharacter(c) {
   const sheet = h('div', { class: 'sheet-preview muted' }, 'Loading sheet…');
   const loadSheet = () => api(`/characters/${c.id}/sheet`).then((r) => {
     const sh = r.sheet;
-    sheet.replaceChildren(h('div', { class: 'kv' },
-      h('span', { class: 'muted' }, 'Title'), h('span', {}, r.title),
+    sheet.replaceChildren(discordPreview(r.preview), h('div', { class: 'kv', style: 'margin-top:10px' },
       h('span', { class: 'muted' }, 'Effective'), h('span', {}, `STR ${fmt(sh.effStats.strength)} · END ${fmt(sh.effStats.endurance)} · MOB ${fmt(sh.effStats.mobility)} · Qi ${fmt(sh.effStats.qi)} · Qi Bars ${fmt(sh.qiBars.total)}`),
       h('span', { class: 'muted' }, 'Caps'), h('span', {}, `Stats soft ${fmt(sh.caps.soft)} / hard ${fmt(sh.caps.hard)} · Qi soft ${fmt(sh.caps.softQi)} / hard ${fmt(sh.caps.hardQi)}`),
       h('span', { class: 'muted' }, 'Absorption'), h('span', {}, `General ${fmt(sh.absorption.general)}% · ${Object.entries(sh.absorption.byElement).map(([k, v]) => `${k} ${v}%`).join(', ') || 'no affinities'}`),
@@ -398,7 +398,7 @@ function editCharacter(c) {
   loadSheet();
 
   const body = h('div', { style: 'display:grid;gap:14px' },
-    h('div', { class: 'card' }, h('h3', {}, 'Live sheet'), sheet),
+    h('div', { class: 'card' }, h('h3', {}, 'Live sheet (as shown in /menu)'), sheet),
     h('div', { class: 'card' }, h('h3', {}, 'Give / take'), h('div', { class: 'toolbar' }, gMode, gType, gStat, gAmt, gReason, gRefund, h('button', { class: 'btn primary small', onclick: run(async () => {
       const r = await api(`/characters/${c.id}/grant`, { method: 'POST', body: { mode: gMode.value, type: gType.value, stat: gStat.value, refund: gRefund.querySelector('input').checked, amount: Number(gAmt.value), reason: gReason.value } });
       toast(plain(r.lines.join(' ')));
@@ -483,7 +483,7 @@ VIEWS.items = () => {
 
 function editItem(item, prefill = null) {
   const isNew = !item;
-  const it = item ? clone(item) : prefill ? clone(prefill) : { name: '', rarity: D.rarities[0]?.name, type: 'pill', description: '', tradeable: true, inDropPool: true, dropWeight: 1, shop: { enabled: false, price: 0, stock: -1 }, manual: { category: 'generic' }, cultivation: { absorption: 0, affinities: {} }, pill: { yieldType: 'qi', yieldAmount: 0, impurity: 0, element: '', breakthroughBonus: 0 }, poison: { tier: 1, impurity: 10 }, purification: { tier: 1 }, scriptId: '' };
+  const it = item ? clone(item) : prefill ? clone(prefill) : { name: '', rarity: D.rarities[0]?.name, type: 'pill', description: '', tradeable: true, inDropPool: true, dropWeight: 1, shop: { enabled: false, price: 0, stock: -1 }, manual: { category: 'generic' }, cultivation: { absorption: 0, affinities: {} }, pill: { yieldType: 'qi', yieldAmount: 0, impurity: 0, element: '', breakthroughBonus: 0 }, poison: { tier: 1, impurity: 10 }, purification: { tier: 1 }, weapon: { grade: 'Spiritual Treasure' }, bonuses: {}, marketable: true, scriptId: '' };
   const els = ['', ...D.settings.elements];
   const tiers = [[1, 'T1 (Earthly)'], [2, 'T2 (Heavenly)'], [3, 'T3 (Immortal)']];
   const fields = [
@@ -496,6 +496,7 @@ function editItem(item, prefill = null) {
     { k: 'inDropPool', label: 'Can drop from drop rolls', t: 'check' },
     { k: 'dropWeight', label: 'Drop weight inside its rarity', t: 'number', help: '2 = twice as likely as a weight-1 item of the same rarity' },
     { k: 'tradeable', label: 'Tradeable between players', t: 'check' },
+    { k: 'marketable', label: 'Players can sell it on the player market', t: 'check' },
     { k: 'shop.enabled', label: 'Sold in the shop', t: 'check' },
     { k: 'shop.price', label: `Shop price (${D.settings.currencyName})`, t: 'number' },
     { k: 'shop.stock', label: 'Shop stock (-1 = unlimited)', t: 'number' },
@@ -506,12 +507,13 @@ function editItem(item, prefill = null) {
     { k: 'manual.shareable', label: 'Can be shared', t: 'check', show: ['manual'] },
     { k: 'manual.shareLimit', label: 'Share limit (0 = none)', t: 'number', show: ['manual'] },
     { section: 'Absorption (cultivation method / qi core)', show: ['cultivation', 'core'] },
-    { k: 'cultivation.absorption', label: 'General absorption rate %', t: 'number', show: ['cultivation', 'core'], help: 'Applies to every pill' },
+    { k: 'cultivation.absorption', label: 'General absorption rate %', t: 'number', show: ['cultivation', 'core'], help: 'Applies to every pill\'s yield' },
+    { k: 'cultivation.impurityReduction', label: 'Pill impurity reduction %', t: 'number', show: ['cultivation', 'core'], help: '30 = pills give 30% less impurity; negative = more' },
     ...D.settings.elements.map((e) => ({ k: `cultivation.affinities.${e}`, label: `${e} affinity %`, t: 'number', show: ['cultivation', 'core'], help: 'negative = worse with that element' })),
     { section: 'Pill / elixir', show: ['pill'] },
     { k: 'pill.yieldType', label: 'Yield gives', t: 'select', opts: [['none', 'Nothing'], ['qi', 'Qi'], ['strength', 'Strength'], ['endurance', 'Endurance'], ['mobility', 'Mobility'], ['points', 'Stat points to spend (no Qi)'], ['flex', 'Flexible points (Qi ok)']], show: ['pill'] },
     { k: 'pill.yieldAmount', label: 'Yield amount (raw)', t: 'number', show: ['pill'], help: 'Multiplied by the consumer\'s absorption: raw × (1 + rate%)' },
-    { k: 'pill.impurity', label: 'Impurity', t: 'number', show: ['pill'] },
+    { k: 'pill.impurity', label: 'Impurity', t: 'number', show: ['pill'], help: 'Negative = removes impurity (detox pill)' },
     { k: 'pill.element', label: 'Affinity / element', t: 'select', opts: els.map((e) => [e, e || 'None']), show: ['pill'] },
     { k: 'pill.breakthroughBonus', label: 'Realm Breakthrough bonus %', t: 'number', show: ['pill'], help: 'Stored until the next Realm Breakthrough attempt (/menu → Realm)' },
     { section: 'Poison', show: ['poison'] },
@@ -527,6 +529,9 @@ function editItem(item, prefill = null) {
     { k: 'purification.tier', label: 'Tier', t: 'select', opts: tiers, show: ['purification'] },
     { k: 'purification.element', label: 'Affinity', t: 'select', opts: els.map((e) => [e, e || 'None']), show: ['purification'] },
     { k: 'purification.gimmick', label: 'Gimmick', wide: true, show: ['purification'] },
+    { section: 'Weapon', show: ['weapon'] },
+    { k: 'weapon.grade', label: 'Grade', t: 'select', opts: () => D.constants.WEAPON_GRADES, show: ['weapon'], help: 'Spiritual < Dharma < Numinous < Immortal Treasure' },
+    ...D.constants.BONUS_KEYS.map((k) => ({ k: `bonuses.${k}`, label: `+ ${({ strength: 'Strength', endurance: 'Endurance', mobility: 'Mobility', qi: 'Qi', qiBars: 'Qi Bars' })[k]} while equipped`, t: 'number', show: ['weapon'] })),
     { section: 'Custom code' },
     { k: 'scriptId', label: 'Script (runs while known / when consumed)', t: 'select', opts: () => [['', '— none —'], ...D.scripts.map((s) => [s.id, s.name])], help: 'Write scripts in the Custom Code tab' },
   ];
@@ -680,7 +685,10 @@ VIEWS.traits = () => {
 };
 
 // ----- scripts -----
-VIEWS.scripts = () => {
+let SCRIPT_REF = null;
+VIEWS.scripts = async () => {
+  if (!SCRIPT_REF) SCRIPT_REF = await fetch('script-reference.html').then((r) => r.text()).catch(() => 'Reference unavailable.');
+  const refCard = h('div', { class: 'card' }, h('h3', {}, 'Custom code reference'), h('div', { html: SCRIPT_REF }));
   let sel = D.scripts[0] || null;
   const listEl = h('div', { class: 'list' });
   const editor = h('div', { style: 'display:grid;gap:12px' });
@@ -718,16 +726,7 @@ VIEWS.scripts = () => {
         const r = await api('/scripts/test', { method: 'POST', body: { code: f.read().code, characterId: charSel.value, impurity: imp.value, amount: amt.value } });
         out.textContent = r.error || JSON.stringify(r, null, 2);
       }) }, '▶ Run test')), out),
-      h('div', { class: 'card' }, h('h3', {}, 'How custom code works'), h('div', { class: 'muted', html: `
-        <p>Attach a script to an <b>item</b> (cultivation method, qi core, martial art manual, pill) or a <b>special trait</b>. It runs automatically for every character who knows that item / has that trait — no need to edit the bot's files.</p>
-        <p>A script sets functions on <code>hooks</code>:</p>
-        <ul>
-          <li><code>hooks.effects(ctx, fx)</code> — change the sheet: <code>fx.qiRegenDisabled</code>, <code>fx.statMultiplier</code> (0.75 = −25%), <code>fx.preventMeridianBurst</code>, <code>fx.tempStats.endurance += 3</code>, <code>fx.tempQiBars</code>, <code>fx.qiBarBonus</code>, <code>fx.qiBarsOverride</code>, <code>fx.notes.push('text')</code>. Return <code>fx</code>.</li>
-          <li><code>hooks.qiGain(ctx, amount)</code> — return how much Qi is really gained.</li>
-          <li><code>hooks.breakthroughChance(ctx, chance)</code> — return the Realm Breakthrough %.</li>
-          <li><code>hooks.consume(ctx, result)</code> — change a pill's result (<code>yieldAmount</code>, <code>impurity</code>, <code>notes</code>…). <code>ctx.extra.item</code> is the pill.</li>
-        </ul>
-        <p><code>ctx.character</code> has name, sect, realm, stats, impurity, traits, cultivationMethods, qiCore, martialArts. Scripts get a copy of the data, run with a short time limit, and cannot change the database directly. See the "Template (copy me)" and "Three Hearts Cultivation" scripts for examples.</p>` })),
+      refCard,
     );
   };
   drawList();
@@ -746,6 +745,7 @@ VIEWS.settings = () => {
     { k: 'startingFlexPoints', label: 'Starting points (usable in any stat, incl. Qi)', t: 'number' },
     { k: 'startingNyang', label: 'Starting Nyang', t: 'number' }, { k: 'startingRolls', label: 'Starting drop rolls', t: 'number' },
     { k: 'defaultCultivationMethods', label: 'Default cultivation methods', t: 'lines' }, { k: 'defaultQiCore', label: 'Default Qi Core', list: 'dl-items' },
+    { k: 'defaultWeaponId', label: 'Default weapon (given to new characters, used when none is equipped)', t: 'select', opts: () => [['', '— none —'], ...D.items.filter((i) => i.type === 'weapon').map((i) => [i.id, i.name])] },
     { section: 'Stats' },
     { k: 'maxSingleStatPercent', label: 'Max % of stat points in one stat', t: 'number' },
     { k: 'allocationWindowMinutes', label: 'Stat typing window (minutes)', t: 'number' },
@@ -774,9 +774,9 @@ VIEWS.settings = () => {
     { k: 'channels.log', label: 'Changelog channel (optional)', t: 'channel' },
     { k: 'staffRoleIds', label: 'Staff roles', t: 'roles', help: 'Used by commands set to "Staff" (Commands tab). Members with Manage Server always count as staff. Ctrl/Cmd-click for several.' },
     { k: 'approvedRoleIds', label: 'Roles given when a character is approved', t: 'roles' },
-    { section: 'Elements & titles' },
+    { section: 'Elements & title reference' },
     { k: 'elements', label: 'Elements / affinities', t: 'lines', rows: 7 },
-    { k: 'titles.prefixes', label: 'Prefixes', t: 'lines', rows: 8 }, { k: 'titles.stems', label: 'Stems', t: 'lines', rows: 8 }, { k: 'titles.suffixes', label: 'Suffixes', t: 'lines', rows: 8 },
+    { k: 'titles.prefixes', label: 'Title prefixes (reference for staff only)', t: 'lines', rows: 8 }, { k: 'titles.stems', label: 'Title stems (reference)', t: 'lines', rows: 8 }, { k: 'titles.suffixes', label: 'Title suffixes (reference)', t: 'lines', rows: 8 },
     { section: '/menu' },
     { k: 'menuPublicByDefault', label: '/menu is visible to everyone by default (otherwise only to the player)', t: 'check' },
     { k: 'announceRolls', label: 'Announce drop rolls in the channel', t: 'check' },
@@ -1006,20 +1006,21 @@ VIEWS.commands = async () => {
 };
 
 // ----- messages (templates) with a Discord-style preview -----
-const SAMPLE = {
-  player: '<@100000000000000001>', staff: '<@100000000000000002>', character: 'Chung Myung', summary: '+50 Stat Points', details: 'Spendable on Strength / Endurance / Mobility.',
-  reason: 'Won the duel at Mount Hua', sect: 'Mount Hua Sect', document: 'https://docs.google.com/…', id: 'A1b2c3d4', points: '50', roles: 'Roles: <@&100000000000000003>',
-  link: 'https://discord.com/channels/…', breakthrough: '🌟 **Breakthrough requested (Qi)**', from: '1st Rate', realm: 'Expert', chance: '75', roll: '42.1',
-  item: 'Plum Blossom Sword Manual', rarity: 'Heavenly', emoji: '🟦', description: 'A sword style known for fluid and precise attacks.', recipe: 'Qi Gathering Pill', items: '1× Qi Gathering Pill',
-};
 const MENTION_NAMES = { '100000000000000001': 'PlayerOne', '100000000000000002': 'StaffMember', '100000000000000003': 'Disciple' };
+let UI = null; // emojis & buttons config from /api/templates
+
+function emojiHtml(e) {
+  if (!e) return '';
+  const m = String(e).match(/^<a?:(\w+):(\d+)>$/);
+  return m ? `<img class="d-emoji" alt=":${m[1]}:" src="https://cdn.discordapp.com/emojis/${m[2]}.webp?size=44">` : esc(e);
+}
 
 function mdToHtml(text) {
   if (!text) return '';
   const blocks = [];
   let s = esc(text);
   s = s.replace(/```(?:[a-z]*\n)?([\s\S]*?)```/g, (m, code) => { blocks.push(`<pre class="d-code">${code}</pre>`); return `\u0000${blocks.length - 1}\u0000`; });
-  s = s.replace(/`([^`\n]+)`/g, (m, code) => { blocks.push(`<code class="d-inline">${code}</code>`); return `\u0000${blocks.length - 1}\u0000`; });
+  s = s.replace(/``([^`\n]+?)``|`([^`\n]+)`/g, (m, a, b) => { blocks.push(`<code class="d-inline">${a || b}</code>`); return `\u0000${blocks.length - 1}\u0000`; });
   const inline = (t) => t
     .replace(/&lt;@&amp;(\d+)&gt;/g, (m, id) => `<span class="d-mention">@${MENTION_NAMES[id] || 'role'}</span>`)
     .replace(/&lt;@!?(\d+)&gt;/g, (m, id) => `<span class="d-mention">@${MENTION_NAMES[id] || 'user'}</span>`)
@@ -1047,32 +1048,75 @@ function mdToHtml(text) {
   return out.replace(/\u0000(\d+)\u0000/g, (m, i) => blocks[Number(i)]);
 }
 
-function fillSample(str, vars = SAMPLE) {
-  return String(str ?? '').replace(/\{(\w+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+const fillVars = (str, vars) => String(str ?? '').replace(/\{([\w.]+)\}/g, (m, k) => (k in vars ? vars[k] : m));
+const tidyText = (s) => s.split('\n').filter((l) => !/^\s*(-#|#{1,3}|>|[-*•])\s*$/.test(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim();
+
+/** Same rules as the bot: fill placeholders, drop empty lines and empty fields. */
+function renderLike(msg, vars) {
+  const F = (t) => tidyText(fillVars(t, vars));
+  return {
+    content: F(msg.content || ''),
+    embeds: (msg.embeds || []).map((e) => ({
+      ...e,
+      title: e.title ? F(e.title) : '',
+      description: e.description ? F(e.description) : '',
+      author: e.author?.name ? { ...e.author, name: F(e.author.name) } : null,
+      footer: e.footer?.text ? { ...e.footer, text: F(e.footer.text) } : null,
+      fields: (e.fields || []).map((f) => ({ ...f, name: F(f.name) || '​', value: F(f.value) })).filter((f) => f.value.replace(/[\s\-#*_`>|~]/g, '')),
+    })),
+  };
 }
 
-function discordPreview(msg, { sample = true } = {}) {
-  const F = (t) => (sample ? fillSample(t) : t || '');
+function emojiVars() {
+  return Object.fromEntries((UI?.emojis || []).map((e) => [`e.${e.key}`, e.value]));
+}
+
+function buttonLook(key, vars = {}) {
+  const b = UI?.buttons.find((x) => x.key === key);
+  if (!b) return null;
+  return { label: fillVars(b.value.label, vars), emoji: fillVars(b.value.emoji, vars) };
+}
+
+/** Mock Discord buttons for the preview. Tokens: button keys, "addStat:n:stat", "select:placeholder", fixed buttons. */
+function mockRows(rows) {
+  const FIXED = { approveBtn: ['Approve', '', 'ok'], rejectBtn: ['Reject', '', 'bad'], grantBtn: ['Grant reward', '', 'ok'], dismissBtn: ['Dismiss', '', ''] };
+  const statEmoji = (k) => UI?.emojis.find((e) => e.key === k)?.value || '';
+  const statShort = (k) => UI?.statShort.find((e) => e.key === k)?.value || k;
+  return h('div', { class: 'd-rows' }, rows.map((r, ri) => h('div', { class: 'd-row' }, r.map((tok, ti) => {
+    if (tok.startsWith('select:')) return h('div', { class: 'd-select' }, tok.slice(7), h('span', {}, '⌄'));
+    let look;
+    let style = ri === 0 && ti === 0 ? 'primary' : '';
+    if (FIXED[tok]) { look = { label: FIXED[tok][0], emoji: FIXED[tok][1] }; style = FIXED[tok][2]; }
+    else if (tok.startsWith('addStat:')) { const [, n, k] = tok.split(':'); look = buttonLook('addStat', { n, stat: statShort(k), statEmoji: statEmoji(k) }); style = 'ok'; }
+    else look = buttonLook(tok, { rolls: 2, price: 50, chance: 85 });
+    if (!look) return null;
+    return h('div', { class: `d-btn ${style}`, html: `${emojiHtml(look.emoji)}${look.label ? `<span>${esc(look.label)}</span>` : ''}` });
+  }))));
+}
+
+function discordPreview(msg, vars = {}, buttons = []) {
+  const r = renderLike(msg, { ...emojiVars(), ...vars });
   const bot = DISCORD.botUser || { name: 'Jianghu Bot', avatar: '' };
   const colorHex = (c) => (c === undefined || c === null || c === '' ? '#1e1f22' : `#${Number(c).toString(16).padStart(6, '0')}`);
-  const embeds = (msg.embeds || []).map((e) => {
+  const embeds = r.embeds.map((e) => {
     const fields = e.fields || [];
     return h('div', { class: 'd-embed', style: `border-left-color:${colorHex(e.color)}` },
       h('div', { class: 'd-embed-body' },
-        e.author?.name ? h('div', { class: 'd-author' }, e.author.icon_url ? h('img', { src: F(e.author.icon_url) }) : null, F(e.author.name)) : null,
-        e.title ? h('div', { class: 'd-title', html: mdToHtml(F(e.title)) }) : null,
-        e.description ? h('div', { class: 'd-desc', html: mdToHtml(F(e.description)) }) : null,
-        fields.length ? h('div', { class: 'd-fields' }, fields.map((fl) => h('div', { class: `d-field${fl.inline ? ' inline' : ''}` }, h('div', { class: 'd-fname', html: mdToHtml(F(fl.name)) }), h('div', { class: 'd-fvalue', html: mdToHtml(F(fl.value)) })))) : null,
-        e.image?.url ? h('img', { class: 'd-image', src: F(e.image.url) }) : null,
-        (e.footer?.text || e.timestamp) ? h('div', { class: 'd-footer' }, e.footer?.icon_url ? h('img', { src: F(e.footer.icon_url) }) : null, [F(e.footer?.text), e.timestamp ? new Date().toLocaleString() : ''].filter(Boolean).join(' • ')) : null),
-      e.thumbnail?.url ? h('img', { class: 'd-thumb', src: F(e.thumbnail.url) }) : null);
+        e.author?.name ? h('div', { class: 'd-author' }, e.author.icon_url ? h('img', { src: e.author.icon_url }) : null, h('span', { html: mdToHtml(e.author.name) })) : null,
+        e.title ? h('div', { class: 'd-title', html: mdToHtml(e.title) }) : null,
+        e.description ? h('div', { class: 'd-desc', html: mdToHtml(e.description) }) : null,
+        fields.length ? h('div', { class: 'd-fields' }, fields.map((fl) => h('div', { class: `d-field${fl.inline ? ' inline' : ''}` }, h('div', { class: 'd-fname', html: mdToHtml(fl.name) }), h('div', { class: 'd-fvalue', html: mdToHtml(fl.value) })))) : null,
+        e.image?.url ? h('img', { class: 'd-image', src: e.image.url }) : null,
+        (e.footer?.text || e.timestamp) ? h('div', { class: 'd-footer' }, e.footer?.icon_url ? h('img', { src: e.footer.icon_url }) : null, h('span', { html: mdToHtml([e.footer?.text, e.timestamp ? new Date().toLocaleString() : ''].filter(Boolean).join(' • ')) })) : null),
+      e.thumbnail?.url ? h('img', { class: 'd-thumb', src: e.thumbnail.url }) : null);
   });
   return h('div', { class: 'discord' }, h('div', { class: 'd-msg' },
     bot.avatar ? h('img', { class: 'd-avatar', src: bot.avatar }) : h('div', { class: 'd-avatar' }, '☯'),
     h('div', { class: 'd-main' },
       h('div', { class: 'd-head' }, h('span', { class: 'd-name' }, bot.name), h('span', { class: 'd-app' }, 'APP'), h('span', { class: 'd-time' }, 'Today at 12:00')),
-      msg.content ? h('div', { class: 'd-content', html: mdToHtml(F(msg.content)) }) : null,
-      ...embeds)));
+      r.content ? h('div', { class: 'd-content', html: mdToHtml(r.content) }) : null,
+      ...embeds,
+      buttons.length ? mockRows(buttons) : null)));
 }
 
 function b64url(str) {
@@ -1082,17 +1126,69 @@ function b64url(str) {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
+// ----- Emojis & Buttons editor -----
+function uiEditor(onSaved) {
+  const data = clone(UI);
+  const preview = (v) => h('span', { class: 'emoji-prev', html: emojiHtml(v) || '<span class="muted">none</span>' });
+  const emojiRows = data.emojis.map((e) => {
+    const inp = h('input', { value: e.value, placeholder: 'empty = no emoji', style: 'max-width:260px' });
+    const pv = preview(e.value);
+    inp.oninput = () => { e.value = inp.value; pv.innerHTML = emojiHtml(inp.value) || '<span class="muted">none</span>'; };
+    return h('tr', {}, h('td', {}, h('strong', {}, e.label), h('div', { class: 'muted small' }, `{e.${e.key}}`)), h('td', {}, pv), h('td', {}, inp),
+      h('td', {}, h('button', { class: 'btn small', onclick: () => { inp.value = e.default; inp.oninput(); } }, `Default ${e.default}`)));
+  });
+  const btnRows = data.buttons.map((b) => {
+    const lab = h('input', { value: b.value.label, placeholder: 'label (empty = emoji only)' });
+    const em = h('input', { value: b.value.emoji, placeholder: 'emoji (empty = none)', style: 'max-width:220px' });
+    const pv = h('div', { class: 'd-btn' });
+    const draw = () => { b.value.label = lab.value; b.value.emoji = em.value; const look = { label: fillVars(lab.value, { n: 5, stat: 'STR', rolls: 2, price: 50, chance: 85 }), emoji: fillVars(em.value, { statEmoji: data.emojis.find((x) => x.key === 'strength')?.value }) }; pv.innerHTML = `${emojiHtml(look.emoji)}${look.label ? `<span>${esc(look.label)}</span>` : ''}`; };
+    lab.oninput = draw; em.oninput = draw; draw();
+    return h('tr', {}, h('td', {}, h('strong', {}, b.key), h('div', { class: 'muted small' }, b.where)), h('td', { class: 'discord-mini' }, pv), h('td', {}, lab), h('td', {}, em),
+      h('td', {}, h('button', { class: 'btn small', onclick: () => { lab.value = b.default.label; em.value = b.default.emoji; draw(); } }, 'Default')));
+  });
+  const shortRows = data.statShort.map((s) => {
+    const inp = h('input', { value: s.value, style: 'max-width:120px' });
+    inp.oninput = () => (s.value = inp.value);
+    return h('label', { class: 'field' }, h('span', {}, `${s.key} (default ${s.default})`), inp);
+  });
+  return h('div', { style: 'display:grid;gap:14px' },
+    h('div', { class: 'card' }, h('h3', {}, 'Emojis & Buttons'),
+      h('p', { class: 'muted' }, 'Change or remove every emoji the bot uses. For a custom server emoji, type \\:emojiname: in Discord, send it, and copy the result — it looks like <:emojiname:123456789012345678>. Paste that here. Leave a box empty to remove the emoji. Emojis are available in every message as {e.name}.')),
+    h('div', { class: 'card' }, h('h3', {}, 'Emojis'), h('div', { class: 'table-wrap' }, h('table', {}, h('tbody', {}, emojiRows)))),
+    h('div', { class: 'card' }, h('h3', {}, 'Buttons'), h('p', { class: 'muted small' }, 'A button needs a label, an emoji, or both. {placeholders} in labels are filled in by the bot.'), h('div', { class: 'table-wrap' }, h('table', {}, h('tbody', {}, btnRows)))),
+    h('div', { class: 'card' }, h('h3', {}, 'Short stat names (on the +1 / +5 buttons)'), h('div', { class: 'form' }, shortRows)),
+    h('div', { class: 'toolbar' }, h('button', { class: 'btn primary', onclick: run(async () => {
+      const body = {
+        emojis: Object.fromEntries(data.emojis.map((e) => [e.key, e.value])),
+        buttons: Object.fromEntries(data.buttons.map((b) => [b.key, b.value])),
+        statShort: Object.fromEntries(data.statShort.map((s) => [s.key, s.value])),
+      };
+      UI = await api('/ui', { method: 'PUT', body });
+      toast('Emojis & buttons saved. Open menus update the next time a button is pressed.');
+      onSaved?.();
+    }) }, 'Save emojis & buttons')));
+}
+
 VIEWS.messages = async () => {
-  const { templates } = await api('/templates');
-  let sel = templates[0];
+  const res = await api('/templates');
+  const templates = res.templates;
+  UI = res.ui;
+  let sel = 'ui';
   const listEl = h('div', { class: 'list' });
-  const editorEl = h('div', { class: 'msg-editor' });
-  const drawList = () => listEl.replaceChildren(...templates.map((t) => h('button', { class: `btn small ${sel.key === t.key ? 'active' : ''}`, onclick: () => { sel = t; drawList(); drawEditor(); } }, `${t.custom ? '✎ ' : ''}${t.label}`)));
+  const editorEl = h('div');
+  const groups = [...new Set(templates.map((t) => t.group))];
+  const drawList = () => listEl.replaceChildren(
+    h('button', { class: `btn small ${sel === 'ui' ? 'active' : ''}`, onclick: () => { sel = 'ui'; drawList(); drawEditor(); } }, '🎨 Emojis & Buttons'),
+    ...groups.flatMap((g) => [h('div', { class: 'muted small', style: 'margin:10px 0 2px' }, g === 'Menu' ? 'Menu panels' : g),
+      ...templates.filter((t) => t.group === g).map((t) => h('button', { class: `btn small ${sel === t ? 'active' : ''}`, onclick: () => { sel = t; drawList(); drawEditor(); } }, `${t.custom ? '✎ ' : ''}${t.label}`))]),
+  );
   const drawEditor = () => {
-    const msg = clone(sel.value);
+    if (sel === 'ui') return editorEl.replaceChildren(uiEditor(drawList));
+    const t = sel;
+    const msg = clone(t.value);
     if (!msg.embeds) msg.embeds = [];
     const preview = h('div');
-    const refresh = () => preview.replaceChildren(discordPreview(msg));
+    const refresh = () => preview.replaceChildren(discordPreview(msg, t.sample, t.buttons));
     let lastFocus = null;
     const bind = (el, get, set) => { el.value = get() ?? ''; el.oninput = () => { set(el.value); refresh(); }; el.onfocus = () => (lastFocus = el); return el; };
     const field = (label, el) => h('label', { class: 'field' }, h('span', {}, label), el);
@@ -1108,11 +1204,17 @@ VIEWS.messages = async () => {
         const inl = h('input', { type: 'checkbox' });
         inl.checked = !!fl.inline;
         inl.onchange = () => { fl.inline = inl.checked; refresh(); };
-        return h('div', { class: 'toolbar', style: 'margin:4px 0' }, text(fl, 'name', 'Field name'), text(fl, 'value', 'Field value'), h('label', { class: 'field check' }, inl, h('span', {}, 'inline')), h('button', { class: 'btn small danger', onclick: () => { e.fields.splice(fi, 1); drawFields(); refresh(); } }, '✕'));
+        const move = (d) => { const j = fi + d; if (j < 0 || j >= e.fields.length) return; [e.fields[fi], e.fields[j]] = [e.fields[j], e.fields[fi]]; drawFields(); refresh(); };
+        return h('div', { class: 'card', style: 'padding:8px;margin:6px 0;background:var(--bg)' },
+          h('div', { class: 'toolbar' }, text(fl, 'name', 'Field name'), h('label', { class: 'field check' }, inl, h('span', {}, 'inline')),
+            h('button', { class: 'btn small', onclick: () => move(-1) }, '↑'), h('button', { class: 'btn small', onclick: () => move(1) }, '↓'),
+            h('button', { class: 'btn small danger', onclick: () => { e.fields.splice(fi, 1); drawFields(); refresh(); } }, '✕')),
+          bind(h('textarea', { rows: 3, placeholder: 'Field value', style: 'margin-top:6px' }), () => fl.value, (v) => (fl.value = v)));
       }), h('button', { class: 'btn small', onclick: () => { e.fields.push({ name: 'Name', value: 'Value', inline: false }); drawFields(); refresh(); } }, '+ Field'));
       drawFields();
       return h('div', { class: 'card', style: 'background:var(--panel-2)' },
         h('div', { class: 'toolbar' }, h('strong', { class: 'grow' }, `Embed ${idx + 1}`), h('label', { class: 'field check' }, color, h('span', {}, 'Color')),
+          h('button', { class: 'btn small', onclick: () => { delete e.color; color.value = '#1e1f22'; refresh(); } }, 'No color'),
           h('button', { class: 'btn small danger', onclick: () => { msg.embeds.splice(idx, 1); drawEmbeds(); refresh(); } }, 'Remove embed')),
         h('div', { class: 'form' },
           field('Author', text(e.author, 'name')), field('Author icon URL', text(e.author, 'icon_url')),
@@ -1124,30 +1226,33 @@ VIEWS.messages = async () => {
         h('div', { class: 'section', style: 'font-size:15px' }, 'Fields'), fieldsWrap);
     }), msg.embeds.length < 10 ? h('button', { class: 'btn small', onclick: () => { msg.embeds.push({ description: 'New embed' }); drawEmbeds(); refresh(); } }, '+ Add embed') : null);
     drawEmbeds();
-    const chips = h('div', { class: 'toolbar' }, h('span', { class: 'muted small' }, 'Placeholders (click to insert):'), ...sel.placeholders.map((p) => h('button', { class: 'btn small', onclick: () => {
+    const insert = (token) => {
       const el = lastFocus;
-      const token = `{${p}}`;
       if (!el) { navigator.clipboard?.writeText(token); return toast(`Copied ${token}`); }
       const at = el.selectionStart ?? el.value.length;
       el.value = el.value.slice(0, at) + token + el.value.slice(el.selectionEnd ?? at);
       el.dispatchEvent(new Event('input'));
       el.focus();
-    } }, `{${p}}`)));
+    };
+    const chips = h('div', { class: 'toolbar' }, h('span', { class: 'muted small' }, 'Placeholders (click to insert):'), ...t.placeholders.map((p) => h('button', { class: 'btn small', title: String(t.sample[p] ?? ''), onclick: () => insert(`{${p}}`) }, `{${p}}`)));
+    const emojiChips = h('details', {}, h('summary', { class: 'muted small', style: 'cursor:pointer' }, 'Emoji placeholders'), h('div', { class: 'toolbar', style: 'margin-top:6px' },
+      ...UI.emojis.map((e) => h('button', { class: 'btn small', title: e.label, onclick: () => insert(`{e.${e.key}}`), html: `${emojiHtml(e.value) || '∅'} {e.${e.key}}` }))));
     const clean = () => {
       const strip = (o) => { for (const k of Object.keys(o)) { if (o[k] && typeof o[k] === 'object' && !Array.isArray(o[k])) { strip(o[k]); if (!Object.keys(o[k]).length) delete o[k]; } else if (o[k] === undefined || o[k] === '') delete o[k]; } return o; };
       return { content: msg.content || '', embeds: msg.embeds.map((e) => strip(clone({ ...e, fields: (e.fields || []).filter((f) => f.name || f.value) }))).map((e) => { if (e.fields && !e.fields.length) delete e.fields; return e; }) };
     };
     const testCh = h('select', {}, h('option', { value: '' }, 'Send a test to…'), channels().map(([id, n]) => h('option', { value: id }, n)));
-    editorEl.replaceChildren(
+    editorEl.replaceChildren(h('div', { class: 'msg-editor' },
       h('div', { style: 'display:grid;gap:12px;align-content:start' },
         h('div', { class: 'card' },
-          h('h3', {}, sel.label), chips,
+          h('h3', {}, t.label), t.help ? h('p', { class: 'muted small' }, t.help) : null, chips, emojiChips,
+          h('p', { class: 'muted small', style: 'margin:6px 0 0' }, 'Fields whose value comes out empty are hidden automatically (e.g. a Bonuses field when there are no bonuses).'),
           h('label', { class: 'field', style: 'margin-top:8px' }, h('span', {}, 'Message text (outside the embed)'), area(msg, 'content', 2)),
         ),
         embedsWrap,
         h('div', { class: 'toolbar' },
-          h('button', { class: 'btn primary', onclick: run(async () => { const r = await api(`/templates/${sel.key}`, { method: 'PUT', body: clean() }); sel.value = r.value; sel.custom = true; toast('Message saved.'); drawList(); }) }, 'Save'),
-          h('button', { class: 'btn', onclick: run(async () => { if (!confirm('Reset this message to the default look?')) return; const r = await api(`/templates/${sel.key}`, { method: 'DELETE' }); sel.value = r.value; sel.custom = false; drawList(); drawEditor(); toast('Reset to default.'); }) }, 'Reset to default'),
+          h('button', { class: 'btn primary', onclick: run(async () => { const r = await api(`/templates/${t.key}`, { method: 'PUT', body: clean() }); t.value = r.value; t.custom = true; toast('Message saved.'); drawList(); }) }, 'Save'),
+          h('button', { class: 'btn', onclick: run(async () => { if (!confirm('Reset this message to the default look?')) return; const r = await api(`/templates/${t.key}`, { method: 'DELETE' }); t.value = r.value; t.custom = false; drawList(); drawEditor(); toast('Reset to default.'); }) }, 'Reset to default'),
           h('button', { class: 'btn', onclick: () => window.open(`https://discohook.app/?data=${b64url(JSON.stringify({ messages: [{ data: clean() }] }))}`, '_blank', 'noopener') }, 'Open in Discohook ↗'),
           h('button', { class: 'btn', onclick: () => {
             const ta = h('textarea', { rows: 14, class: 'code', placeholder: 'Paste JSON from Discohook (JSON Data Editor) or a message/embed JSON' });
@@ -1157,23 +1262,22 @@ VIEWS.messages = async () => {
                 let obj = JSON.parse(ta.value);
                 if (Array.isArray(obj.messages)) obj = obj.messages[0]?.data || {};
                 if (!obj.embeds && (obj.title || obj.description)) obj = { embeds: [obj] };
-                sel.value = { content: obj.content || '', embeds: obj.embeds || [] };
+                t.value = { content: obj.content || '', embeds: obj.embeds || [] };
                 closeModal(); drawEditor(); toast('Imported — press Save to keep it.');
               }) }, 'Import'),
             ]);
           } }, 'Import JSON'),
           h('button', { class: 'btn', onclick: () => { navigator.clipboard?.writeText(JSON.stringify(clean(), null, 2)); toast('JSON copied.'); } }, 'Copy JSON'),
           channels().length ? testCh : null,
-          channels().length ? h('button', { class: 'btn', onclick: run(async () => { if (!testCh.value) return toast('Pick a channel first.', true); await api(`/templates/${sel.key}/test`, { method: 'POST', body: { channelId: testCh.value, vars: SAMPLE } }); toast('Test sent (save first to send your latest changes).'); }) }, 'Send test') : null,
+          channels().length ? h('button', { class: 'btn', onclick: run(async () => { if (!testCh.value) return toast('Pick a channel first.', true); await api(`/templates/${t.key}/test`, { method: 'POST', body: { channelId: testCh.value, vars: t.sample } }); toast('Test sent (save first to send your latest changes).'); }) }, 'Send test') : null,
         )),
-      h('div', { class: 'preview-col' }, h('div', { class: 'muted small', style: 'margin-bottom:6px' }, 'Live preview (sample values)'), preview),
-    );
+      h('div', { class: 'preview-col' }, h('div', { class: 'muted small', style: 'margin-bottom:6px' }, 'Live preview (sample values)'), preview)));
     refresh();
   };
   drawList();
   drawEditor();
   return [
-    h('p', { class: 'muted' }, 'Every announcement the bot posts. Edit the look here (or design it in Discohook and import the JSON). {placeholders} are filled in when the bot sends the message.'),
+    h('p', { class: 'muted' }, 'Every panel and announcement the bot shows. Edit the look here (or design it in Discohook and import the JSON). {placeholders} are filled in by the bot; {e.name} inserts an emoji from Emojis & Buttons.'),
     h('div', { class: 'split' }, listEl, editorEl),
   ];
 };

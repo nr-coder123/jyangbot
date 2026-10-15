@@ -8,7 +8,7 @@ const chars = require('../../engine/characters');
 const effects = require('../../engine/effects');
 const economy = require('../../engine/economy');
 const { grant, take } = require('../../engine/grants');
-const { EPH, actor, requireChar, findItem, itemChoices, listChoices, message } = require('../util');
+const { EPH, actor, requireChar, findItem, itemChoices, message } = require('../util');
 const { UserError, fmt } = require('../../utils');
 
 // ---------- /give and /take ----------
@@ -136,34 +136,23 @@ async function executeImpurity(i) {
 // ---------- /title ----------
 const title = new SlashCommandBuilder()
   .setName('title')
-  .setDescription('Set a character\'s title (type "none" to clear a part)')
+  .setDescription("Set a character's title exactly as typed")
   .addUserOption((o) => o.setName('player').setDescription('Player').setRequired(true))
-  .addStringOption((o) => o.setName('prefix').setDescription('Prefix — the hardest to earn').setAutocomplete(true))
-  .addStringOption((o) => o.setName('stem').setDescription('Stem').setAutocomplete(true))
-  .addStringOption((o) => o.setName('suffix').setDescription('Suffix').setAutocomplete(true));
+  .addStringOption((o) => o.setName('title').setDescription('e.g. Rising Dragon, Mount Hua\'s Rising Dragon — type "none" to remove').setRequired(true).setMaxLength(120))
+  .addStringOption((o) => o.setName('reason').setDescription('Why (saved in the changelog)'));
 
 async function executeTitle(i) {
   const st = store.state;
   const user = i.options.getUser('player');
   const c = requireChar(user.id, true);
-  const before = chars.titleString(st, c);
-  let changed = false;
-  for (const k of ['prefix', 'stem', 'suffix']) {
-    const v = i.options.getString(k);
-    if (v === null) continue;
-    c.titles[k] = v.trim().toLowerCase() === 'none' ? '' : v.trim();
-    changed = true;
-  }
-  if (!changed) throw new UserError('Fill in at least one of prefix, stem or suffix.');
-  store.log(actor(i), 'title.set', `${c.name}: ${before} → ${chars.titleString(st, c)}`);
-  return i.reply({ content: `🏯 <@${user.id}> **${c.name}** is now known as **${chars.titleString(st, c)}**!`, allowedMentions: { users: [user.id] } });
-}
-
-async function autocompleteTitle(i) {
-  const T = store.state.settings.titles;
-  const f = i.options.getFocused(true);
-  const map = { prefix: T.prefixes, stem: T.stems, suffix: T.suffixes };
-  return listChoices(i, [...(map[f.name] || []), 'none']);
+  const before = c.title || '';
+  const text = i.options.getString('title').trim();
+  c.title = text.toLowerCase() === 'none' ? '' : text;
+  store.log(actor(i), 'title.set', `${c.name}: "${before}" → "${c.title}"${i.options.getString('reason') ? ` — ${i.options.getString('reason')}` : ''}`);
+  return i.reply({
+    content: c.title ? `🏯 <@${user.id}> **${c.name}** is now known as **${c.title}**!` : `🏯 **${c.name}**'s title was removed.`,
+    allowedMentions: { users: [user.id] },
+  });
 }
 
 // ---------- /admin ----------
@@ -194,7 +183,7 @@ module.exports = {
     { data: give, execute: executeGiveTake, autocomplete: autocompleteGiveTake, staff: true },
     { data: takeCmd, execute: executeGiveTake, autocomplete: autocompleteGiveTake, staff: true },
     { data: impurity, execute: executeImpurity, staff: true },
-    { data: title, execute: executeTitle, autocomplete: autocompleteTitle, staff: true },
+    { data: title, execute: executeTitle, staff: true },
     { data: admin, execute: executeAdmin, staff: true },
   ],
 };

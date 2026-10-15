@@ -1,0 +1,125 @@
+<div class="ref">
+<p class="lead">Custom code gives an item or a trait real mechanics. You write a few small functions here; the bot runs them for every character the code applies to. No GitHub or bot files involved — save, and it is live.</p>
+
+<details open><summary>1. When does my code run?</summary>
+<p>Attach the script in <b>Items → Custom code</b> or <b>Special Traits → Custom code</b>. It then runs for a character who:</p>
+<ul>
+<li>has the <b>special trait</b>;</li>
+<li>knows the <b>cultivation method</b>, has the <b>qi core</b>, or knows the <b>martial art</b> (manual);</li>
+<li>has the <b>weapon equipped</b> as main weapon;</li>
+<li>is <b>consuming the pill</b> (pill scripts only run during that consumption).</li>
+</ul>
+<p>Order when several apply: traits → cultivation methods → qi core → main weapon → martial arts → the pill. Each one receives the result of the previous one.</p>
+</details>
+
+<details open><summary>2. The shape of a script</summary>
+<p>A script assigns functions to <code>hooks</code>. Every hook is optional — write only the ones you need.</p>
+<pre class="out">hooks.effects = (ctx, fx) =&gt; {          // the stat sheet
+  if (ctx.character.impurity &gt;= 50) fx.qiRegenDisabled = false;
+  return fx;                             // always give fx back
+};
+hooks.qiGain = (ctx, amount) =&gt; amount;              // Qi received
+hooks.breakthroughChance = (ctx, chance) =&gt; chance;  // Realm Breakthrough %
+hooks.consume = (ctx, result) =&gt; result;             // a pill being consumed</pre>
+<p>Rules: plain JavaScript; each run has 150 ms; there is no internet, files or <code>require</code>; <code>console.log</code> doesn't exist — use <code>fx.notes.push('text')</code> or <code>result.notes.push('text')</code> to show text. Your code gets a copy of the data, so it can't break saved characters: only what you <b>return</b> is used. If a script errors, the bot ignores it and shows "Script error" on the sheet.</p>
+</details>
+
+<details><summary>3. hooks.effects(ctx, fx) — change the stat sheet</summary>
+<p>Runs whenever a sheet, compare, realm panel or impurity check is shown. <code>fx</code> arrives with the normal impurity rules already applied; change what you need and return it.</p>
+<table class="reftable">
+<tr><th>fx field</th><th>What it does</th><th>Starts as</th></tr>
+<tr><td><code>fx.qiRegenDisabled</code></td><td>true = can't regenerate Qi in fights</td><td>true if Impurity ≥ 50</td></tr>
+<tr><td><code>fx.statMultiplier</code></td><td>multiplies Strength/Endurance/Mobility (0.75 = −25%)</td><td>0.75 if Impurity ≥ 75, else 1</td></tr>
+<tr><td><code>fx.preventMeridianBurst</code></td><td>true = reaching 100 Impurity does NOT burst meridians</td><td>false</td></tr>
+<tr><td><code>fx.tempStats.strength</code> / <code>endurance</code> / <code>mobility</code> / <code>qi</code></td><td>temporary bonus (shown underlined on the sheet)</td><td>0</td></tr>
+<tr><td><code>fx.tempQiBars</code></td><td>temporary Qi Bars</td><td>0</td></tr>
+<tr><td><code>fx.qiBarBonus</code></td><td>permanent extra Qi Bars</td><td>0</td></tr>
+<tr><td><code>fx.qiBarsOverride</code></td><td>a number forces the Qi Bars to that value (No Meridians uses 0)</td><td>null (off)</td></tr>
+<tr><td><code>fx.notes.push('text')</code></td><td>a line in the sheet's "Active Effects" (Discord markdown works)</td><td>[]</td></tr>
+</table>
+</details>
+
+<details><summary>4. hooks.qiGain(ctx, amount) — how much Qi is received</summary>
+<p>Return the Qi actually gained. <code>ctx.extra.source</code> says where it came from: <code>'staff'</code> (/give qi), <code>'points'</code> (spending points into Qi) or <code>'pill'</code>. The Qi hard cap is applied after your hook.</p>
+<pre class="out">hooks.qiGain = (ctx, amount) =&gt; ctx.extra.source === 'pill' ? amount * 1.5 : amount;</pre>
+</details>
+
+<details><summary>5. hooks.breakthroughChance(ctx, chance) — Realm Breakthrough chance</summary>
+<p><code>chance</code> = the realm's chance + pills already consumed. Return the new chance (it is kept between 0 and 100).</p>
+<pre class="out">hooks.breakthroughChance = (ctx, chance) =&gt; ctx.character.impurity &gt;= 50 ? chance - 10 : chance;</pre>
+</details>
+
+<details><summary>6. hooks.consume(ctx, result) — a pill is consumed</summary>
+<p>Runs after absorption and impurity reduction are worked out, before anything is applied. <code>ctx.extra.item</code> = <code>{ id, name, element, pill }</code>.</p>
+<table class="reftable">
+<tr><th>result field</th><th>Meaning</th></tr>
+<tr><td><code>yieldType</code></td><td>'none', 'qi', 'strength', 'endurance', 'mobility', 'points', 'flex'</td></tr>
+<tr><td><code>baseYield</code></td><td>the pill's raw yield (read only)</td></tr>
+<tr><td><code>rate</code></td><td>absorption % used (read only)</td></tr>
+<tr><td><code>yieldAmount</code></td><td>yield after absorption — <b>change this</b></td></tr>
+<tr><td><code>baseImpurity</code></td><td>the pill's raw impurity (read only)</td></tr>
+<tr><td><code>impurityReduction</code></td><td>% shaved off by cultivation (read only)</td></tr>
+<tr><td><code>impurity</code></td><td>impurity that will be added — <b>change this</b> (negative removes impurity)</td></tr>
+<tr><td><code>breakthroughBonus</code></td><td>Realm Breakthrough % stored for the next attempt</td></tr>
+<tr><td><code>element</code></td><td>the pill's affinity, e.g. 'Wood'</td></tr>
+<tr><td><code>notes</code></td><td>add lines shown to the player</td></tr>
+</table>
+<pre class="out">// A Yang cultivation that hates Yin pills
+hooks.consume = (ctx, result) =&gt; {
+  if (result.element === 'Yin') {
+    result.impurity *= 2;
+    result.notes.push('☯️ Your Yang meridians reject the Yin energy — impurity doubled.');
+  }
+  return result;
+};</pre>
+</details>
+
+<details><summary>7. What's inside ctx</summary>
+<table class="reftable">
+<tr><th>Path</th><th>Example</th></tr>
+<tr><td><code>ctx.character.name</code> / <code>sect</code> / <code>gender</code> / <code>title</code></td><td>'Chung Myung', 'Mount Hua Sect', '', 'Rising Dragon'</td></tr>
+<tr><td><code>ctx.character.realm</code> / <code>realmIndex</code></td><td>'2nd Rate', 1 (0 = 3rd Rate)</td></tr>
+<tr><td><code>ctx.character.stats.strength</code> / <code>endurance</code> / <code>mobility</code> / <code>qi</code></td><td>base values, without bonuses</td></tr>
+<tr><td><code>ctx.character.pools.normal</code> / <code>flex</code></td><td>unspent stat points / flexible points</td></tr>
+<tr><td><code>ctx.character.impurity</code>, <code>burstApplied</code>, <code>bonusQiBars</code></td><td>30, false, 0</td></tr>
+<tr><td><code>ctx.character.traits</code></td><td>['Sword Sense', 'Mentor']</td></tr>
+<tr><td><code>ctx.character.cultivationMethods</code>, <code>qiCore</code></td><td>['Qi Gathering'], 'Normal Qi Core'</td></tr>
+<tr><td><code>ctx.character.martialArts.core</code> / <code>special</code> / <code>forbidden</code> / <code>generic</code></td><td>lists of names</td></tr>
+<tr><td><code>ctx.character.weapon</code></td><td>{ name, grade, bonuses: { strength, endurance, mobility, qi, qiBars } }</td></tr>
+<tr><td><code>ctx.character.inventory</code></td><td>[{ name: 'Qi Pill', qty: 3 }, …]</td></tr>
+<tr><td><code>ctx.character.nyang</code></td><td>120</td></tr>
+<tr><td><code>ctx.realm</code></td><td>the realm row: name, qiBars, reqStats, reqQi, softCapStats, hardCapStats, softCapQi, hardCapQi, breakthroughChance</td></tr>
+<tr><td><code>ctx.thresholds</code></td><td>{ noRegenAt: 50, debuffAt: 75, debuffPercent: 25, burstAt: 100, burstPercent: 25 } (from Settings)</td></tr>
+<tr><td><code>ctx.source</code></td><td>what this script is attached to: { type: 'trait' | 'cultivation method' | 'qi core' | 'main weapon' | 'core martial art' … | 'pill', name }</td></tr>
+<tr><td><code>ctx.extra</code></td><td>hook-specific: <code>source</code> for qiGain, <code>item</code> for consume</td></tr>
+</table>
+<p>Tip: press <b>▶ Run test</b> — the result includes the full <code>ctx</code> of the chosen character.</p>
+</details>
+
+<details><summary>8. Handy recipes</summary>
+<pre class="out">// Weapon: +3 Strength only while Impurity is under 50
+hooks.effects = (ctx, fx) =&gt; {
+  if (ctx.character.impurity &lt; 50) { fx.tempStats.strength += 3; fx.notes.push('🗡️ The blade hums: +3 Strength.'); }
+  return fx;
+};
+
+// Trait: +1 Qi Bar for Wudang members
+hooks.effects = (ctx, fx) =&gt; {
+  if (ctx.character.sect === 'Wudang Sect') fx.qiBarBonus += 1;
+  return fx;
+};
+
+// Core art: immune to the 75-impurity stat debuff
+hooks.effects = (ctx, fx) =&gt; { fx.statMultiplier = 1; return fx; };
+
+// Qi core: every pill gives 2 extra Qi
+hooks.consume = (ctx, result) =&gt; {
+  if (result.yieldType === 'qi') result.yieldAmount += 2;
+  return result;
+};
+
+// Cultivation: +10% breakthrough chance at Peak or above
+hooks.breakthroughChance = (ctx, chance) =&gt; ctx.character.realmIndex &gt;= 5 ? chance + 10 : chance;</pre>
+<p>Simple numbers don't need code: weapon stat bonuses, absorption rates, affinities, impurity reduction and pill yields are all plain fields in the item editor.</p>
+</details>
+</div>

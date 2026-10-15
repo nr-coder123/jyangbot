@@ -120,7 +120,21 @@ function migrate(data) {
   s.recipes = s.recipes.map((r) => defaults.normalizeRecipe(r));
   s.meta = { ...d.meta, ...(data.meta || {}) };
   s.items = s.items.map((i) => defaults.normalizeItem(i));
+  // Old saves: titles were prefix/stem/suffix; without a prefix the sect name was used ("Mount Hua's Rising Dragon").
+  for (const c of s.characters) {
+    if (typeof c.title !== 'string' && c.titles && (c.titles.prefix || c.titles.stem || c.titles.suffix)) {
+      const core = [c.titles.stem, c.titles.suffix].filter(Boolean).join(' ');
+      const sect = s.sects.find((x) => x.name === c.sect);
+      c.title = c.titles.prefix ? [c.titles.prefix, core].filter(Boolean).join(' ') : `${sect ? `${sect.titleName || sect.name}'s` : 'Rogue'} ${core}`.trim();
+    }
+    delete c.titles;
+  }
   s.characters = s.characters.map((c) => defaults.normalizeCharacter(c));
+  // Old saves: make sure the Default Weapon exists.
+  if (s.settings.defaultWeaponId === defaults.DEFAULT_WEAPON_ID && !s.items.some((i) => i.id === defaults.DEFAULT_WEAPON_ID)) {
+    s.items.unshift(defaults.defaultWeaponItem());
+    for (const c of s.characters) if (!c.inventory[defaults.DEFAULT_WEAPON_ID]) c.inventory[defaults.DEFAULT_WEAPON_ID] = 1;
+  }
   return s;
 }
 
