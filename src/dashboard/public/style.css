@@ -186,3 +186,10 @@ details.cmd > summary::marker { color: var(--muted); }
 .ref pre.out { margin: 8px 0; }
 .reftable { width: 100%; border-collapse: collapse; margin: 6px 0; background: none; }
 .reftable th, .reftable td { border-bottom: 1px solid var(--line); padding: 6px 8px; font-size: 13px; vertical-align: top; }
+.pill.ok { color: var(--ok); border-color: #2c5a33; }
+.pill.warn-pill { color: #e8b04a; border-color: #6b4b16; }
+td .pill { font-size: 11px; }
+/* keep wide tables scrolling inside their card instead of stretching the page */
+#view { grid-template-columns: minmax(0, 1fr); }
+#view > * { min-width: 0; }
+.card .table-wrap td input, .card .table-wrap td select { min-width: 0; }

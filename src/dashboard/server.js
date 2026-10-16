@@ -189,6 +189,7 @@ function create(bot) {
     const next = { ...before, ...(req.body || {}) };
     for (const k of ['startingFlexPoints', 'startingNyang', 'startingRolls', 'maxSingleStatPercent', 'allocationWindowMinutes', 'maxItems', 'maxCharactersPerUser', 'softCapGainMultiplier', 'breakthroughCooldownHours', 'breakthroughFailureImpurity', 'maxBreakthroughBonus', 'maxCultivationMethods', 'shopSellbackPercent', 'marketFeePercent', 'tradeExpiryMinutes', 'autoBackupHours', 'maxBackups', 'maxChangelog']) next[k] = num(next[k], before[k]);
     for (const k of Object.keys(before.impurity)) next.impurity[k] = num(next.impurity?.[k], before.impurity[k]);
+    next.rating = Object.fromEntries(Object.entries(before.rating || defaults.DEFAULT_SETTINGS.rating).map(([k, v]) => [k, Math.max(0, num(next.rating?.[k], v))]));
     for (const k of Object.keys(before.martialArtLimits)) next.martialArtLimits[k] = num(next.martialArtLimits?.[k], before.martialArtLimits[k]);
     next.elements = arr(next.elements).map((e) => String(e).trim()).filter(Boolean);
     next.staffRoleIds = arr(next.staffRoleIds).map(String).filter(Boolean);

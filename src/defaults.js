@@ -288,6 +288,8 @@ const DEFAULT_SETTINGS = {
   breakthroughCooldownHours: 0,
   breakthroughFailureImpurity: 0,
   maxBreakthroughBonus: 20,
+  // Item rating weights (dashboard → Items → Quick edit & ratings). "PP" = power points.
+  rating: { qi: 4, stat: 1, points: 1, flex: 1.5, breakthrough: 2, impurity: 0.15, referenceAbsorption: 100, maxUses: 10 },
   impurity: { yieldPenaltyAt: 50, yieldPenaltyPercent: 50, debuffAt: 75, debuffPercent: 25, burstAt: 100, burstPercent: 25 },
   monthlyImpurityReset: true,
   staffQiResetsImpurity: true,

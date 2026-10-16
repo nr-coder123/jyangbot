@@ -164,6 +164,11 @@ Pills have optional anti-spam limits (item editor → *Pill limits*):
 
 Non-pill items marked **Can be used up** (poisons, antidotes, talismans, smoke pellets…) get a **Use** button and work with `/consume`. Their *Effect* text is shown and every use is logged like a pill, so staff can check items used mid-fight.
 
+**Items → 📊 Quick edit & ratings** (toggle) turns the Items tab into a grid of every pill/elixir and cultivation method: edit prices, yields, impurity, limits and absorption inline (changed rows are saved together), and see three ratings per row:
+- Pills — **① Power** = yield × type weight + BT% × weight − impurity × weight; **② PP / 100 Nyang** = Power ÷ price × 100 (tagged cheap / fair / pricey against your median); **③ Monthly max** = what one player can get out of it in a month given tolerance, monthly limit and the Impurity 50 penalty.
+- Cultivation methods — **① Pill ×** (share of every yield kept), **② Impurity ×** (share of every pill's impurity taken), **③ Purity index** = ① ÷ ②.
+The weights (PP per Qi, per stat, per +1% breakthrough, cost per Impurity…) are in **Settings → Item rating weights**.
+
 **Items → ⬇ Export / ⬆ Import** moves items between servers or backups, together with the arts their manuals teach, their custom code and their crafting recipes. Import previews what will be created/updated first and makes a safety backup.
 
 `examples/item-pack-murim-30.json` is a ready-made pack of 30 items for 3rd Rate to Peak (Qi pills, stat pills, detox, breakthrough aids, poisons, antidotes, combat consumables, crafting materials and 4 recipes), with 9 custom-code gimmicks. Import it from the dashboard and adjust prices to your economy.

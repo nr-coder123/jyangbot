@@ -254,7 +254,7 @@ async function liveTick() {
   try {
     const r = await fetch('/api/rev', { credentials: 'same-origin' }).then((x) => (x.ok ? x.json() : null));
     if (!r || r.rev === D.rev) return;
-    const editing = !$('#modal').classList.contains('hidden') || (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && $('#view').contains(document.activeElement));
+    const editing = (current === 'items' && QE_DIRTY.size > 0) || !$('#modal').classList.contains('hidden') || (document.activeElement && /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) && $('#view').contains(document.activeElement));
     if (LIVE_VIEWS.has(current) && !editing) {
       const y = window.scrollY;
       await load();
@@ -491,16 +491,191 @@ VIEWS.applications = () => {
 };
 
 // ----- items -----
+// ---------- item ratings ----------
+// Three formulas, all in "PP" (power points). Weights live in Settings → Item rating weights.
+//  1. Power        = benefit − impurity cost             (how strong ONE use is, at the realm it is made for)
+//  2. PP / 100 Nyang = Power ÷ shop price × 100           (value for money)
+//  3. Monthly max  = benefit × Σ(1 − tolerance)ⁿ − impurity cost × uses   (how much one player can squeeze out in a month)
+const RW = () => ({ qi: 4, stat: 1, points: 1, flex: 1.5, breakthrough: 2, impurity: 0.15, referenceAbsorption: 100, maxUses: 10, ...(D.settings.rating || {}) });
+const YIELD_W = (w, type) => ({ qi: w.qi, strength: w.stat, endurance: w.stat, mobility: w.stat, points: w.points, flex: w.flex }[type] || 0);
+
+function ratePill(it) {
+  const w = RW();
+  const p = it.pill || {};
+  const absorb = w.referenceAbsorption / 100;
+  const benefit = Math.max(0, Number(p.yieldAmount) || 0) * YIELD_W(w, p.yieldType) * absorb + (Number(p.breakthroughBonus) || 0) * w.breakthrough;
+  const imp = Number(p.impurity) || 0;
+  const impCost = imp * w.impurity; // negative impurity (detox) is a benefit
+  const power = benefit - impCost;
+  const price = it.shop?.enabled ? Number(it.shop.price) || 0 : 0;
+  const perNyang = price > 0 ? (power / price) * 100 : null;
+  // Uses per month: the monthly limit, or how many fit before Impurity reaches the yield penalty, capped by maxUses.
+  const threshold = Number(D.settings.impurity?.yieldPenaltyAt ?? 50);
+  const byImpurity = imp > 0 ? Math.max(1, Math.floor(threshold / imp)) : w.maxUses;
+  const uses = Math.min(Number(p.monthlyLimit) > 0 ? Number(p.monthlyLimit) : w.maxUses, byImpurity, w.maxUses);
+  const tol = Math.min(100, Number(p.tolerance) || 0) / 100;
+  let factor = 0;
+  for (let n = 0; n < uses; n++) factor += Math.pow(1 - tol, n);
+  const monthly = benefit * factor - impCost * uses;
+  return { benefit, impCost, power, perNyang, uses, monthly, scripted: !!it.scriptId, limitedBy: Number(p.monthlyLimit) > 0 && Number(p.monthlyLimit) <= byImpurity ? 'monthly limit' : imp > 0 ? `Impurity ${threshold}` : 'max uses' };
+}
+
+// Cultivation methods: what they do to every pill.
+//  1. Pill multiplier     = (Absorption Rate + bonus) ÷ 100
+//  2. Impurity multiplier = 1 − impurity reduction ÷ 100
+//  3. Purity index        = pill multiplier ÷ impurity multiplier   (yield per point of impurity vs. a plain 100% method)
+function rateMethod(a) {
+  const pillMult = Math.max(0, ((Number(a.baseAbsorption ?? 100) || 0) + (Number(a.absorption) || 0)) / 100);
+  const impMult = Math.max(0.01, 1 - (Number(a.impurityReduction) || 0) / 100);
+  return { pillMult, impMult, purity: pillMult / impMult };
+}
+
+const median = (arr) => {
+  const v = arr.filter((x) => x !== null && Number.isFinite(x)).sort((a, b) => a - b);
+  if (!v.length) return null;
+  const m = Math.floor(v.length / 2);
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+};
+
+function valueBadge(perNyang, med) {
+  if (perNyang === null) return h('span', { class: 'pill muted' }, 'not sold');
+  if (med === null || med <= 0) return null;
+  const r = perNyang / med;
+  if (perNyang <= 0) return h('span', { class: 'pill bad', title: 'Gives less than its impurity costs' }, 'net negative');
+  if (r >= 1.5) return h('span', { class: 'pill warn-pill', title: `${fmt(r)}× the median value — cheap for what it gives` }, 'cheap');
+  if (r <= 0.67) return h('span', { class: 'pill', title: `${fmt(r)}× the median value — expensive for what it gives` }, 'pricey');
+  return h('span', { class: 'pill ok', title: `${fmt(r)}× the median value` }, 'fair');
+}
+
+let ITEMS_PREVIEW = (() => { try { return localStorage.getItem('jh_items_preview') === '1'; } catch { return false; } })();
+
+// Redraw after the browser finishes the change/blur event (redrawing inside it breaks focus handling).
+const later = (fn) => setTimeout(fn, 0);
+const QE_DIRTY = new Map(); // id -> { kind: 'item'|'art', data } — unsaved quick edits survive filtering and live refresh
+function quickEditView(filter) {
+  const dirty = QE_DIRTY;
+  const saveBtn = h('button', { class: 'btn primary', disabled: !dirty.size }, dirty.size ? `Save changes (${dirty.size})` : 'Save changes');
+  const discardBtn = h('button', { class: 'btn', disabled: !dirty.size, onclick: () => { dirty.clear(); render(); } }, 'Discard');
+  const markDirty = (kind, obj) => {
+    dirty.set(obj.id, { kind, data: obj });
+    saveBtn.disabled = false;
+    discardBtn.disabled = false;
+    saveBtn.textContent = `Save changes (${dirty.size})`;
+  };
+  saveBtn.onclick = run(async () => {
+    for (const { kind, data } of dirty.values()) {
+      if (kind === 'item') await api(`/items/${data.id}`, { method: 'PUT', body: data });
+      else await api(`/arts/${data.id}`, { method: 'PUT', body: data });
+    }
+    toast(`Saved ${dirty.size} change(s).`);
+    dirty.clear();
+    await refresh();
+  });
+
+  // --- pills ---
+  const pills = D.items.filter((i) => i.type === 'pill' && filter(i)).map((i) => dirty.get(i.id)?.data || clone(i));
+  const pillWrap = h('div');
+  const drawPills = () => {
+    const rated = pills.map((it) => ({ it, r: ratePill(it) }));
+    const med = median(rated.map((x) => x.r.perNyang));
+    const num = (it, path, step = 'any', width = 62) => {
+      const i = h('input', { type: 'number', step, value: getP(it, path) ?? '', style: `width:${width}px` });
+      i.onchange = () => { setP(it, path, i.value === '' ? (path === 'pill.peakRealm' ? null : 0) : Number(i.value)); markDirty('item', it); later(drawPills); };
+      return i;
+    };
+    const sel = (it, path, opts, width = 110) => {
+      const s = h('select', { style: `width:${width}px` }, opts.map(([v, l]) => h('option', { value: v }, l)));
+      s.value = getP(it, path) ?? '';
+      s.onchange = () => { setP(it, path, path === 'pill.peakRealm' ? (s.value === '' ? null : Number(s.value)) : s.value); markDirty('item', it); later(drawPills); };
+      return s;
+    };
+    const price = (it) => {
+      const i = h('input', { type: 'number', value: it.shop?.enabled ? it.shop.price : '', placeholder: 'not sold', style: 'width:72px' });
+      i.onchange = () => { it.shop = { ...it.shop, enabled: i.value !== '', price: Number(i.value) || 0 }; markDirty('item', it); later(drawPills); };
+      return i;
+    };
+    const tone = (v) => (v < 0 ? 'bad' : v === 0 ? 'muted' : '');
+    pillWrap.replaceChildren(table([
+      ['Pill', (x) => h('div', {}, h('a', { href: '#', onclick: (e) => { e.preventDefault(); editItem(D.items.find((i) => i.id === x.it.id)); } }, `${x.it.emoji || ''} ${x.it.name}`), h('div', { class: 'muted small' }, `${x.it.rarity}${x.r.scripted ? ' · custom code ⚙' : ''}${dirty.has(x.it.id) ? ' · edited' : ''}`))],
+      ['① Power', (x) => h('strong', { class: tone(x.r.power), title: `benefit ${fmt(x.r.benefit)} − impurity ${fmt(x.r.impCost)}` }, fmt(x.r.power))],
+      ['② PP / 100 Nyang', (x) => h('div', { class: 'toolbar', style: 'gap:4px;flex-wrap:nowrap' }, h('span', { class: tone(x.r.perNyang ?? 0) }, x.r.perNyang === null ? '—' : fmt(x.r.perNyang)), valueBadge(x.r.perNyang, med))],
+      ['③ Monthly max', (x) => h('span', { class: tone(x.r.monthly), title: `${x.r.uses} use(s) — limited by ${x.r.limitedBy}` }, `${fmt(x.r.monthly)} `, h('span', { class: 'muted small' }, `(${x.r.uses}×)`))],
+      ['Price', (x) => price(x.it)],
+      ['Gives', (x) => sel(x.it, 'pill.yieldType', [['none', '—'], ['qi', 'Qi'], ['strength', 'STR'], ['endurance', 'END'], ['mobility', 'MOB'], ['points', 'Stat pts'], ['flex', 'Flex pts']], 90)],
+      ['Yield', (x) => num(x.it, 'pill.yieldAmount')],
+      ['Impurity', (x) => num(x.it, 'pill.impurity')],
+      ['Element', (x) => sel(x.it, 'pill.element', [['', '—'], ...D.settings.elements.map((e) => [e, e])], 80)],
+      ['BT %', (x) => num(x.it, 'pill.breakthroughBonus', 'any', 60)],
+      ['Tol %', (x) => num(x.it, 'pill.tolerance', 'any', 60)],
+      ['/month', (x) => num(x.it, 'pill.monthlyLimit', '1', 55)],
+      ['Made for', (x) => sel(x.it, 'pill.peakRealm', [['', 'any'], ...D.realms.map((r, i) => [i, r.name])], 110)],
+    ], rated));
+  };
+  drawPills();
+
+  // --- cultivation methods ---
+  const methods = D.arts.filter((a) => a.kind === 'cultivation').map((a) => dirty.get(a.id)?.data || clone(a));
+  const methodWrap = h('div');
+  const drawMethods = () => {
+    const num = (a, key, width = 70) => {
+      const i = h('input', { type: 'number', step: 'any', value: a[key] ?? '', style: `width:${width}px` });
+      i.onchange = () => { a[key] = Number(i.value) || 0; markDirty('art', a); later(drawMethods); };
+      return i;
+    };
+    methodWrap.replaceChildren(table([
+      ['Cultivation method', (a) => h('div', {}, h('a', { href: '#', onclick: (e) => { e.preventDefault(); editArt(D.arts.find((x) => x.id === a.id)); } }, a.name), h('div', { class: 'muted small' }, `${D.characters.filter((c) => c.cultivationMethods.some((r) => r.id === a.id)).length} character(s)${a.scriptId ? ' · custom code ⚙' : ''}${dirty.has(a.id) ? ' · edited' : ''}`))],
+      ['① Pill ×', (a) => h('strong', {}, `×${fmt(rateMethod(a).pillMult)}`)],
+      ['② Impurity ×', (a) => `×${fmt(rateMethod(a).impMult)}`],
+      ['③ Purity index', (a) => { const p = rateMethod(a).purity; return h('strong', { class: p < 1 ? 'bad' : p > 1 ? 'ok' : '' }, fmt(p)); }],
+      ['Absorption rate %', (a) => num(a, 'baseAbsorption')],
+      ['Bonus %', (a) => num(a, 'absorption')],
+      ['Impurity −%', (a) => num(a, 'impurityReduction')],
+      ['Affinities', (a) => Object.entries(a.affinities || {}).map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}%`).join(', ') || '—'],
+    ], methods));
+  };
+  drawMethods();
+
+  const w = RW();
+  return [
+    h('div', { class: 'card' },
+      h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, 'Pills & elixirs'), discardBtn, saveBtn),
+      h('p', { class: 'muted small', style: 'margin:6px 0 10px' }, 'Edit the main numbers right here; changed rows are saved together. Click a name for the full editor.'),
+      pillWrap,
+      h('details', { style: 'margin-top:10px' }, h('summary', { class: 'muted', style: 'cursor:pointer' }, 'How the pill ratings work'),
+        h('div', { class: 'ref', style: 'margin-top:8px' },
+          h('p', {}, h('b', {}, '① Power'), ` = yield × type weight × ${w.referenceAbsorption}% absorption + BT% × ${w.breakthrough} − impurity × ${w.impurity}`),
+          h('p', { class: 'muted small' }, `Type weights: Qi ${w.qi} · Strength/Endurance/Mobility ${w.stat} · stat points ${w.points} · flexible points ${w.flex}. Detox pills (negative impurity) gain power. Rated at the realm the pill is made for.`),
+          h('p', {}, h('b', {}, '② PP / 100 Nyang'), ' = Power ÷ shop price × 100 — value for money. "cheap" = 1.5× the median of your pills or more, "pricey" = 0.67× or less.'),
+          h('p', {}, h('b', {}, '③ Monthly max'), ` = benefit × (1 + (1−tol) + (1−tol)² + …) − impurity cost × uses. Uses = the monthly limit, or how many fit before Impurity ${D.settings.impurity?.yieldPenaltyAt ?? 50}, at most ${w.maxUses}. The most one player can squeeze out of it in a month — the abuse check.`),
+          h('p', { class: 'muted small' }, 'Pills with custom code ⚙ are rated on their plain numbers only. Change the weights in Settings → Item rating weights.'))),
+    ),
+    h('div', { class: 'card' },
+      h('h3', { style: 'margin:0 0 8px' }, 'Cultivation methods'),
+      methodWrap,
+      h('details', { style: 'margin-top:10px' }, h('summary', { class: 'muted', style: 'cursor:pointer' }, 'How the method ratings work'),
+        h('div', { class: 'ref', style: 'margin-top:8px' },
+          h('p', {}, h('b', {}, '① Pill ×'), ' = (Absorption rate + bonus) ÷ 100 — how much of every pill\'s yield is kept (Qi Gathering ×0.5).'),
+          h('p', {}, h('b', {}, '② Impurity ×'), ' = 1 − impurity reduction ÷ 100 — how much of every pill\'s impurity is taken.'),
+          h('p', {}, h('b', {}, '③ Purity index'), ' = Pill × ÷ Impurity × — yield per point of impurity compared with a plain 100% method (1.00). Above 1 is better; elemental affinities are extra on top.'))),
+    ),
+  ];
+}
+
 VIEWS.items = () => {
   let shown = D.items;
   const search = h('input', { placeholder: 'Search items…', class: 'grow' });
   const fr = h('select', {}, h('option', { value: '' }, 'All rarities'), D.rarities.map((r) => h('option', { value: r.name }, r.name)));
   const ft = h('select', {}, h('option', { value: '' }, 'All types'), D.constants.ITEM_TYPES.map((t) => h('option', { value: t }, t)));
   const wrap = h('div');
+  const preview = h('input', { type: 'checkbox' });
+  preview.checked = ITEMS_PREVIEW;
+  preview.onchange = () => { ITEMS_PREVIEW = preview.checked; try { localStorage.setItem('jh_items_preview', ITEMS_PREVIEW ? '1' : '0'); } catch {} draw(); };
   const draw = () => {
     const q = search.value.toLowerCase();
-    const list = D.items.filter((i) => (!fr.value || i.rarity === fr.value) && (!ft.value || i.type === ft.value) && (!q || `${i.name} ${i.description}`.toLowerCase().includes(q)));
+    const match = (i) => (!fr.value || i.rarity === fr.value) && (!ft.value || i.type === ft.value) && (!q || `${i.name} ${i.description}`.toLowerCase().includes(q));
+    const list = D.items.filter(match);
     shown = list;
+    if (ITEMS_PREVIEW) return wrap.replaceChildren(...quickEditView(match));
     wrap.replaceChildren(table([
       ['', (i) => i.emoji || rarity(i.rarity).emoji],
       ['Name', (i) => h('strong', {}, i.name)],
@@ -515,7 +690,7 @@ VIEWS.items = () => {
   [search, fr, ft].forEach((x) => (x.oninput = draw));
   draw();
   return [
-    h('div', { class: 'toolbar' }, search, fr, ft, h('span', { class: 'grow' }), h('span', { class: 'muted' }, `${D.items.length} / ${D.settings.maxItems} items`),
+    h('div', { class: 'toolbar' }, search, fr, ft, h('label', { class: 'field check', title: 'Edit pills and cultivation methods in a grid and see their ratings' }, preview, h('span', {}, '📊 Quick edit & ratings')), h('span', { class: 'grow' }), h('span', { class: 'muted' }, `${D.items.length} / ${D.settings.maxItems} items`),
       h('button', { class: 'btn', title: 'Downloads the items shown (use the filters to export only some)', onclick: () => {
         const filtered = shown.length !== D.items.length;
         location.href = `/api/items/export${filtered ? `?ids=${encodeURIComponent(shown.map((i) => i.id).join(','))}` : ''}`;
@@ -917,6 +1092,12 @@ VIEWS.settings = () => {
     { k: 'breakthroughCooldownHours', label: 'Cooldown between attempts (hours)', t: 'number' },
     { k: 'breakthroughFailureImpurity', label: 'Impurity gained on failure', t: 'number' },
     { k: 'maxBreakthroughBonus', label: 'Max stored pill bonus % (0 = no cap)', t: 'number', help: 'Stops stacking many breakthrough pills' },
+    { section: 'Item rating weights (Items → Quick edit & ratings)' },
+    { k: 'rating.qi', label: 'PP per 1 Qi', t: 'number' }, { k: 'rating.stat', label: 'PP per 1 Strength/Endurance/Mobility', t: 'number' },
+    { k: 'rating.points', label: 'PP per 1 stat point', t: 'number' }, { k: 'rating.flex', label: 'PP per 1 flexible point', t: 'number' },
+    { k: 'rating.breakthrough', label: 'PP per +1% Realm Breakthrough', t: 'number' }, { k: 'rating.impurity', label: 'PP cost per 1 Impurity', t: 'number' },
+    { k: 'rating.referenceAbsorption', label: 'Absorption % assumed when rating', t: 'number', help: '100 = a full method; 50 = rate for Qi Gathering users' },
+    { k: 'rating.maxUses', label: 'Max uses per month assumed', t: 'number' },
     { section: 'Economy' },
     { k: 'shopSellbackPercent', label: 'Shop buy-back % of price', t: 'number' }, { k: 'marketFeePercent', label: 'Player market fee %', t: 'number' },
     { k: 'tradeExpiryMinutes', label: 'Trade offers expire after (min)', t: 'number' },
