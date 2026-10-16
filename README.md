@@ -153,6 +153,21 @@ Anyone who knows those can log in; you can also create one account per editor in
 | `/title player title` | Set a title exactly as typed (`none` removes it) |
 | `/admin backup · dashboard · sync` | Backup now, dashboard link, re-send commands to Discord |
 
+## Pill limits, consumables and the item pack
+
+Pills have optional anti-spam limits (item editor → *Pill limits*):
+- **Tolerance %** — each one taken this month is weaker (30% → 2nd pill 70%, 3rd 49%…).
+- **Max per month** — hard limit. Counters reset at the start of every month.
+- **Made for realm** + **% weaker per realm above** — cheap pills stay usable later, just less efficient (applies to yield and breakthrough bonus).
+- **% kept if the attempt fails** (breakthrough pills) — that part of the bonus survives one failed attempt.
+- **Settings → Max stored pill bonus** caps how much breakthrough chance pills can stack (default +20%).
+
+Non-pill items marked **Can be used up** (poisons, antidotes, talismans, smoke pellets…) get a **Use** button and work with `/consume`. Their *Effect* text is shown and every use is logged like a pill, so staff can check items used mid-fight.
+
+**Items → ⬇ Export / ⬆ Import** moves items between servers or backups, together with the arts their manuals teach, their custom code and their crafting recipes. Import previews what will be created/updated first and makes a safety backup.
+
+`examples/item-pack-murim-30.json` is a ready-made pack of 30 items for 3rd Rate to Peak (Qi pills, stat pills, detox, breakthrough aids, poisons, antidotes, combat consumables, crafting materials and 4 recipes), with 9 custom-code gimmicks. Import it from the dashboard and adjust prices to your economy.
+
 ## Sects & Discord roles (Dashboard → Sects)
 
 Each sect can have:

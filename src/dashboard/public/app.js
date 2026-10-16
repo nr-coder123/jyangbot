@@ -492,6 +492,7 @@ VIEWS.applications = () => {
 
 // ----- items -----
 VIEWS.items = () => {
+  let shown = D.items;
   const search = h('input', { placeholder: 'Search items…', class: 'grow' });
   const fr = h('select', {}, h('option', { value: '' }, 'All rarities'), D.rarities.map((r) => h('option', { value: r.name }, r.name)));
   const ft = h('select', {}, h('option', { value: '' }, 'All types'), D.constants.ITEM_TYPES.map((t) => h('option', { value: t }, t)));
@@ -499,6 +500,7 @@ VIEWS.items = () => {
   const draw = () => {
     const q = search.value.toLowerCase();
     const list = D.items.filter((i) => (!fr.value || i.rarity === fr.value) && (!ft.value || i.type === ft.value) && (!q || `${i.name} ${i.description}`.toLowerCase().includes(q)));
+    shown = list;
     wrap.replaceChildren(table([
       ['', (i) => i.emoji || rarity(i.rarity).emoji],
       ['Name', (i) => h('strong', {}, i.name)],
@@ -513,10 +515,50 @@ VIEWS.items = () => {
   [search, fr, ft].forEach((x) => (x.oninput = draw));
   draw();
   return [
-    h('div', { class: 'toolbar' }, search, fr, ft, h('span', { class: 'grow' }), h('span', { class: 'muted' }, `${D.items.length} / ${D.settings.maxItems} items`), h('button', { class: 'btn primary', onclick: () => editItem(null) }, '+ New item')),
+    h('div', { class: 'toolbar' }, search, fr, ft, h('span', { class: 'grow' }), h('span', { class: 'muted' }, `${D.items.length} / ${D.settings.maxItems} items`),
+      h('button', { class: 'btn', title: 'Downloads the items shown (use the filters to export only some)', onclick: () => {
+        const filtered = shown.length !== D.items.length;
+        location.href = `/api/items/export${filtered ? `?ids=${encodeURIComponent(shown.map((i) => i.id).join(','))}` : ''}`;
+      } }, '⬇ Export'),
+      h('button', { class: 'btn', onclick: importItems }, '⬆ Import'),
+      h('button', { class: 'btn primary', onclick: () => editItem(null) }, '+ New item')),
     wrap,
   ];
 };
+
+function importItems() {
+  const file = h('input', { type: 'file', accept: '.json,application/json' });
+  const mode = h('select', {}, h('option', { value: 'update' }, 'Update items that already exist (matched by id or name)'), h('option', { value: 'skip' }, 'Keep existing items, only add new ones'));
+  const out = h('pre', { class: 'out' }, 'Choose a file exported from this dashboard (or a full save file).');
+  let data = null;
+  const preview = run(async () => {
+    if (!file.files[0]) return;
+    data = JSON.parse(await file.files[0].text());
+    const r = await api('/items/import', { method: 'POST', body: { data, mode: mode.value, dryRun: true } });
+    out.textContent = [
+      `Will create ${r.created.length}: ${r.created.join(', ') || '—'}`,
+      `Will update ${r.updated.length}: ${r.updated.join(', ') || '—'}`,
+      r.skipped.length ? `Will skip ${r.skipped.length}: ${r.skipped.join(', ')}` : '',
+      `Arts (martial arts / cultivation methods): ${r.arts} · Custom code scripts: ${r.scripts} · Crafting recipes: ${r.recipes}`,
+      r.errors.length ? `\nProblems:\n- ${r.errors.join('\n- ')}` : '',
+    ].filter(Boolean).join('\n');
+  });
+  file.onchange = preview;
+  mode.onchange = preview;
+  openModal('Import items', h('div', { style: 'display:grid;gap:10px' },
+    h('p', { class: 'muted', style: 'margin:0' }, 'Imports items together with the martial arts / cultivation methods their manuals teach, their custom code and crafting recipes. Nothing is deleted. A safety backup is made first.'),
+    file, mode, out), [
+    h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
+    h('button', { class: 'btn primary', onclick: run(async () => {
+      if (!data) return toast('Choose a file first.', true);
+      await api('/backups', { method: 'POST', body: { label: 'Before item import' } });
+      const r = await api('/items/import', { method: 'POST', body: { data, mode: mode.value } });
+      closeModal();
+      toast(`Imported: ${r.created.length} new, ${r.updated.length} updated${r.errors.length ? `, ${r.errors.length} problem(s)` : ''}.`, !!r.errors.length);
+      await refresh();
+    }) }, 'Import'),
+  ]);
+}
 
 function editItem(item, prefill = null) {
   const isNew = !item;
@@ -534,6 +576,8 @@ function editItem(item, prefill = null) {
     { k: 'dropWeight', label: 'Drop weight inside its rarity', t: 'number', help: '2 = twice as likely as a weight-1 item of the same rarity' },
     { k: 'tradeable', label: 'Tradeable between players', t: 'check' },
     { k: 'marketable', label: 'Players can sell it on the player market', t: 'check' },
+    { k: 'consumable', label: 'Can be used up (poisons, antidotes, talismans…) — pills always can', t: 'check' },
+    { k: 'useEffect', label: 'Effect shown when used (logged for staff)', wide: true, help: 'e.g. "Restores 1 Qi Bar (once per fight)". Narrative effects are handled in the roleplay.' },
     { k: 'shop.enabled', label: 'Sold in the shop', t: 'check' },
     { k: 'shop.price', label: `Shop price (${D.settings.currencyName})`, t: 'number' },
     { k: 'shop.stock', label: 'Shop stock (-1 = unlimited)', t: 'number' },
@@ -542,10 +586,16 @@ function editItem(item, prefill = null) {
     { k: 'manual.artId', label: 'Teaches', t: 'select', show: ['manual'], opts: () => [['', '— pick a martial art or cultivation method —'], ...D.arts.filter((a) => a.kind !== 'qicore').map((a) => [a.id, `${a.name} — ${D.constants.ART_KIND_LABEL[a.kind]}`])], help: 'Create martial arts and cultivation methods in the Arts & Traits tab.' },
     { section: 'Pill / elixir', show: ['pill'] },
     { k: 'pill.yieldType', label: 'Yield gives', t: 'select', opts: [['none', 'Nothing'], ['qi', 'Qi'], ['strength', 'Strength'], ['endurance', 'Endurance'], ['mobility', 'Mobility'], ['points', 'Stat points to spend (no Qi)'], ['flex', 'Flexible points (Qi ok)']], show: ['pill'] },
-    { k: 'pill.yieldAmount', label: 'Yield amount (raw)', t: 'number', show: ['pill'], help: 'Multiplied by the consumer\'s absorption: raw × (1 + rate%)' },
+    { k: 'pill.yieldAmount', label: 'Yield amount (raw)', t: 'number', show: ['pill'], help: 'Multiplied by the consumer\'s absorption: Qi Gathering absorbs 50%, better methods 100%, plus bonuses' },
     { k: 'pill.impurity', label: 'Impurity', t: 'number', show: ['pill'], help: 'Negative = removes impurity (detox pill)' },
     { k: 'pill.element', label: 'Affinity / element', t: 'select', opts: els.map((e) => [e, e || 'None']), show: ['pill'] },
     { k: 'pill.breakthroughBonus', label: 'Realm Breakthrough bonus %', t: 'number', show: ['pill'], help: 'Stored until the next Realm Breakthrough attempt (/menu → Realm)' },
+    { k: 'pill.keepOnFail', label: '% of the bonus kept if the attempt fails', t: 'number', show: ['pill'], help: 'Kept once, for the next attempt' },
+    { section: 'Pill limits (anti-spam)', show: ['pill'] },
+    { k: 'pill.tolerance', label: 'Tolerance % (weaker each use this month)', t: 'number', show: ['pill'], help: '30 = 2nd pill 70%, 3rd 49%… Resets monthly.' },
+    { k: 'pill.monthlyLimit', label: 'Max per month (0 = no limit)', t: 'number', show: ['pill'] },
+    { k: 'pill.peakRealm', label: 'Made for realm', t: 'select', show: ['pill'], opts: () => [['', '— any realm —'], ...D.realms.map((r, i) => [i, r.name])], help: 'Weaker above this realm (yield and breakthrough bonus)' },
+    { k: 'pill.realmFalloff', label: '% weaker per realm above', t: 'number', show: ['pill'] },
     { section: 'Poison', show: ['poison'] },
     { k: 'poison.tier', label: 'Tier', t: 'select', opts: tiers, show: ['poison'] },
     { k: 'poison.element', label: 'Affinity', t: 'select', opts: els.map((e) => [e, e || 'None']), show: ['poison'] },
@@ -578,6 +628,7 @@ function editItem(item, prefill = null) {
     h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
     h('button', { class: 'btn primary', onclick: run(async () => {
       const data = deepMerge(it, f.read());
+      if (data.pill) data.pill.peakRealm = data.pill.peakRealm === '' || data.pill.peakRealm === undefined || data.pill.peakRealm === null ? null : Number(data.pill.peakRealm);
       if (isNew) await api('/items', { method: 'POST', body: data });
       else await api(`/items/${item.id}`, { method: 'PUT', body: data });
       toast('Item saved.');
@@ -865,6 +916,7 @@ VIEWS.settings = () => {
     { section: 'Realm Breakthrough' },
     { k: 'breakthroughCooldownHours', label: 'Cooldown between attempts (hours)', t: 'number' },
     { k: 'breakthroughFailureImpurity', label: 'Impurity gained on failure', t: 'number' },
+    { k: 'maxBreakthroughBonus', label: 'Max stored pill bonus % (0 = no cap)', t: 'number', help: 'Stops stacking many breakthrough pills' },
     { section: 'Economy' },
     { k: 'shopSellbackPercent', label: 'Shop buy-back % of price', t: 'number' }, { k: 'marketFeePercent', label: 'Player market fee %', t: 'number' },
     { k: 'tradeExpiryMinutes', label: 'Trade offers expire after (min)', t: 'number' },

@@ -1,0 +1,1100 @@
+{
+  "format": "jianghu-items",
+  "version": 1,
+  "exportedAt": "2026-10-16T16:51:18.019Z",
+  "note": "30-item starter pack (3rd Rate to Peak). Import from Dashboard → Items → Import. Prices, limits and texts are suggestions — edit freely.",
+  "items": [
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 3,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": 10,
+      "scriptId": "",
+      "emoji": "💧",
+      "id": "pack-dew-gathering-pill",
+      "name": "Dew Gathering Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 2,
+        "impurity": 15,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 40,
+        "monthlyLimit": 0,
+        "peakRealm": 0,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 70,
+        "stock": -1
+      },
+      "description": "A beginner's pill condensed from the morning dew of spirit grass.\n\n-# Made for **3rd Rate**: 50% weaker for every realm above. Each one after the first in a month is 40% weaker."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 2,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": 30,
+      "scriptId": "",
+      "emoji": "🔵",
+      "id": "pack-spirit-condensing-pill",
+      "name": "Spirit Condensing Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 4,
+        "impurity": 20,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 30,
+        "monthlyLimit": 0,
+        "peakRealm": 2,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 180,
+        "stock": -1
+      },
+      "description": "Condenses scattered spiritual energy into the dantian.\n\n-# Made for **1st Rate**. 30% weaker for each one already taken this month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": 100,
+      "scriptId": "",
+      "emoji": "☁️",
+      "id": "pack-azure-cloud-pill",
+      "name": "Azure Cloud Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 8,
+        "impurity": 25,
+        "element": "Wood",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 30,
+        "monthlyLimit": 3,
+        "peakRealm": 4,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 650,
+        "stock": -1
+      },
+      "description": "A Wood-aspected pill that drifts through the meridians like a cloud.\n\n-# Made for **Master**. Max 3 per month; 30% weaker each time."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🟣",
+      "id": "pack-purple-mist-elixir",
+      "name": "Purple Mist Elixir",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 12,
+        "impurity": 30,
+        "element": "Water",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 2,
+        "peakRealm": 5,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 1400,
+        "stock": -1
+      },
+      "description": "A Water-aspected elixir brewed for those standing at the Peak.\n\n-# Made for **Peak**. Max 2 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "pack-clear-spring",
+      "emoji": "🫧",
+      "id": "pack-clear-spring-pill",
+      "name": "Clear Spring Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 3,
+        "impurity": 5,
+        "element": "Water",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 25,
+        "monthlyLimit": 0,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 150,
+        "stock": -1
+      },
+      "description": "Pure Qi that fights impurity — clean cultivators get the most out of it.\n\n**Gimmick:** full potency at 0 Impurity, **−20% for every 10 Impurity** you already have."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "pack-heavens-dice",
+      "emoji": "🎲",
+      "id": "pack-heavens-dice-pellet",
+      "name": "Heaven's Dice Pellet",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 2,
+        "impurity": 18,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 4,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 60,
+        "stock": -1
+      },
+      "description": "Sold in back alleys by a one-eyed alchemist. Nobody knows what is inside.\n\n**Gimmick:** 25% nothing · 45% normal · 25% double · 5% quadruple. Impurity varies between 50% and 150%. Max 4 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "pack-blood-essence",
+      "emoji": "🩸",
+      "id": "pack-blood-essence-pill",
+      "name": "Blood Essence Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 6,
+        "impurity": 35,
+        "element": "Fire",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 30,
+        "monthlyLimit": 0,
+        "peakRealm": 4,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 300,
+        "stock": -1
+      },
+      "description": "Refined from the blood of spirit beasts. Potent, but foul.\n\n**Gimmick:** **Blood Cult** members take **half** the impurity."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "pack-five-elements",
+      "emoji": "☯️",
+      "id": "pack-five-elements-pill",
+      "name": "Five Elements Harmony Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 3,
+        "impurity": 20,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 30,
+        "monthlyLimit": 2,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 420,
+        "stock": -1
+      },
+      "description": "Five colored layers, one for each element.\n\n**Gimmick:** **+1 Qi for each element** your cultivation has a positive affinity with (max +3)."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🌿",
+      "id": "pack-bitter-root-tonic",
+      "name": "Bitter Root Tonic",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "flex",
+        "yieldAmount": 2,
+        "impurity": 14,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 50,
+        "monthlyLimit": 2,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 200,
+        "stock": -1
+      },
+      "description": "Tastes like regret. Strengthens whatever you need most.\n\n-# Gives 2 points you can spend on any stat, including Qi. Max 2 per month; the second is half as strong."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🐅",
+      "id": "pack-tiger-bone-pill",
+      "name": "Tiger Bone Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "strength",
+        "yieldAmount": 2,
+        "impurity": 15,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 35,
+        "monthlyLimit": 0,
+        "peakRealm": 3,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 130,
+        "stock": -1
+      },
+      "description": "Ground from the bones of a mountain tiger.\n\n-# Made for **Expert**. 35% weaker for each one taken this month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🛡️",
+      "id": "pack-iron-skin-pill",
+      "name": "Iron Skin Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "endurance",
+        "yieldAmount": 2,
+        "impurity": 15,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 35,
+        "monthlyLimit": 0,
+        "peakRealm": 3,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 130,
+        "stock": -1
+      },
+      "description": "Hardens the skin like tempered iron.\n\n-# Made for **Expert**. 35% weaker for each one taken this month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🪶",
+      "id": "pack-swallow-feather-pill",
+      "name": "Swallow Feather Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "mobility",
+        "yieldAmount": 2,
+        "impurity": 15,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 35,
+        "monthlyLimit": 0,
+        "peakRealm": 3,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 130,
+        "stock": -1
+      },
+      "description": "Makes the body as light as a swallow's feather.\n\n-# Made for **Expert**. 35% weaker for each one taken this month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "pack-middle-way",
+      "emoji": "⚖️",
+      "id": "pack-middle-way-pill",
+      "name": "Pill of the Middle Way",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "strength",
+        "yieldAmount": 3,
+        "impurity": 18,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 35,
+        "monthlyLimit": 2,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 380,
+        "stock": -1
+      },
+      "description": "A Taoist pill that seeks balance.\n\n**Gimmick:** the yield always goes to your **lowest** stat (Strength, Endurance or Mobility). Max 2 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "pack-clarity-tea",
+      "emoji": "🍵",
+      "id": "pack-clarity-tea",
+      "name": "Clarity Tea",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": 0,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 3,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 90,
+        "stock": -1
+      },
+      "description": "A calming tea that settles turbid Qi.\n\n**Gimmick:** removes **25% of your current Impurity** (at least 3). Strong when you are very impure, weak when you are almost clean. Max 3 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "pack-marrow-cleansing",
+      "emoji": "🦴",
+      "id": "pack-marrow-cleansing-pill",
+      "name": "Marrow Cleansing Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": -30,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 400,
+        "stock": -1
+      },
+      "description": "A violent purge that scours the marrow.\n\n**Gimmick:** removes **30 Impurity**, but you **lose 2 Qi** with it. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🕯️",
+      "id": "pack-calm-heart-incense",
+      "name": "Calm Heart Incense",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": 0,
+        "element": "",
+        "breakthroughBonus": 3,
+        "keepOnFail": 100,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 300,
+        "stock": -1
+      },
+      "description": "Inhaled during meditation before a breakthrough.\n\n**Gimmick:** only +3%, but **never wasted** — if the attempt fails, the bonus stays for the next one. No impurity. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🏯",
+      "id": "pack-foundation-pill",
+      "name": "Foundation Establishing Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": 20,
+        "element": "",
+        "breakthroughBonus": 8,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": 2,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 550,
+        "stock": -1
+      },
+      "description": "Steadies the foundation before a big step.\n\n-# Made for **1st Rate** → Expert: 50% weaker for every realm above. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "pack-tribulation-thunder",
+      "emoji": "⚡",
+      "id": "pack-tribulation-thunder-pill",
+      "name": "Tribulation Thunder Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": 20,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 700,
+        "stock": -1
+      },
+      "description": "Calls a sliver of heavenly tribulation into the body.\n\n**Gimmick:** **+1% Realm Breakthrough for every 5 Impurity** you have (max +12%), then **+20 Impurity**. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "pack-gate-knocking",
+      "emoji": "🚪",
+      "id": "pack-gate-knocking-pill",
+      "name": "Gate-Knocking Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": 15,
+        "element": "",
+        "breakthroughBonus": 10,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 800,
+        "stock": -1
+      },
+      "description": "Only opens a gate you are already standing in front of.\n\n**Gimmick:** +10% Realm Breakthrough **only if you already meet the next realm's requirements**. Otherwise it is wasted and gives +10 Impurity. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🔥",
+      "id": "pack-phoenix-ash-elixir",
+      "name": "Phoenix Ash Elixir",
+      "rarity": "Immortal",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": 40,
+        "element": "Fire",
+        "breakthroughBonus": 15,
+        "keepOnFail": 100,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "description": "Ash from a phoenix's rebirth. Found, never sold.\n\n**Gimmick:** +15% Realm Breakthrough and **not lost if the attempt fails** — but +40 Impurity. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "Blade coated with Viper Fang venom — the next hit that breaks skin delivers it.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🐍",
+      "id": "pack-viper-fang-flask",
+      "name": "Viper Fang Flask",
+      "rarity": "Earthly",
+      "type": "poison",
+      "poison": {
+        "tier": 1,
+        "element": "Wood",
+        "impurity": 10,
+        "debuff": "+10 Impurity on hit. If the target has 20+ Impurity: −5 Qi, −1 Qi Bar.",
+        "gimmick": "The wounded limb goes numb: T4 (Light) damage on the hit area, repeating over 2 turns.",
+        "activation": "Coat a blade; enters through broken skin. One coating lasts one hit.",
+        "repeatable": false,
+        "triggersBurst": false
+      },
+      "shop": {
+        "enabled": true,
+        "price": 90,
+        "stock": -1
+      },
+      "description": "A small flask of green venom milked from a mountain viper."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "Weapon (or drink) laced with Crimson Scorpion Venom.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🦂",
+      "id": "pack-crimson-scorpion-venom",
+      "name": "Crimson Scorpion Venom",
+      "rarity": "Heavenly",
+      "type": "poison",
+      "poison": {
+        "tier": 2,
+        "element": "Fire",
+        "impurity": 30,
+        "debuff": "+30 Impurity on hit. If the target has 20+ Impurity: −20 Qi, −2 Qi Bars, −5 Endurance.",
+        "gimmick": "Burns from within: T6 damage on the hit area over 2 turns; T7 if it reaches an internal organ or is swallowed.",
+        "activation": "Coat a weapon, or mix into food or drink.",
+        "repeatable": false,
+        "triggersBurst": false
+      },
+      "shop": {
+        "enabled": true,
+        "price": 450,
+        "stock": -1
+      },
+      "description": "Venom from the red scorpions of the western deserts. Smells faintly of cinnamon."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "A cloud of Ghost Lotus Powder is thrown — anyone within arm's reach who breathes it in is affected.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🪷",
+      "id": "pack-ghost-lotus-powder",
+      "name": "Ghost Lotus Powder",
+      "rarity": "Heavenly",
+      "type": "poison",
+      "poison": {
+        "tier": 2,
+        "element": "Water",
+        "impurity": 30,
+        "debuff": "+30 Impurity. If the target has 20+ Impurity: −20 Qi, −2 Qi Bars, −5 Mobility.",
+        "gimmick": "Sight blurs: the target's Mobility counts one tier lower in comparisons for 2 turns.",
+        "activation": "Thrown as a cloud and inhaled within arm's reach. Wind can carry it away.",
+        "repeatable": false,
+        "triggersBurst": false
+      },
+      "shop": {
+        "enabled": true,
+        "price": 500,
+        "stock": -1
+      },
+      "description": "Pale powder from a lotus that only blooms over graves."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "The jar of Heaven-Severing Miasma is opened — everyone nearby who breathes is at risk, including you.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "☠️",
+      "id": "pack-heaven-severing-miasma",
+      "name": "Heaven-Severing Miasma",
+      "rarity": "Immortal",
+      "type": "poison",
+      "poison": {
+        "tier": 3,
+        "element": "Metal",
+        "impurity": 50,
+        "debuff": "+50 Impurity. If the target has 20+ Impurity: −50 Qi, −4 Qi Bars, −10 Strength and −10 Endurance.",
+        "gimmick": "Severs the link to Heaven: the target cannot use Standard Skills for 2 turns.",
+        "activation": "Released from a sealed jar; inhaled. Affects everyone in a small room, including the user if unprotected.",
+        "repeatable": false,
+        "triggersBurst": false
+      },
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "description": "A forbidden poison sealed in black porcelain. Its recipe was burned with its maker."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "T1 Wood purification: halves a T1 poison and removes its gimmick; halves a T2 poison's numbers. Useless against Metal, weaker against Fire.",
+      "sellPrice": 10,
+      "scriptId": "",
+      "emoji": "💚",
+      "id": "pack-green-antidote-pill",
+      "name": "Green Antidote Pill",
+      "rarity": "Earthly",
+      "type": "purification",
+      "purification": {
+        "tier": 1,
+        "element": "Wood",
+        "gimmick": ""
+      },
+      "shop": {
+        "enabled": true,
+        "price": 60,
+        "stock": -1
+      },
+      "description": "A common antidote every traveling martial artist carries."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "T2 Earth purification: removes T1 poisons, halves T2 and removes its gimmick, halves T3. Useless against Wood, weaker against Metal.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "💛",
+      "id": "pack-yellow-earth-antidote",
+      "name": "Yellow Earth Antidote",
+      "rarity": "Heavenly",
+      "type": "purification",
+      "purification": {
+        "tier": 2,
+        "element": "Earth",
+        "gimmick": "If it removes a poison completely, the user also loses 5 Impurity."
+      },
+      "shop": {
+        "enabled": true,
+        "price": 300,
+        "stock": -1
+      },
+      "description": "Brewed from earth-root and ginseng skin. Thick and sweet."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "A cloud of smoke for 2 turns: anyone attacking you through it counts their Mobility advantage one tier lower. Once per encounter.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "💨",
+      "id": "pack-smoke-pellet",
+      "name": "Smoke Pellet",
+      "rarity": "Earthly",
+      "type": "misc",
+      "shop": {
+        "enabled": true,
+        "price": 40,
+        "stock": -1
+      },
+      "description": "Favored by bandits, assassins and cowards alike."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "Restores 1 Qi Bar during a fight (once per encounter). Taking it mid-fight must be stated in your post.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🔋",
+      "id": "pack-qi-restoration-pill",
+      "name": "Qi Restoration Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": 8,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 0,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 50,
+        "stock": -1
+      },
+      "description": "A quick pill that refills an emptied Qi Bar.\n\n**Gimmick:** restores **1 Qi Bar** in a fight, once per encounter — but still gives 8 Impurity. Every use is logged for staff."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 5,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🌱",
+      "id": "pack-spirit-grass",
+      "name": "Spirit Grass",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "description": "A common herb that absorbs ambient Qi. Used in many pill recipes (see Crafting)."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🥕",
+      "id": "pack-thousand-year-ginseng",
+      "name": "Thousand-Year Ginseng",
+      "rarity": "Heavenly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "description": "A ginseng root that has drunk the earth's Qi for a thousand years. Key ingredient of higher pills."
+    }
+  ],
+  "arts": [],
+  "scripts": [
+    {
+      "id": "pack-clear-spring",
+      "name": "Clear Spring Pill",
+      "description": "Full yield at 0 Impurity, −20% per 10 Impurity you already have.",
+      "code": "// Clear Spring Pill — pure Qi that fights impurity.\nhooks.consume = (ctx, result) => {\n  const imp = ctx.character.impurity;\n  const mult = Math.max(0, 1 - Math.floor(imp / 10) * 0.2);\n  if (mult < 1) {\n    result.yieldAmount = Math.round(result.yieldAmount * mult * 100) / 100;\n    result.notes.push('💧 Your impurity muddies the spring: ' + Math.round(mult * 100) + '% potency.');\n  } else {\n    result.notes.push('💧 Your meridians are clear — the spring flows fully.');\n  }\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "pack-heavens-dice",
+      "name": "Heaven's Dice Pellet",
+      "description": "Random potency: 25% nothing, 45% normal, 25% double, 5% quadruple. Impurity varies 50–150%.",
+      "code": "// Heaven's Dice Pellet — a gamble. Average potency is about 1.15x, so it is fun, not farmable.\nhooks.consume = (ctx, result) => {\n  const r = Math.random();\n  let mult; let text;\n  if (r < 0.25) { mult = 0; text = '🎲 Snake eyes — the pellet was hollow.'; }\n  else if (r < 0.70) { mult = 1; text = '🎲 An ordinary roll.'; }\n  else if (r < 0.95) { mult = 2; text = '🎲 Lucky! Double potency.'; }\n  else { mult = 4; text = '🎲 Heaven smiles — quadruple potency!'; }\n  result.yieldAmount = Math.round(result.yieldAmount * mult * 100) / 100;\n  result.impurity = Math.round(result.impurity * (0.5 + Math.random()) * 100) / 100;\n  result.notes.push(text);\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "pack-blood-essence",
+      "name": "Blood Essence Pill",
+      "description": "Blood Cult members take half the impurity.",
+      "code": "// Blood Essence Pill — sects that can digest blood essence take half the impurity.\nconst AFFINE_SECTS = ['Blood Cult'];\nhooks.consume = (ctx, result) => {\n  if (AFFINE_SECTS.includes(ctx.character.sect)) {\n    result.impurity = result.impurity / 2;\n    result.notes.push(\"🩸 Your sect's arts drink the blood essence — half the impurity.\");\n  }\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "pack-five-elements",
+      "name": "Five Elements Harmony Pill",
+      "description": "+1 Qi for every element you have a positive affinity with (max +3).",
+      "code": "// Five Elements Harmony Pill — rewards characters whose cultivation is attuned to elements.\nhooks.consume = (ctx, result) => {\n  const attuned = Object.values(ctx.character.absorption.byElement || {}).filter((v) => v > 0).length;\n  const extra = Math.min(3, attuned);\n  if (extra) {\n    result.yieldAmount += extra;\n    result.notes.push('☯️ ' + extra + ' attuned element(s) resonate: +' + extra + ' Qi.');\n  } else {\n    result.notes.push('☯️ No element answers the call — only the base yield.');\n  }\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "pack-middle-way",
+      "name": "Pill of the Middle Way",
+      "description": "The yield goes to your lowest stat (Strength / Endurance / Mobility).",
+      "code": "// Pill of the Middle Way — always strengthens your weakest stat, so it can't be used to min-max.\nhooks.consume = (ctx, result) => {\n  const s = ctx.character.stats;\n  const weakest = ['strength', 'endurance', 'mobility'].sort((a, b) => s[a] - s[b])[0];\n  result.yieldType = weakest;\n  result.notes.push('⚖️ The pill flows to your weakest point: ' + weakest + '.');\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "pack-clarity-tea",
+      "name": "Clarity Tea",
+      "description": "Removes 25% of your current Impurity (at least 3).",
+      "code": "// Clarity Tea — percentage detox: great when you are very impure, weak when you are almost clean.\nhooks.consume = (ctx, result) => {\n  const imp = ctx.character.impurity;\n  const remove = Math.min(imp, Math.max(3, Math.round(imp * 0.25 * 10) / 10));\n  result.impurity = -remove;\n  if (!remove) result.notes.push('🍵 Your meridians are already clear.');\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "pack-marrow-cleansing",
+      "name": "Marrow Cleansing Pill",
+      "description": "Removes 30 Impurity, but costs 2 Qi.",
+      "code": "// Marrow Cleansing Pill — a harsh purge: the filth leaves, and some Qi leaves with it.\nhooks.consume = (ctx, result) => {\n  const loss = Math.min(2, ctx.character.stats.qi);\n  result.yieldType = 'qi';\n  result.yieldAmount = -loss;\n  result.notes.push('🦴 The purge scours your marrow — ' + loss + ' Qi is lost with the filth.');\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "pack-tribulation-thunder",
+      "name": "Tribulation Thunder Pill",
+      "description": "+1% Realm Breakthrough per 5 Impurity you have (max +12%), then +20 Impurity.",
+      "code": "// Tribulation Thunder Pill — turns impurity into breakthrough chance. Risky: it adds impurity too.\nhooks.consume = (ctx, result) => {\n  const bonus = Math.min(12, Math.floor(ctx.character.impurity / 5));\n  result.breakthroughBonus = bonus;\n  result.notes.push(bonus\n    ? '⚡ The heavenly thunder feeds on your impurity: +' + bonus + '% Realm Breakthrough.'\n    : '⚡ Too little impurity to call the thunder — no breakthrough bonus.');\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "pack-gate-knocking",
+      "name": "Gate-Knocking Pill",
+      "description": "Only works if you already meet the next realm’s requirements; otherwise wasted (+10 Impurity).",
+      "code": "// Gate-Knocking Pill — can't be stockpiled early: it only works at the gate of the next realm.\nhooks.consume = (ctx, result) => {\n  const n = ctx.nextRealm;\n  const ready = n && ctx.character.statTotal >= n.reqStats && ctx.character.stats.qi >= n.reqQi;\n  if (!ready) {\n    result.breakthroughBonus = 0;\n    result.impurity += 10;\n    result.notes.push('🚪 You knock, but the gate is not ready to open — the pill is wasted (+10 Impurity).');\n  } else {\n    result.notes.push('🚪 You stand at the gate — the pill opens the way.');\n  }\n  return result;\n};\n",
+      "enabled": true
+    }
+  ],
+  "recipes": [
+    {
+      "name": "Dew Gathering Pill",
+      "description": "Press spirit grass and collect the dew.",
+      "inputs": [
+        {
+          "itemId": "pack-spirit-grass",
+          "qty": 3
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "pack-dew-gathering-pill",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 10,
+      "successChance": 90,
+      "consumeOnFail": true,
+      "minRealm": 0,
+      "enabled": true
+    },
+    {
+      "name": "Spirit Condensing Pill",
+      "description": "Refine a dew pill with more grass.",
+      "inputs": [
+        {
+          "itemId": "pack-spirit-grass",
+          "qty": 5
+        },
+        {
+          "itemId": "pack-dew-gathering-pill",
+          "qty": 1
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "pack-spirit-condensing-pill",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 30,
+      "successChance": 80,
+      "consumeOnFail": true,
+      "minRealm": 1,
+      "enabled": true
+    },
+    {
+      "name": "Azure Cloud Pill",
+      "description": "A ginseng root at the heart, wrapped in spirit grass.",
+      "inputs": [
+        {
+          "itemId": "pack-thousand-year-ginseng",
+          "qty": 1
+        },
+        {
+          "itemId": "pack-spirit-grass",
+          "qty": 4
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "pack-azure-cloud-pill",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 100,
+      "successChance": 75,
+      "consumeOnFail": true,
+      "minRealm": 2,
+      "enabled": true
+    },
+    {
+      "name": "Green Antidote Pill",
+      "description": "Simple and reliable.",
+      "inputs": [
+        {
+          "itemId": "pack-spirit-grass",
+          "qty": 2
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "pack-green-antidote-pill",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 0,
+      "successChance": 100,
+      "consumeOnFail": true,
+      "minRealm": 0,
+      "enabled": true
+    }
+  ]
+}

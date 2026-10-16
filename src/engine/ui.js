@@ -45,6 +45,7 @@ const BUTTONS = {
   craft: ['Crafting', '⚒️', 'Inventory'],
   rates: ['Drop rates', '📈', 'Inventory'],
   consume: ['Consume', '💊', 'Item'],
+  use: ['Use', '🧪', 'Item (poisons, antidotes, talismans…)'],
   learn: ['Learn', '📖', 'Item'],
   equip: ['Equip', '⚔️', 'Item (weapons)'],
   sellShop: ['Sell 1 for {price}', '💰', 'Item ({price})'],

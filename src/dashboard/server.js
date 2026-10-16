@@ -55,6 +55,10 @@ function sanitizeItem(body, existing) {
   }
   it.pill.yieldType = defaults.YIELD_TYPES.includes(it.pill.yieldType) ? it.pill.yieldType : 'none';
   for (const k of ['yieldAmount', 'impurity', 'breakthroughBonus']) it.pill[k] = num(it.pill[k]);
+  for (const k of ['keepOnFail', 'tolerance']) it.pill[k] = Math.max(0, Math.min(100, num(it.pill[k])));
+  it.pill.monthlyLimit = Math.max(0, Math.floor(num(it.pill.monthlyLimit)));
+  it.pill.realmFalloff = Math.max(0, Math.min(100, num(it.pill.realmFalloff, 50)));
+  it.pill.peakRealm = it.pill.peakRealm === '' || it.pill.peakRealm === null || it.pill.peakRealm === undefined ? null : Math.max(0, Math.floor(num(it.pill.peakRealm)));
   it.poison.tier = Math.min(3, Math.max(1, Math.floor(num(it.poison.tier, 1))));
   it.poison.impurity = num(it.poison.impurity);
   it.purification.tier = Math.min(3, Math.max(1, Math.floor(num(it.purification.tier, 1))));
@@ -106,7 +110,15 @@ function create(bot) {
   app.use(express.json({ limit: '25mb' }));
 
   app.get('/health', (req, res) => res.json({ ok: true, bot: bot.status.online }));
-  app.use(express.static(path.join(__dirname, 'public'), { index: 'index.html' }));
+  // Always serve the latest dashboard files (phones otherwise keep an old copy of app.js for days).
+  const BUILD = Date.now().toString(36);
+  const indexHtml = () => require('fs').readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8').replace(/(app\.js|style\.css)"/g, `$1?v=${BUILD}"`);
+  const sendIndex = (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.type('html').send(indexHtml());
+  };
+  app.get(['/', '/index.html'], sendIndex);
+  app.use(express.static(path.join(__dirname, 'public'), { index: false, setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache') }));
 
   const wrap = (fn) => async (req, res) => {
     try {
@@ -175,7 +187,7 @@ function create(bot) {
   app.put('/api/settings', wrap(async (req) => {
     const before = clone(store.state.settings);
     const next = { ...before, ...(req.body || {}) };
-    for (const k of ['startingFlexPoints', 'startingNyang', 'startingRolls', 'maxSingleStatPercent', 'allocationWindowMinutes', 'maxItems', 'maxCharactersPerUser', 'softCapGainMultiplier', 'breakthroughCooldownHours', 'breakthroughFailureImpurity', 'maxCultivationMethods', 'shopSellbackPercent', 'marketFeePercent', 'tradeExpiryMinutes', 'autoBackupHours', 'maxBackups', 'maxChangelog']) next[k] = num(next[k], before[k]);
+    for (const k of ['startingFlexPoints', 'startingNyang', 'startingRolls', 'maxSingleStatPercent', 'allocationWindowMinutes', 'maxItems', 'maxCharactersPerUser', 'softCapGainMultiplier', 'breakthroughCooldownHours', 'breakthroughFailureImpurity', 'maxBreakthroughBonus', 'maxCultivationMethods', 'shopSellbackPercent', 'marketFeePercent', 'tradeExpiryMinutes', 'autoBackupHours', 'maxBackups', 'maxChangelog']) next[k] = num(next[k], before[k]);
     for (const k of Object.keys(before.impurity)) next.impurity[k] = num(next.impurity?.[k], before.impurity[k]);
     for (const k of Object.keys(before.martialArtLimits)) next.martialArtLimits[k] = num(next.martialArtLimits?.[k], before.martialArtLimits[k]);
     next.elements = arr(next.elements).map((e) => String(e).trim()).filter(Boolean);
@@ -269,6 +281,114 @@ function create(bot) {
     st.market = st.market.filter((l) => l.itemId !== it.id);
     store.log(req.actor, 'item.delete', it.name);
     return { ok: true };
+  }));
+
+  // ----- items export / import -----
+  // Export: the items (all, or ?ids=a,b,c) plus the arts their manuals teach and the custom code they use.
+  app.get('/api/items/export', wrap(async (req, res) => {
+    const st = store.state;
+    const ids = String(req.query.ids || '').split(',').map((x) => x.trim()).filter(Boolean);
+    const items = ids.length ? st.items.filter((i) => ids.includes(i.id)) : st.items;
+    const artIds = new Set(items.map((i) => i.manual?.artId).filter(Boolean));
+    const arts = (st.arts || []).filter((a) => artIds.has(a.id));
+    const scriptIds = new Set([...items, ...arts].map((x) => x.scriptId).filter(Boolean));
+    const itemIds = new Set(items.map((i) => i.id));
+    const recipes = (st.recipes || []).filter((r) => [...r.inputs, ...r.outputs].every((x) => itemIds.has(x.itemId)));
+    const out = {
+      format: 'jianghu-items', version: 1, exportedAt: new Date().toISOString(),
+      items: clone(items), arts: clone(arts), scripts: clone(st.scripts.filter((x) => scriptIds.has(x.id))), recipes: clone(recipes),
+    };
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="jianghu-items-${new Date().toISOString().slice(0, 10)}.json"`);
+    res.send(JSON.stringify(out, null, 2));
+  }));
+
+  /**
+   * Import items (+ arts, scripts). Accepts an export file, a full save file, or a plain array of items.
+   * Existing entries are matched by id, then by name: mode 'update' overwrites them, 'skip' leaves them alone.
+   * dryRun = only report what would happen.
+   */
+  app.post('/api/items/import', wrap(async (req) => {
+    const st = store.state;
+    let data = req.body?.data;
+    const mode = req.body?.mode === 'skip' ? 'skip' : 'update';
+    const dryRun = !!req.body?.dryRun;
+    if (Array.isArray(data)) data = { items: data };
+    if (!data || !Array.isArray(data.items)) throw new UserError('That file has no "items" list.');
+    const report = { created: [], updated: [], skipped: [], errors: [], arts: 0, scripts: 0 };
+    const work = clone({ items: st.items, arts: st.arts, scripts: st.scripts });
+    const match = (list, x) => list.findIndex((y) => (x.id && y.id === x.id) || norm(y.name) === norm(x.name));
+    for (const sc of Array.isArray(data.scripts) ? data.scripts : []) {
+      if (!sc || !sc.name || typeof sc.code !== 'string') continue;
+      const err = scripts.checkSyntax(sc.code);
+      if (err) { report.errors.push(`Script "${sc.name}": ${err}`); continue; }
+      const idx = match(work.scripts, sc);
+      const clean = { id: sc.id || slug(sc.name), name: String(sc.name).trim(), description: sc.description || '', code: sc.code, enabled: sc.enabled !== false };
+      if (idx >= 0) { if (mode === 'update') { work.scripts[idx] = { ...clean, id: work.scripts[idx].id }; report.scripts++; } } else { work.scripts.push(clean); report.scripts++; }
+    }
+    const artIdMap = {};
+    for (const a of Array.isArray(data.arts) ? data.arts : []) {
+      if (!a || !a.name) continue;
+      const art = defaults.normalizeArt(a);
+      if (art.scriptId && !work.scripts.some((x) => x.id === art.scriptId)) art.scriptId = '';
+      const idx = match(work.arts, art);
+      if (idx >= 0) { artIdMap[a.id] = work.arts[idx].id; if (mode === 'update') { work.arts[idx] = { ...art, id: work.arts[idx].id }; report.arts++; } } else { work.arts.push(art); artIdMap[a.id] = art.id; report.arts++; }
+    }
+    // Validate items against the new arts/scripts.
+    const saved = { arts: st.arts, scripts: st.scripts, items: st.items };
+    st.arts = work.arts; st.scripts = work.scripts; st.items = work.items;
+    try {
+      for (const raw of data.items) {
+        if (!raw || !raw.name) continue;
+        const body = clone(raw);
+        if (body.manual?.artId && artIdMap[body.manual.artId]) body.manual.artId = artIdMap[body.manual.artId];
+        if (body.scriptId && !st.scripts.some((x) => x.id === body.scriptId)) body.scriptId = '';
+        if (body.rarity && !st.rarities.some((r) => r.name === body.rarity)) { report.errors.push(`${body.name}: unknown rarity "${body.rarity}" (add it in Drop Rates first)`); continue; }
+        const idx = match(st.items, body);
+        try {
+          if (idx >= 0) {
+            if (mode === 'skip') { report.skipped.push(body.name); continue; }
+            const it = sanitizeItem({ ...body, id: st.items[idx].id }, st.items[idx]);
+            st.items[idx] = it;
+            report.updated.push(it.name);
+          } else {
+            if (st.items.length >= num(st.settings.maxItems, 300)) { report.errors.push(`${body.name}: item limit (${st.settings.maxItems}) reached`); continue; }
+            if (st.items.some((x) => x.id === body.id)) delete body.id;
+            const it = sanitizeItem(body);
+            st.items.push(it);
+            report.created.push(it.name);
+          }
+        } catch (e) {
+          report.errors.push(`${body.name}: ${e.message}`);
+        }
+      }
+    } finally {
+      if (dryRun) { report._restore = saved; }
+    }
+    // Recipes: only those whose items all exist after the import. Items are looked up by imported id, then by name.
+    report.recipes = 0;
+    const importedById = Object.fromEntries((data.items || []).filter((x) => x && x.id).map((x) => [x.id, x.name]));
+    const findItemId = (id) => (st.items.find((i) => i.id === id) || st.items.find((i) => norm(i.name) === norm(importedById[id] || '')))?.id;
+    const recipesBefore = st.recipes;
+    st.recipes = clone(st.recipes);
+    for (const r of Array.isArray(data.recipes) ? data.recipes : []) {
+      if (!r || !r.name) continue;
+      const map = (rows) => (rows || []).map((x) => ({ itemId: findItemId(x.itemId), qty: x.qty }));
+      const rec = defaults.normalizeRecipe({ ...r, id: undefined, inputs: map(r.inputs), outputs: map(r.outputs) });
+      if (rec.inputs.length !== (r.inputs || []).length || rec.outputs.length !== (r.outputs || []).length || !rec.inputs.length || !rec.outputs.length) { report.errors.push(`Recipe "${r.name}": uses an item that isn't there`); continue; }
+      const idx = st.recipes.findIndex((x) => norm(x.name) === norm(rec.name));
+      if (idx >= 0) { if (mode === 'update') { st.recipes[idx] = { ...rec, id: st.recipes[idx].id }; report.recipes++; } } else { st.recipes.push(rec); report.recipes++; }
+    }
+    if (dryRun) {
+      st.recipes = recipesBefore;
+      st.arts = report._restore.arts; st.scripts = report._restore.scripts; st.items = report._restore.items;
+    }
+    delete report._restore;
+    if (!dryRun) {
+      store.log(req.actor, 'items.import', `${report.created.length} created, ${report.updated.length} updated, ${report.skipped.length} skipped, ${report.arts} arts, ${report.scripts} scripts, ${report.recipes} recipes${report.errors.length ? `, ${report.errors.length} error(s)` : ''}`);
+      store.markDirty();
+    }
+    return { dryRun, ...report };
   }));
 
   // ----- traits & scripts -----

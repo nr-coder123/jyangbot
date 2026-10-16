@@ -59,6 +59,8 @@ function scriptSources(state, c, extraSources = []) {
 
 function buildContext(state, c, source, extra) {
   const realm = state.realms[c.realm] || {};
+  const next = state.realms[(c.realm || 0) + 1] || null;
+  const abs = require('./affinity').absorption(state, c);
   return {
     character: {
       id: c.id,
@@ -82,9 +84,13 @@ function buildContext(state, c, source, extra) {
         return w ? { name: w.name, grade: w.weapon?.grade || 'Default', bonuses: clone(w.bonuses || {}) } : null;
       })(),
       nyang: c.nyang,
+      absorption: { rate: abs.base, bonus: abs.general, byElement: abs.byElement, impurityReduction: abs.impurityReduction },
+      statTotal: (Number(c.stats.strength) || 0) + (Number(c.stats.endurance) || 0) + (Number(c.stats.mobility) || 0),
+      breakthroughBonus: c.breakthroughBonus || 0,
       inventory: Object.entries(c.inventory || {}).map(([id, qty]) => ({ name: state.items.find((i) => i.id === id)?.name || id, qty })).filter((x) => x.qty > 0),
     },
     realm: clone(realm),
+    nextRealm: next ? clone(next) : null,
     source,
     thresholds: clone(state.settings.impurity),
     extra: clone(extra || {}),

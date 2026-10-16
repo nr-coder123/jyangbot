@@ -13,14 +13,14 @@ const sectsync = require('../sectsync');
 // ---------- /consume ----------
 const consume = new SlashCommandBuilder()
   .setName('consume')
-  .setDescription('Consume one of your pills / elixirs')
-  .addStringOption((o) => o.setName('pill').setDescription('Pill or elixir from your inventory').setRequired(true).setAutocomplete(true));
+  .setDescription('Consume a pill / elixir, or use a poison, antidote or talisman')
+  .addStringOption((o) => o.setName('pill').setDescription('Pill, elixir or consumable from your inventory').setRequired(true).setAutocomplete(true));
 
 async function executeConsume(i) {
   const st = store.state;
   const c = requireChar(i.user.id);
   const it = findItem(i.options.getString('pill'));
-  const r = chars.consumePill(st, c, it);
+  const r = chars.useItem(st, c, it);
   const out = panels.consumeResult(c, it, [...r.lines, ...(r.result.errors || []).map((e) => `${ui.emoji(st, 'warning')} ${e}`)]);
   logConsumption(i, c, it, r.lines, out.embeds).catch(() => {});
   return i.reply({ ...out, allowedMentions: { parse: [] } });
@@ -116,7 +116,7 @@ async function executeHelp(i) {
 
 module.exports = {
   commands: [
-    { data: consume, execute: executeConsume, autocomplete: (i) => inventoryChoices(i, i.user.id, (it) => it.type === 'pill') },
+    { data: consume, execute: executeConsume, autocomplete: (i) => inventoryChoices(i, i.user.id, (it) => it.type === 'pill' || it.consumable) },
     {
       data: equip,
       execute: executeEquip,

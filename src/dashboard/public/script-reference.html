@@ -50,7 +50,7 @@ hooks.consume = (ctx, result) =&gt; result;             // a pill being consumed
 </details>
 
 <details><summary>6. hooks.consume(ctx, result) — a pill is consumed</summary>
-<p>Runs after absorption and impurity reduction are worked out, before anything is applied. <code>ctx.extra.item</code> = <code>{ id, name, element, pill }</code>.</p>
+<p>Runs after absorption, impurity reduction, tolerance and realm penalties are worked out, before anything is applied. <code>ctx.extra.item</code> = <code>{ id, name, element, pill }</code>; <code>ctx.extra.usesThisMonth</code> = how many the character already took this month. <code>Math.random()</code> works for random effects.</p>
 <table class="reftable">
 <tr><th>result field</th><th>Meaning</th></tr>
 <tr><td><code>yieldType</code></td><td>'none', 'qi', 'strength', 'endurance', 'mobility', 'points', 'flex'</td></tr>
@@ -59,11 +59,14 @@ hooks.consume = (ctx, result) =&gt; result;             // a pill being consumed
 <tr><td><code>rate</code></td><td>bonus % from cultivation/core bonuses and affinity (read only)</td></tr>
 <tr><td><code>absorption</code></td><td>total % absorbed = baseAbsorption + rate (read only)</td></tr>
 <tr><td><code>impurityYieldMultiplier</code></td><td>the Impurity 50+ penalty that was applied (read only)</td></tr>
-<tr><td><code>yieldAmount</code></td><td>final yield after absorption and impurity — <b>change this</b></td></tr>
+<tr><td><code>toleranceMultiplier</code>, <code>realmMultiplier</code></td><td>tolerance and realm penalties applied (read only; 1 = none)</td></tr>
+<tr><td><code>usesThisMonth</code></td><td>how many of this pill the character already took this month (read only)</td></tr>
+<tr><td><code>yieldAmount</code></td><td>final yield after absorption and penalties — <b>change this</b></td></tr>
 <tr><td><code>baseImpurity</code></td><td>the pill's raw impurity (read only)</td></tr>
 <tr><td><code>impurityReduction</code></td><td>% shaved off by cultivation (read only)</td></tr>
 <tr><td><code>impurity</code></td><td>impurity that will be added — <b>change this</b> (negative removes impurity)</td></tr>
-<tr><td><code>breakthroughBonus</code></td><td>Realm Breakthrough % stored for the next attempt</td></tr>
+<tr><td><code>breakthroughBonus</code></td><td>Realm Breakthrough % stored for the next attempt (capped by Settings)</td></tr>
+<tr><td><code>keepOnFail</code></td><td>% of that bonus kept if the attempt fails</td></tr>
 <tr><td><code>element</code></td><td>the pill's affinity, e.g. 'Wood'</td></tr>
 <tr><td><code>notes</code></td><td>add lines shown to the player</td></tr>
 </table>
@@ -90,7 +93,9 @@ hooks.consume = (ctx, result) =&gt; {
 <tr><td><code>ctx.character.martialArts.core</code> / <code>special</code> / <code>forbidden</code> / <code>generic</code></td><td>lists of names</td></tr>
 <tr><td><code>ctx.character.weapon</code></td><td>{ name, grade, bonuses: { strength, endurance, mobility, qi, qiBars } }</td></tr>
 <tr><td><code>ctx.character.inventory</code></td><td>[{ name: 'Qi Pill', qty: 3 }, …]</td></tr>
-<tr><td><code>ctx.character.nyang</code></td><td>120</td></tr>
+<tr><td><code>ctx.character.nyang</code>, <code>statTotal</code>, <code>breakthroughBonus</code></td><td>120, 93, 5</td></tr>
+<tr><td><code>ctx.character.absorption</code></td><td>{ rate: 50, bonus: 0, byElement: { Wood: 20 }, impurityReduction: 0 }</td></tr>
+<tr><td><code>ctx.nextRealm</code></td><td>the next realm row (reqStats, reqQi…) or null at the final realm</td></tr>
 <tr><td><code>ctx.realm</code></td><td>the realm row: name, qiBars, reqStats, reqQi, softCapStats, hardCapStats, softCapQi, hardCapQi, breakthroughChance</td></tr>
 <tr><td><code>ctx.thresholds</code></td><td>{ yieldPenaltyAt: 50, yieldPenaltyPercent: 50, debuffAt: 75, debuffPercent: 25, burstAt: 100, burstPercent: 25 } (from Settings)</td></tr>
 <tr><td><code>ctx.source</code></td><td>what this script is attached to: { type: 'trait' | 'cultivation method' | 'qi core' | 'main weapon' | 'core martial art' … | 'pill', name }</td></tr>

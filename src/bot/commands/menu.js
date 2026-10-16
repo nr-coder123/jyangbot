@@ -159,6 +159,7 @@ VIEWS.item = (ctx, itemId) => {
   const buttons = [];
   if (ctx.isOwner && q > 0) {
     if (it.type === 'pill') buttons.push(btn(cid('a', ctx, 'use', it.id), 'consume', { style: ButtonStyle.Success }));
+    else if (it.consumable) buttons.push(btn(cid('a', ctx, 'use', it.id), 'use', { style: ButtonStyle.Success }));
     if (it.type === 'manual') buttons.push(btn(cid('a', ctx, 'learn', it.id), 'learn', { style: ButtonStyle.Success }));
     if (it.type === 'weapon') {
       const equipped = weapons.mainWeapon(st(), c)?.id === it.id;
@@ -370,7 +371,7 @@ async function onButton(i) {
     case 'use': {
       const it = state.items.find((x) => x.id === arg);
       if (!it) throw new UserError('Item not found.');
-      const r = chars.consumePill(state, c, it);
+      const r = chars.useItem(state, c, it);
       const result = panels.consumeResult(c, it, [...r.lines, ...(r.result.errors || []).map((e) => `${ui.emoji(state, 'warning')} ${e}`)]);
       logConsumption(i, c, it, r.lines, result.embeds).catch(() => {});
       return i.update(render(ctx, economy.qtyOf(c, it.id) > 0 ? 'item' : 'inv', it.id, null, result.embeds));
@@ -430,7 +431,7 @@ async function onButton(i) {
       if (S().announceBreakthroughs) await announce(i, message(r.success ? 'breakthroughSuccess' : 'breakthroughFail', vars, { ping: [c.ownerId] }), { preferAnnouncements: true });
       const note = r.success
         ? `🌟 **Breakthrough!** You reached **${r.to}** (rolled ${fmt(r.roll)} under ${fmt(r.chance.total)}%).`
-        : `💢 You failed to reach **${r.to}** (rolled ${fmt(r.roll)}, needed under ${fmt(r.chance.total)}%).${r.failImpurity ? ` Backlash: Impurity now ${fmt(r.failImpurity.impurity)}.` : ''}`;
+        : `💢 You failed to reach **${r.to}** (rolled ${fmt(r.roll)}, needed under ${fmt(r.chance.total)}%).${r.failImpurity ? ` Backlash: Impurity now ${fmt(r.failImpurity.impurity)}.` : ''}${r.keptBonus ? ` Your pills left +${fmt(r.keptBonus)}% for the next attempt.` : ''}`;
       return i.update(render(ctx, 'realm', null, note));
     }
     case 'craft': {

@@ -162,7 +162,16 @@ function itemDetails(it) {
     }
     case 'pill': {
       const y = p.yieldType === 'none' ? 'None' : p.yieldType === 'points' ? `${fmt(p.yieldAmount)} stat points` : p.yieldType === 'flex' ? `${fmt(p.yieldAmount)} flexible points` : `+${fmt(p.yieldAmount)} ${stats.LABEL[p.yieldType] || p.yieldType}`;
-      return [`**Yield**: ${y}`, p.impurity < 0 ? `**Removes Impurity**: ${fmt(-p.impurity)}` : `**Impurity**: ${fmt(p.impurity)}`, `**Affinity**: ${p.element || 'None'}`, p.breakthroughBonus ? `**Realm Breakthrough**: +${fmt(p.breakthroughBonus)}%` : ''].filter(Boolean).join('\n');
+      const realmName = p.peakRealm !== null && p.peakRealm !== undefined ? store.state.realms[p.peakRealm]?.name : null;
+      return [
+        `**Yield**: ${y}`,
+        p.impurity < 0 ? `**Removes Impurity**: ${fmt(-p.impurity)}` : `**Impurity**: ${fmt(p.impurity)}`,
+        `**Affinity**: ${p.element || 'None'}`,
+        p.breakthroughBonus ? `**Realm Breakthrough**: +${fmt(p.breakthroughBonus)}%${p.keepOnFail ? ` (${fmt(p.keepOnFail)}% kept if the attempt fails)` : ''}` : '',
+        realmName ? `**Made for**: ${realmName} — ${fmt(p.realmFalloff ?? 50)}% weaker per realm above` : '',
+        p.tolerance ? `**Tolerance**: ${fmt(p.tolerance)}% weaker for each one taken this month` : '',
+        p.monthlyLimit ? `**Limit**: ${p.monthlyLimit} per month` : '',
+      ].filter(Boolean).join('\n');
     }
     case 'poison': {
       const x = it.poison;
@@ -193,6 +202,7 @@ function tradingText(it) {
 }
 
 function itemInfo(it, c = null) {
+  const extra = [it.consumable && it.type !== 'pill' ? `**Consumable** — use it from your inventory or \`/consume\`${it.useEffect ? `\n**Effect:** ${it.useEffect}` : ''}` : '', it.type === 'pill' && it.useEffect ? `**Effect:** ${it.useEffect}` : ''].filter(Boolean).join('\n');
   const r = rarityOf(it.rarity);
   return msg('itemInfo', {
     item: it.name,
@@ -201,7 +211,7 @@ function itemInfo(it, c = null) {
     rarityEmoji: r.emoji || '',
     type: it.type,
     description: truncate(it.description || '*No description.*', 3500),
-    details: itemDetails(it),
+    details: [itemDetails(it), extra].filter(Boolean).join('\n'),
     trading: tradingText(it),
     owned: c ? `×${economy.qtyOf(c, it.id)}` : '',
   }, { color: r.color });

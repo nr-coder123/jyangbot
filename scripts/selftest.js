@@ -389,4 +389,45 @@ test('sect follows Discord roles; join Nyang once; Rogue when the role is remove
   assert.strictEqual(chars.syncSectFromRoles(state, c, ['unrelated']), null);
 });
 
+test('pill tolerance, monthly limit and realm falloff', () => {
+  const { state, c } = fresh();
+  c.cultivationMethods = [];
+  state.items.push(defaults.normalizeItem({ id: 'tp', name: 'Tol Pill', type: 'pill', pill: { yieldType: 'qi', yieldAmount: 10, tolerance: 50, monthlyLimit: 3 } }));
+  economy.addItem(c, 'tp', 5);
+  const tp = state.items.find((i) => i.id === 'tp');
+  chars.consumePill(state, c, tp);
+  chars.consumePill(state, c, tp);
+  chars.consumePill(state, c, tp);
+  assert.strictEqual(c.stats.qi, 17.5, '10 + 5 + 2.5');
+  assert.throws(() => chars.consumePill(state, c, tp), /this month/);
+  c.pillUsesMonth = '2000-01';
+  chars.consumePill(state, c, tp);
+  assert.strictEqual(c.stats.qi, 27.5, 'new month resets tolerance');
+  state.items.push(defaults.normalizeItem({ id: 'rp', name: 'Low Pill', type: 'pill', pill: { yieldType: 'strength', yieldAmount: 8, peakRealm: 0, realmFalloff: 50 } }));
+  economy.addItem(c, 'rp', 1);
+  c.realm = 2;
+  chars.consumePill(state, c, state.items.find((i) => i.id === 'rp'));
+  assert.strictEqual(c.stats.strength, 2, '8 x 0.5 x 0.5');
+});
+
+test('breakthrough pill cap and keep-on-fail', () => {
+  const { state, c } = fresh();
+  state.settings.maxBreakthroughBonus = 12;
+  state.items.push(defaults.normalizeItem({ id: 'bp', name: 'Ward Pill', type: 'pill', pill: { breakthroughBonus: 8, keepOnFail: 50 } }));
+  economy.addItem(c, 'bp', 2);
+  const bp = state.items.find((i) => i.id === 'bp');
+  chars.consumePill(state, c, bp);
+  const r = chars.consumePill(state, c, bp);
+  assert.strictEqual(c.breakthroughBonus, 12, 'capped');
+  assert.ok(r.lines.join(' ').includes('wasted'));
+  c.realm = 3;
+  c.stats = { strength: 70, endurance: 70, mobility: 70, qi: 100 };
+  state.realms[3].breakthroughChance = -100;
+  const res = chars.attemptBreakthrough(state, c);
+  assert.ok(!res.success);
+  assert.strictEqual(c.breakthroughBonus, 6, '50% of 8 + 50% of 4 kept');
+  chars.attemptBreakthrough(state, c);
+  assert.strictEqual(c.breakthroughBonus, 0, 'kept bonus is only kept once');
+});
+
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);
