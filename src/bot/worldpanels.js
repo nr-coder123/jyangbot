@@ -7,7 +7,7 @@ const ui = require('../engine/ui');
 const W = require('../world');
 const { fmt, truncate, num, r2 } = require('../utils');
 
-const { geo, economy: E, common: C, military: M, politics: P, diplomacy: D } = W;
+const { geo, economy: E, common: C, military: M, politics: P, diplomacy: D, territory: T } = W;
 const st = () => store.state;
 const msg = (key, vars, opts) => templates.render(st(), key, vars, opts);
 const cur = () => st().settings.currencyName;
@@ -32,7 +32,9 @@ function youLine(c, key) {
   if (!c) return '';
   if (E.isTravelling(c)) return `🧭 On the road to **${regionName(c.travel.to)}** — arrive <t:${Math.floor(Date.parse(c.travel.arriveAt) / 1000)}:R>.`;
   const loc = geo.marketOf(st(), E.locationOf(st(), c));
-  return loc === key ? `📍 **${c.name}** is here.` : `📍 **${c.name}** is in **${regionName(loc)}**${key ? ` (${Math.round(num(E.travelInfo(st(), c, key).hours) * 10) / 10} h away)` : ''}.`;
+  if (loc === key) return `📍 **${c.name}** is here.`;
+  if (T.channelMode(st())) { const trip = key ? T.rpTravel(st(), loc, key) : null; return `📍 **${c.name}** is in **${regionName(loc)}**${trip ? ` — ${trip.text}` : ''}.`; }
+  return `📍 **${c.name}** is in **${regionName(loc)}**${key ? ` (${Math.round(num(E.travelInfo(st(), c, key).hours) * 10) / 10} h away)` : ''}.`;
 }
 
 function regionPanel(key, c) {
@@ -171,21 +173,26 @@ function politicsPanel(c, member) {
   const treaties = w.treaties.filter((t) => t.parties.includes(f.id)).map((t) => `${w.treatyTypes.find((x) => x.id === t.type)?.emoji || '📜'} ${t.name} with ${t.parties.filter((p) => p !== f.id).map((p) => C.faction(state, p)?.name).join(', ')}${t.endTurn ? ` (${t.endTurn - w.turn} turns)` : ''}`);
   const pols = P.factionPolicies(state, f).map((x) => `${x.def.emoji} ${x.def.name}${x.region ? ` (${regionName(x.region)})` : ''}`);
   const pending = w.proposals.filter((p) => (p.from === f.id || p.to === f.id) && p.status.startsWith('awaiting')).slice(0, 6).map((p) => { const a = D.action(state, p.actionId); return `${a?.emoji || ''} ${a?.name}: ${C.faction(state, p.from)?.name} → ${C.faction(state, p.to)?.name} — *${p.status.replace('awaiting-', 'waiting for ')}*`; });
-  const reps = [f.leaderCharId, ...f.representatives].filter(Boolean).map((id) => state.characters.find((x) => x.id === id)?.name).filter(Boolean);
+  const nameOf = (id) => state.characters.find((x) => x.id === id && x.status === 'active')?.name;
+  const reps = [f.leaderCharId && nameOf(f.leaderCharId) ? `👑 ${nameOf(f.leaderCharId)} (leader)` : '', ...f.representatives.map(nameOf).filter(Boolean).map((n) => `🎐 ${n}`)].filter(Boolean);
   const inc = f.lastIncome || {};
+  const every = num(w.settings.stipendEveryTurns, 28);
+  const nextPay = every - (w.turn % every);
+  const myPlan = T.stipendPlan(state, f).rows.find((x) => x.id === c.id);
   const e = new EmbedBuilder().setTitle(`📜 ${f.icon || ''} ${f.name}`).setColor(f.color ? parseInt(f.color.replace('#', ''), 16) : 0x2980b9)
     .addFields(
       { name: 'Treasury', value: `${nyang()} ${big(f.treasury)}\n-# last turn: taxes +${fmt(inc.taxes || 0)} · upkeep ${fmt(r2(num(inc.upkeep) + num(inc.armies) + num(inc.admin)))}`, inline: true },
       { name: 'Influence', value: `${fmt(Math.floor(f.influence))} (+${fmt(P.influenceIncome(state, f))}/turn)`, inline: true },
       { name: 'Reputation', value: `${fmt(Math.round(f.reputation))}/100`, inline: true },
       { name: 'Lands', value: C.controlled(state, f.id).map((r) => regionName(r.key)).join(', ') || '*None — a wandering sect.*', inline: false },
-      { name: 'Representatives', value: reps.join(', ') || '*None yet — staff appoint them in the dashboard (World → Politics).*', inline: false },
+      { name: 'Representatives', value: reps.join(' · ') || '*None yet — staff appoint them with `/office` or in the dashboard.*', inline: false },
+      { name: 'Stipends', value: num(f.stipendRate) > 0 ? `${fmt(f.stipendRate)}% of each turn's income → fund ${nyang()} ${big(f.stipendFund)} · paid in ${nextPay} turn${nextPay === 1 ? '' : 's'}${myPlan ? ` · your share now ≈ ${big(myPlan.paid)}` : ''}` : '*No stipends — a representative can set a rate.*', inline: false },
       { name: 'Relations', value: truncate([...rels.slice(0, 5).map(fmtRel), rels.length > 8 ? '…' : '', ...rels.slice(-3).map(fmtRel)].filter(Boolean).join('\n'), 1024) || '—', inline: false },
       { name: 'Treaties', value: truncate(treaties.join('\n'), 1024) || '*None.*', inline: false },
       { name: 'Policies', value: truncate(pols.join('\n'), 1024) || '*None.*', inline: false },
       { name: 'Pending', value: truncate(pending.join('\n'), 1024) || '*Nothing pending.*', inline: false },
     )
-    .setFooter({ text: rep ? 'You are a representative: you can propose diplomacy and set policies.' : 'Only representatives can propose diplomacy and set policies.' });
+    .setFooter({ text: rep ? 'You are a representative: you lead diplomacy, policies, stipends and land claims (staff approve takeovers).' : 'Representatives lead the faction\'s diplomacy, trade and politics.' });
   return { embeds: [e], faction: f, rep };
 }
 
@@ -225,11 +232,14 @@ function warPanel(c, member) {
 function armyPanel(a) {
   const state = st();
   const f = C.faction(state, a.factionId);
-  const units = Object.entries(a.units).map(([id, n]) => { const u = M.unitType(state, id); return `${u?.emoji || ''} ${big(n)} ${u?.name || id} *(atk ${u?.attack} · def ${u?.defense})*`; }).join('\n');
+  const units = Object.entries(a.units).map(([id, n]) => { const u = M.unitType(state, id); return `${u?.emoji || ''} ${big(n)} ${u?.name || id} *(fire ${num(u?.fireOff)}/${num(u?.fireDef)} · shock ${num(u?.shockOff)}/${num(u?.shockDef)}${num(u?.power, 1) !== 1 ? ` · ×${u.power}` : ''})*`.trim(); }).join('\n');
   const fm = M.formation(state, a.formationId);
+  const cmd = state.characters.find((c) => c.id === a.commanderId);
+  const pips = cmd ? M.generalPips(state, cmd) : null;
   const e = new EmbedBuilder().setTitle(`🚩 ${a.name}`).setColor(f?.color ? parseInt(f.color.replace('#', ''), 16) : 0x8b0000).setDescription([
     `${factionLabel(f)} · in **${regionName(a.region)}** · ${a.status}${a.march ? ` → **${regionName(a.march.path[a.march.path.length - 1])}**` : ''}`,
-    `Morale **${Math.round(a.morale)}** · Supply **${Math.round(a.supply)}** · Strength **${big(M.armyStrength(state, a))}** · Stance **${a.stance}**`,
+    `Morale **${Math.round(a.morale)}** · Supply **${Math.round(a.supply)}** · Strength **${big(M.armyStrength(state, a))}**`,
+    cmd ? `Commander: **${cmd.name}** — fire ${pips.fire} · shock ${pips.shock} · maneuver ${pips.maneuver} · siege ${pips.siege}` : 'Commander: *none* (no general pips)',
     `Formation: ${fm?.emoji || ''} **${fm?.name || a.formationId}** — ${fm?.description || ''}`,
     '',
     units || '*No troops.*',
@@ -244,7 +254,8 @@ function battleVars(b) {
     const units = M.sideUnits(state, b, k);
     const fm = M.formation(state, s.formationId);
     const cmd = state.characters.find((c) => c.id === s.commanderId);
-    return `${Object.entries(units).map(([id, n]) => `${big(n)} ${M.unitType(state, id)?.name || id}`).join(' · ') || '—'}\nFormation: ${fm?.emoji || ''} ${fm?.name || ''}${s.momentum ? ` · Momentum +${Math.round(s.momentum * 100)}%` : ''}${s.moraleShock ? ` · Morale −${s.moraleShock}` : ''}${cmd ? `\nCommander: ${cmd.name}` : ''}${s.plan?.length ? `\nPlan: ${s.plan.map((t) => M.tactic(state, t)?.emoji || t).join(' ')}` : ''}`;
+    const pips = cmd && !s.commanderFallen ? M.generalPips(state, cmd) : null;
+    return `${Object.entries(units).map(([id, n]) => `${big(n)} ${M.unitType(state, id)?.name || id}`).join(' · ') || '—'}\nFormation: ${fm?.emoji || ''} ${fm?.name || ''}${s.momentum ? ` · Duel dice +${fmt(s.momentum)}` : ''}${s.moraleShock ? ` · Morale −${s.moraleShock}` : ''}${cmd ? `\nCommander: ${cmd.name}${pips ? ` (fire ${pips.fire} · shock ${pips.shock} · maneuver ${pips.maneuver})` : ' — fallen'}` : ''}`.trim();
   };
   const champs = (k) => b.sides[k].champions.map((id) => state.characters.find((c) => c.id === id)?.name).filter(Boolean).join(', ') || '—';
   const r = state.world.regions[b.region];
@@ -253,7 +264,7 @@ function battleVars(b) {
     region: regionName(b.region), attacker: C.faction(state, b.sides.A.factionId)?.name || '?', defender: C.faction(state, b.sides.D.factionId)?.name || '?',
     attackerArmy: side('A'), defenderArmy: side('D'), resolves: `<t:${Math.floor(Date.parse(b.resolveAt) / 1000)}:R>`,
     duels: b.duels.map((d) => `🤺 ${state.characters.find((c) => c.id === d.winner)?.name} defeated ${state.characters.find((c) => c.id === d.loser)?.name}${d.note ? ` — ${d.note}` : ''}`).join('\n'),
-    champions: `🗡️ ${champs('A')}\n🛡️ ${champs('D')}`, terrain: `${t.emoji || ''} ${t.label || ''}`, fort: fmt(Math.round(num(r?.fort))),
+    champions: `🗡️ ${champs('A')}\n🛡️ ${champs('D')}`, terrain: `${t.emoji || ''} ${t.label || ''}${num(t.attackerPenalty) ? ` (attacker ${t.attackerPenalty} dice)` : ''} · width ${fmt(num(t.width, 30))}k`.trim(), fort: fmt(Math.round(num(r?.fort))),
   };
 }
 const battlePost = (b) => msg('worldBattle', battleVars(b));
@@ -261,11 +272,17 @@ const battlePost = (b) => msg('worldBattle', battleVars(b));
 function battleReport(b) {
   const state = st();
   const A = C.faction(state, b.sides.A.factionId)?.name || 'Attacker'; const Dn = C.faction(state, b.sides.D.factionId)?.name || 'Defender';
-  const tac = (id) => { const t = M.tactic(state, id); return t ? `${t.emoji} ${t.name}` : id; };
-  const rounds = b.rounds.map((r) => `**${r.round}** ${tac(r.tactics.A)} vs ${tac(r.tactics.D)} — losses ${big(r.losses.A)} / ${big(r.losses.D)} · morale ${Math.round(r.morale.A)} / ${Math.round(r.morale.D)}${r.notes?.length ? `\n-# ${r.notes.join(' ')}` : ''}`).join('\n');
+  const ph = (b.phases || []).map((p, i) => {
+    const last = (b.phases[i + 1]?.day || (b.days.length + 1)) - 1;
+    const days = b.days.filter((d) => d.day >= p.day && d.day <= last);
+    if (!days.length) return '';
+    const la = days.reduce((x, d) => x + d.lost.A, 0); const ld = days.reduce((x, d) => x + d.lost.D, 0); const end = days[days.length - 1];
+    return `**Day ${p.day}${last > p.day ? `–${last}` : ''} · ${p.phase === 'fire' ? '🏹 Fire' : '⚔️ Shock'}** — dice ${fmt(p.dice.A)} vs ${fmt(p.dice.D)} · losses ${big(la)} / ${big(ld)} · morale ${Math.round(end.morale.A)} / ${Math.round(end.morale.D)}${p.notes?.length ? `\n-# ${p.notes.join(' ')}` : ''}`;
+  }).filter(Boolean);
+  const rounds = ph.join('\n');
   const res = b.result || {};
   const loser = res.winner === 'A' ? Dn : A;
-  const how = res.routed?.A || res.routed?.D ? `${loser} broke and fled${res.pursuit ? ` — the pursuit cost them ${big(res.pursuit)} more` : ''}.` : res.retreated?.A || res.retreated?.D ? `${loser} withdrew${res.pursuit ? `, losing ${big(res.pursuit)} in the retreat` : ''}.` : `Neither side broke; ${res.winner === 'A' ? A : Dn} held the stronger position.`;
+  const how = res.routed?.A || res.routed?.D ? `${loser} broke and fled after ${res.days} day${res.days === 1 ? '' : 's'}${res.pursuit ? ` — the pursuit cost them ${big(res.pursuit)} more` : ''}.` : `Neither side broke in ${res.days} days; ${res.winner === 'A' ? A : Dn} held the stronger position.`;
   return msg('worldBattleResult', { region: regionName(b.region), winner: res.winner === 'A' ? A : Dn, attacker: A, defender: Dn, rounds: truncate(rounds, 3500), losses: `${A} lost ${big(res.lost?.A)} · ${Dn} lost ${big(res.lost?.D)}`, summary: how });
 }
 
@@ -288,4 +305,4 @@ function proposalPost(p) {
   };
 }
 
-module.exports = { bar, spark, regionPanel, marketPanel, goodPanel, caravansPanel, workshopsPanel, workshopTypeLine, politicsPanel, diplomacyPanel, warPanel, armyPanel, battlePost, battleVars, battleReport, proposalPost, regionName, factionLabel, big };
+module.exports = { youLine, bar, spark, regionPanel, marketPanel, goodPanel, caravansPanel, workshopsPanel, workshopTypeLine, politicsPanel, diplomacyPanel, warPanel, armyPanel, battlePost, battleVars, battleReport, proposalPost, regionName, factionLabel, big };

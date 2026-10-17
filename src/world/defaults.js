@@ -84,15 +84,16 @@ const WORKSHOP_TYPES = [
 
 // ─────────────────────────── Terrain ───────────────────────────
 const TERRAINS = {
-  plains: { label: 'Plains', emoji: '🌾', cavalry: 1.2, infantryDef: 1, ranged: 1, ambush: false, supply: 0, defense: 1 },
-  hills: { label: 'Hills', emoji: '⛰️', cavalry: 0.9, infantryDef: 1.1, ranged: 1.05, ambush: true, supply: 0, defense: 1.1 },
-  mountains: { label: 'Mountains', emoji: '🏔️', cavalry: 0.6, infantryDef: 1.25, ranged: 1, ambush: true, supply: -2, defense: 1.25 },
-  river: { label: 'Rivers & Lakes', emoji: '🌊', cavalry: 0.85, infantryDef: 1, ranged: 1.1, ambush: false, supply: 1, defense: 1.15 },
-  coast: { label: 'Coast', emoji: '🏝️', cavalry: 0.9, infantryDef: 1, ranged: 1.05, ambush: false, supply: 1, defense: 1 },
-  forest: { label: 'Forest', emoji: '🌲', cavalry: 0.7, infantryDef: 1.1, ranged: 0.8, ambush: true, supply: -1, defense: 1.1 },
-  steppe: { label: 'Steppe', emoji: '🐎', cavalry: 1.35, infantryDef: 0.95, ranged: 1, ambush: false, supply: -2, defense: 0.95 },
-  desert: { label: 'Desert', emoji: '🏜️', cavalry: 1.2, infantryDef: 0.9, ranged: 0.95, ambush: false, supply: -4, defense: 0.95 },
-  highland: { label: 'Highland', emoji: '🗻', cavalry: 0.8, infantryDef: 1.15, ranged: 0.95, ambush: true, supply: -3, defense: 1.15 },
+  // attackerPenalty: dice taken from an attacker fighting here (EU4-style); width: thousands of men who can fight at once.
+  plains: { label: 'Plains', emoji: '', attackerPenalty: 0, width: 30, cavalry: 1.2, supply: 0, defense: 1 },
+  hills: { label: 'Hills', emoji: '', attackerPenalty: -1, width: 25, cavalry: 0.9, supply: 0, defense: 1.1 },
+  mountains: { label: 'Mountains', emoji: '', attackerPenalty: -2, width: 20, cavalry: 0.6, supply: -2, defense: 1.25 },
+  river: { label: 'Rivers & Lakes', emoji: '', attackerPenalty: -1, width: 25, cavalry: 0.85, supply: 1, defense: 1.1, riverCrossing: true },
+  coast: { label: 'Coast', emoji: '', attackerPenalty: 0, width: 30, cavalry: 0.9, supply: 1, defense: 1 },
+  forest: { label: 'Forest', emoji: '', attackerPenalty: -1, width: 22, cavalry: 0.7, supply: -1, defense: 1.1 },
+  steppe: { label: 'Steppe', emoji: '', attackerPenalty: 0, width: 35, cavalry: 1.35, supply: -2, defense: 0.95 },
+  desert: { label: 'Desert', emoji: '', attackerPenalty: 0, width: 30, cavalry: 1.2, supply: -4, defense: 0.95 },
+  highland: { label: 'Highland', emoji: '', attackerPenalty: -1, width: 22, cavalry: 0.8, supply: -3, defense: 1.15 },
 };
 
 // ─────────────────────────── Provinces ───────────────────────────
@@ -145,7 +146,7 @@ const START_WORKSHOPS = [
   ['山西', 'brewery', 1], ['四川', 'brewery', 1], ['贵州', 'brewery', 1], ['浙江', 'brewery', 1], ['山东', 'brewery', 1], ['江苏', 'brewery', 1], ['河南', 'brewery', 1], ['北京', 'brewery', 1],
   ['河南', 'apothecary', 1], ['湖北', 'apothecary', 1], ['四川', 'apothecary', 1], ['安徽/亳州', 'apothecary', 2], ['湖南', 'apothecary', 1], ['江苏', 'apothecary', 1], ['河北', 'apothecary', 1], ['浙江', 'apothecary', 1], ['广东', 'apothecary', 1], ['北京', 'apothecary', 1],
   ['山西', 'smithy', 1], ['河北', 'smithy', 1], ['北京', 'smithy', 2], ['四川', 'smithy', 1],
-  ['湖北/十堰', 'alchemy', 1, 'wudang-sect'], ['河南/郑州', 'alchemy', 1, 'shaolin-sect'], ['四川/成都', 'alchemy', 1, 'tang-clan'], ['陕西/渭南', 'alchemy', 1, 'mount-hua-sect'], ['云南/西双版纳', 'alchemy', 1, 'beast-palace'],
+  ['湖北/十堰', 'alchemy', 1], ['河南/郑州', 'alchemy', 1], ['四川/成都', 'alchemy', 1], ['陕西/渭南', 'alchemy', 1], ['云南/西双版纳', 'alchemy', 1],
   ['内蒙古', 'ranch', 1], ['甘肃', 'ranch', 1],
   ['河南/洛阳', 'teahouse', 1], ['浙江/杭州', 'teahouse', 1], ['陕西/西安', 'teahouse', 1], ['江苏/扬州', 'teahouse', 1],
   ['河北/沧州', 'escort', 1], ['河南/开封', 'escort', 1], ['湖北/武汉', 'escort', 1],
@@ -187,28 +188,31 @@ const ROUTES = [
 
 // ─────────────────────────── Factions ───────────────────────────
 // One per sect (linked by name), plus a few non-player powers.
+// One faction per sect (linked by name). Only a colour and the sect's 漢字 are preset: no lands, seats,
+// relations or treaties — staff paint and decide all of that.
 const FACTION_SEEDS = {
-  'Wudang Sect': { color: '#5b8fb9', hanzi: '武當', hq: '湖北/十堰', control: ['湖北'], icon: '☯️' },
-  'Shaolin Sect': { color: '#d4a017', hanzi: '少林', hq: '河南/郑州', control: ['河南'], icon: '🪷' },
-  'Mount Hua Sect': { color: '#c2577a', hanzi: '華山', hq: '陕西/渭南', control: ['陕西'], icon: '🌸' },
-  'Beggar Sect': { color: '#8d6e4f', hanzi: '丐幫', hq: '湖南/岳阳', control: [], icon: '🥢' },
-  'Jaegal Clan': { color: '#4f7f6f', hanzi: '諸葛', hq: '山东/临沂', control: ['山东'], icon: '📜' },
-  'Tang Clan': { color: '#6b8e23', hanzi: '唐門', hq: '四川/成都', control: ['四川'], icon: '🧪' },
-  'Peng Clan': { color: '#a0522d', hanzi: '彭家', hq: '河北/保定', control: ['河北'], icon: '🪓' },
-  'Namgoong Clan': { color: '#2f6fb0', hanzi: '南宮', hq: '安徽/合肥', control: ['安徽'], icon: '🗡️' },
-  'Moyong Clan': { color: '#7a7a7a', hanzi: '慕容', hq: '', control: [], icon: '🕯️', active: false },
-  'The 72 Strongholds': { color: '#5d4037', hanzi: '綠林七十二寨', hq: '山西/长治', control: [], icon: '🏴', bandits: true },
-  'Ice Palace': { color: '#7fb8d8', hanzi: '北海冰宮', hq: '黑龙江/黑河', control: ['黑龙江'], icon: '❄️' },
-  'Sun Palace': { color: '#e8892a', hanzi: '東海日宮', hq: '浙江/舟山', control: [], icon: '☀️' },
-  'Sword Palace': { color: '#9e9e9e', hanzi: '西域劍宮', hq: '新疆/伊犁', control: ['新疆'], icon: '⚔️' },
-  'Beast Palace': { color: '#558b2f', hanzi: '南蠻野獸宮', hq: '云南/西双版纳', control: ['云南'], icon: '🐅' },
-  'Hao Sect': { color: '#4a148c', hanzi: '郝家', hq: '贵州/遵义', control: ['贵州'], icon: '🦂' },
-  'Blood Cult': { color: '#8b0000', hanzi: '血教', hq: '青海/海西', control: ['青海'], icon: '🩸' },
-  'Demon Cult': { color: '#212121', hanzi: '天魔神教', hq: '', control: [], icon: '👁️', active: false },
+  'Wudang Sect': { color: '#5b8fb9', hanzi: '武當' },
+  'Shaolin Sect': { color: '#d4a017', hanzi: '少林' },
+  'Mount Hua Sect': { color: '#c2577a', hanzi: '華山' },
+  'Beggar Sect': { color: '#8d6e4f', hanzi: '丐幫' },
+  'Jaegal Clan': { color: '#4f7f6f', hanzi: '諸葛' },
+  'Tang Clan': { color: '#6b8e23', hanzi: '唐門' },
+  'Peng Clan': { color: '#a0522d', hanzi: '彭家' },
+  'Namgoong Clan': { color: '#2f6fb0', hanzi: '南宮' },
+  'Moyong Clan': { color: '#7a7a7a', hanzi: '慕容', active: false },
+  'The 72 Strongholds': { color: '#5d4037', hanzi: '綠林七十二寨' },
+  'Ice Palace': { color: '#7fb8d8', hanzi: '北海冰宮' },
+  'Sun Palace': { color: '#e8892a', hanzi: '東海日宮' },
+  'Sword Palace': { color: '#9e9e9e', hanzi: '西域劍宮' },
+  'Beast Palace': { color: '#558b2f', hanzi: '南蠻野獸宮' },
+  'Hao Sect': { color: '#4a148c', hanzi: '郝家' },
+  'Blood Cult': { color: '#8b0000', hanzi: '血教' },
+  'Demon Cult': { color: '#212121', hanzi: '天魔神教', active: false },
 };
+// Optional presets (not created automatically): add them from Politics → New faction → preset.
 const EXTRA_FACTIONS = [
-  { id: 'imperial-court', name: 'Imperial Court', hanzi: '皇室', kind: 'court', alignment: 'Imperial', color: '#c9ab6b', icon: '🐉', hq: '北京', npc: true, treasury: 20000, influence: 300, description: 'The Emperor and his officials. Governs every province no martial power has claimed, collects the grain tax and keeps the peace on the roads — when it can.' },
-  { id: 'merchant-guild', name: 'Grand Merchant Guild', hanzi: '天下商會', kind: 'guild', alignment: 'Neutral', color: '#c0a062', icon: '💰', hq: '江苏/扬州', npc: true, treasury: 8000, influence: 120, description: 'Salt merchants, bankers and caravan masters. Runs the merchant caravans that keep markets supplied, and profits from every shortage.' },
+  { id: 'imperial-court', name: 'Imperial Court', hanzi: '皇室', kind: 'court', alignment: 'Imperial', color: '#c9ab6b', icon: '', hq: '', npc: true, treasury: 20000, influence: 300, description: 'The Emperor and his officials. Governs every province no martial power has claimed, collects the grain tax and keeps the peace on the roads — when it can.' },
+  { id: 'merchant-guild', name: 'Grand Merchant Guild', hanzi: '天下商會', kind: 'guild', alignment: 'Neutral', color: '#c0a062', icon: '', hq: '', npc: true, treasury: 8000, influence: 120, description: 'Salt merchants, bankers and caravan masters. Runs the merchant caravans that keep markets supplied, and profits from every shortage.' },
 ];
 
 // ─────────────────────────── Events ───────────────────────────
@@ -359,29 +363,33 @@ const DIPLOMACY_ACTIONS = [
 // ─────────────────────────── Armies ───────────────────────────
 // Stats per soldier. counters: × attack against armies made of that role. needs: goods per 100 men.
 const UNIT_TYPES = [
-  { id: 'militia', name: 'Militia', emoji: '🧑‍🌾', role: 'infantry', attack: 1, defense: 1, speed: 1, cost: 20, upkeep: 1, needs: { arms: 0.5 }, counters: {} },
-  { id: 'spearmen', name: 'Spearmen', emoji: '🔱', role: 'spear', attack: 2, defense: 3, speed: 1, cost: 45, upkeep: 2, needs: { arms: 1.5 }, counters: { cavalry: 1.6 } },
-  { id: 'swordsmen', name: 'Shield & Sabre', emoji: '🛡️', role: 'infantry', attack: 3, defense: 3, speed: 1, cost: 55, upkeep: 2.5, needs: { arms: 2 }, counters: { ranged: 1.2 } },
-  { id: 'crossbows', name: 'Crossbowmen', emoji: '🏹', role: 'ranged', attack: 3, defense: 1, speed: 1, cost: 60, upkeep: 2.5, needs: { arms: 2 }, counters: { infantry: 1.2, spear: 1.2 }, volley: 1.6 },
-  { id: 'light-cav', name: 'Light Cavalry', emoji: '🐎', role: 'cavalry', attack: 3, defense: 2, speed: 2, cost: 110, upkeep: 4, needs: { arms: 1, horses: 1 }, counters: { ranged: 1.6 }, pursuit: 1.5 },
-  { id: 'heavy-cav', name: 'Armoured Cavalry', emoji: '🏇', role: 'cavalry', attack: 5, defense: 4, speed: 1.5, cost: 180, upkeep: 6, needs: { arms: 3, horses: 1 }, counters: { infantry: 1.3, ranged: 1.4 }, pursuit: 1.2 },
-  { id: 'disciples', name: 'Sect Disciples', emoji: '🥋', role: 'martial', attack: 9, defense: 7, speed: 1.6, cost: 300, upkeep: 8, needs: { arms: 1, medicine: 1 }, counters: { infantry: 1.25, ranged: 1.25 }, kinds: ['sect', 'clan', 'palace', 'cult'], description: 'Trained martial artists of the Third and Second Rate. Few, but each is worth a squad.' },
-  { id: 'engineers', name: 'Siege Engineers', emoji: '🪨', role: 'siege', attack: 1, defense: 1, speed: 0.6, cost: 90, upkeep: 3, needs: { timber: 4, iron: 1 }, counters: {}, siege: 0.25, description: 'Ignore part of the defender\'s fortifications.' },
+  // EU4-style pips: fire = ranged phase, shock = melee phase; off = damage dealt, def = damage resisted (0–5).
+  // morale: × the army's morale; counters: × damage against armies made of that role.
+  // power: how many ordinary soldiers one of these is worth (hits harder, takes more to kill). Default 1.
+  { id: 'militia', name: 'Militia', emoji: '', role: 'infantry', fireOff: 0, fireDef: 0, shockOff: 1, shockDef: 1, morale: 0.8, attack: 1, defense: 1, speed: 1, cost: 20, upkeep: 1, needs: { arms: 0.5 }, counters: {} },
+  { id: 'spearmen', name: 'Spearmen', emoji: '', role: 'spear', fireOff: 0, fireDef: 1, shockOff: 1, shockDef: 3, morale: 1, attack: 2, defense: 3, speed: 1, cost: 45, upkeep: 2, needs: { arms: 1.5 }, counters: { cavalry: 1.5 } },
+  { id: 'swordsmen', name: 'Shield & Sabre', emoji: '', role: 'infantry', fireOff: 0, fireDef: 2, shockOff: 2, shockDef: 2, morale: 1, attack: 3, defense: 3, speed: 1, cost: 55, upkeep: 2.5, needs: { arms: 2 }, counters: {} },
+  { id: 'crossbows', name: 'Crossbowmen', emoji: '', role: 'ranged', fireOff: 3, fireDef: 1, shockOff: 0, shockDef: 0, morale: 0.9, attack: 3, defense: 1, speed: 1, cost: 60, upkeep: 2.5, needs: { arms: 2 }, counters: {} },
+  { id: 'light-cav', name: 'Light Cavalry', emoji: '', role: 'cavalry', power: 1.3, fireOff: 1, fireDef: 1, shockOff: 3, shockDef: 1, morale: 1.1, attack: 3, defense: 2, speed: 2, cost: 80, upkeep: 4, needs: { arms: 1, horses: 1 }, counters: { ranged: 1.5 }, pursuit: 1.5 },
+  { id: 'heavy-cav', name: 'Armoured Cavalry', emoji: '', role: 'cavalry', power: 1.8, fireOff: 0, fireDef: 1, shockOff: 4, shockDef: 2, morale: 1.2, attack: 5, defense: 4, speed: 1.5, cost: 140, upkeep: 6, needs: { arms: 3, horses: 1 }, counters: { ranged: 1.3, infantry: 1.15 }, pursuit: 1.2 },
+  { id: 'disciples', name: 'Sect Disciples', emoji: '', role: 'martial', power: 5, fireOff: 2, fireDef: 2, shockOff: 5, shockDef: 3, morale: 1.4, attack: 9, defense: 7, speed: 1.6, cost: 300, upkeep: 8, needs: { arms: 1, medicine: 1 }, counters: {}, kinds: ['sect', 'clan', 'palace', 'cult'], description: 'Trained martial artists of the Third and Second Rate. Few, but each is worth a squad.' },
+  { id: 'engineers', name: 'Siege Engineers', emoji: '', role: 'siege', fireOff: 1, fireDef: 0, shockOff: 0, shockDef: 0, morale: 0.7, attack: 1, defense: 1, speed: 0.6, cost: 90, upkeep: 3, needs: { timber: 4, iron: 1 }, counters: {}, siege: 0.25, description: 'Ignore part of the defender\'s walls.' },
 ];
-// Formations. attack/defense/speed: multipliers. vsRole: extra × attack vs a role. counters: × attack vs a formation.
-// requires: { minMen, roles: { role: minimum share } , commanderRealm: index, commanderSect: [...] }
-const F = (id, name, hanzi, emoji, o) => ({ id, name, hanzi, emoji, attack: 1, defense: 1, speed: 1, morale: 0, vsRole: {}, counters: {}, tactics: {}, requires: {}, description: '', scriptId: '', ...o });
+// Formations (EU4-style modifiers). fire / shock: × damage dealt in that phase. defense: damage taken is divided by it.
+// morale: × morale. maneuver: + general maneuver pips (beats terrain and the enemy's maneuver). width: × combat width.
+// vsRole: × damage against roles. requires: { minMen, roles: { role: minimum share }, commanderRealm (0 = 3rd Rate), commanderSect: [...] }
+const F = (id, name, hanzi, o) => ({ id, name, hanzi, emoji: '', fire: 1, shock: 1, defense: 1, morale: 1, maneuver: 0, width: 1, vsRole: {}, requires: {}, description: '', scriptId: '', ...o });
 const FORMATIONS = [
-  F('square', 'Square', '方陣', '⬛', { defense: 1.25, attack: 0.9, speed: 0.85, vsRole: { cavalry: 1.15 }, counters: { arrowhead: 1.2 }, description: 'Shields outward on every side. Hard to break, slow to move. Cavalry breaks on it.' }),
-  F('fish-scale', 'Fish Scale', '魚鱗', '🐟', { attack: 1.15, defense: 1.0, counters: { 'crane-wing': 1.15, square: 1.05 }, description: 'Overlapping wedges that punch through the centre.' }),
-  F('crane-wing', 'Crane Wing', '鶴翼', '🕊️', { attack: 1.1, defense: 0.95, tactics: { flank: 1.25 }, counters: { arrowhead: 1.2, 'long-snake': 1.15 }, requires: { minMen: 1500 }, description: 'Wings sweep around the enemy. Needs numbers to stretch the line.' }),
-  F('arrowhead', 'Arrowhead', '鋒矢', '🔺', { attack: 1.25, defense: 0.85, tactics: { charge: 1.2 }, counters: { 'fish-scale': 1.1, 'yoke': 1.2 }, description: 'Everything into one spearpoint. Devastating — or suicidal.' }),
-  F('long-snake', 'Long Snake', '長蛇', '🐍', { speed: 1.25, attack: 1.0, defense: 0.9, tactics: { retreat: 1.3, ambush: 1.15 }, description: 'A column that turns like a snake. Best for marching, ambushes and escapes.' }),
-  F('crescent', 'Crescent Moon', '偃月', '🌙', { attack: 1.1, defense: 1.05, vsRole: { infantry: 1.05 }, requires: { roles: { cavalry: 0.15 } }, description: 'A strong centre with cavalry horns. Balanced.' }),
-  F('wild-geese', 'Wild Geese', '雁行', '🪿', { attack: 1.0, defense: 0.95, tactics: { volley: 1.3 }, requires: { roles: { ranged: 0.25 } }, description: 'Staggered lines so every crossbow has a clear shot.' }),
-  F('yoke', 'Yoke', '衡軛', '🪢', { defense: 1.15, attack: 1.0, tactics: { hold: 1.15 }, vsRole: { cavalry: 1.1 }, description: 'Spearmen yoked in front of crossbows. A moving wall.' }),
-  F('eight-trigrams', 'Eight Trigrams', '八卦陣', '☯️', { attack: 1.1, defense: 1.3, morale: 5, enemyTactics: 0.85, requires: { commanderRealm: 3, minMen: 800 }, description: 'Eight gates, one way out. Confuses the enemy (their tactics are 15% weaker). Needs a commander of the Expert realm or higher.' }),
-  F('scattered', 'Scattered Stars', '散星', '✨', { attack: 0.95, defense: 0.9, speed: 1.15, vsRole: { ranged: 1.1 }, tactics: { ambush: 1.2, feint: 1.2 }, requires: { roles: { martial: 0.1 } }, description: 'Martial artists fight in small loose groups. Arrows find no wall to hit.' }),
+  F('square', 'Square', '方陣', { defense: 1.2, fire: 0.9, shock: 0.9, vsRole: { cavalry: 1.15 }, description: 'Shields outward on every side. Hard to break; cavalry breaks on it.' }),
+  F('fish-scale', 'Fish Scale', '魚鱗', { shock: 1.15, description: 'Overlapping wedges that punch through the centre. Better in melee.' }),
+  F('crane-wing', 'Crane Wing', '鶴翼', { shock: 1.1, width: 1.2, defense: 0.95, requires: { minMen: 1500 }, description: 'Wings sweep around the enemy: more men can fight at once. Needs numbers.' }),
+  F('arrowhead', 'Arrowhead', '鋒矢', { shock: 1.25, defense: 0.85, description: 'Everything into one spearpoint. Devastating — or suicidal.' }),
+  F('long-snake', 'Long Snake', '長蛇', { maneuver: 1, defense: 0.95, description: 'A column that turns like a snake: +1 maneuver (shrugs off bad terrain).' }),
+  F('crescent', 'Crescent Moon', '偃月', { shock: 1.1, defense: 1.05, requires: { roles: { cavalry: 0.15 } }, description: 'A strong centre with cavalry horns. Balanced.' }),
+  F('wild-geese', 'Wild Geese', '雁行', { fire: 1.3, shock: 0.95, requires: { roles: { ranged: 0.25 } }, description: 'Staggered lines so every crossbow has a clear shot. Better in the fire phase.' }),
+  F('yoke', 'Yoke', '衡軛', { defense: 1.1, fire: 1.1, vsRole: { cavalry: 1.1 }, description: 'Spearmen yoked in front of crossbows. A moving wall.' }),
+  F('eight-trigrams', 'Eight Trigrams', '八卦陣', { defense: 1.25, fire: 1.05, shock: 1.05, morale: 1.1, maneuver: 1, requires: { commanderRealm: 3, minMen: 800 }, description: 'Eight gates, one way out. Needs a commander of the Expert realm or higher.' }),
+  F('scattered', 'Scattered Stars', '散星', { fire: 0.9, defense: 1.1, maneuver: 1, requires: { roles: { martial: 0.1 } }, description: 'Martial artists fight in small loose groups: arrows find no wall to hit, terrain matters less.' }),
 ];
 // Tactics, chosen per round. beats: × attack when the enemy chose that tactic this round.
 const TACTICS = [
@@ -432,9 +440,15 @@ const DEFAULT_WORLD_SETTINGS = {
   shopTiers: { member: -15, ally: -5, neutral: 10, rival: 30, war: null },
   rivalBelow: -30,
   battlePrepHours: 24,
-  battleRounds: 5,
-  duelMomentum: 0.08,
-  maxMomentum: 0.3,
+  battleDays: 30,
+  pipStat: 30,
+  championDicePer: 600,
+  maxChampionDice: 2,
+  duelMomentum: 1,
+  maxMomentum: 2,
+  casualtyScale: 0.5,
+  moraleScale: 400,
+  wallStrength: 0.2,
   // Champion power in battle = (Strength + Endurance + Mobility) × this multiplier for their realm (3rd Rate first).
   // A Peak master (≈250 stats × 6.5) is worth about 800 spearmen.
   championRealmMult: [1, 1.5, 2, 3, 4.5, 6.5, 9, 12, 16, 21, 27, 35],
@@ -447,6 +461,19 @@ const DEFAULT_WORLD_SETTINGS = {
   includeNpcInBalance: false,
   representativeRoleIds: [],
   postTurnSummary: false,
+  travelMode: 'channel',
+  kmPerPx: 5,
+  travelSpeeds: [{ id: 'foot', label: 'On foot', kmPerDay: 30 }, { id: 'horse', label: 'By horse', kmPerDay: 60 }, { id: 'qinggong', label: 'Qinggong', kmPerDay: 150 }],
+  maxTradePerTurn: 3000,
+  maxRepresentatives: 2,
+  representativesFight: false,
+  baseIncome: 5,
+  memberIncome: 3,
+  stipendEveryTurns: 28,
+  maxStipendRate: 30,
+  stipendSoftCap: 150,
+  repWeight: 2,
+  leaderWeight: 3,
 };
 
 module.exports = {

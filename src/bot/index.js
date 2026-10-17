@@ -9,7 +9,7 @@ const sectsync = require('./sectsync');
 const { EPH, sendToChannel } = require('./util');
 const { UserError, truncate } = require('../utils');
 
-const MODULES = ['menu', 'submit', 'progress', 'trade', 'tools', 'staff', 'world'];
+const MODULES = ['menu', 'submit', 'progress', 'trade', 'tools', 'staff', 'world', 'territory'];
 const modules = MODULES.map((m) => require(`./commands/${m}`));
 const commands = new Map();
 const components = {};
@@ -158,7 +158,15 @@ function wire() {
       console.error('[sects] sync failed', e);
     }
   });
-  client.on(Events.MessageCreate, (m) => allocation.onMessage(m).catch((e) => console.error('[bot] allocation', e)));
+  client.on(Events.MessageCreate, (m) => {
+    allocation.onMessage(m).catch((e) => console.error('[bot] allocation', e));
+    // Text RP travel: posting in a region's channel puts your character there (World → Settings → Travel).
+    try {
+      if (m.author.bot || !m.guildId || !store.state.world?.settings?.enabled) return;
+      const c = require('../engine/characters').activeCharacterOf(store.state, m.author.id);
+      if (c && require('../world/territory').notePresence(store.state, c, m.channel)) store.markDirty();
+    } catch (e) { console.error('[bot] presence', e); }
+  });
   client.on(Events.ShardDisconnect, () => (status.online = false));
   client.on(Events.ShardResume, () => (status.online = true));
   client.on(Events.Error, (e) => console.error('[bot] client error', e));
@@ -269,10 +277,22 @@ async function postProposal(p) {
   return require('./commands/world').postProposal(client, p);
 }
 
+/** Dashboard: a character's office changed — give or take the representative role. */
+async function syncOffice(c) {
+  if (!client || !status.online) return null;
+  return require('./commands/territory').syncOffice(client, c);
+}
+
+/** Dashboard: post or update a takeover request in Discord. */
+async function postTakeover(t) {
+  if (!client || !status.online) return;
+  return require('./commands/world').postTakeover(client, t);
+}
+
 async function stop() {
   try {
     if (client) await client.destroy();
   } catch {}
 }
 
-module.exports = { start, stop, status, getDiscordInfo, commandJSON, catalog, registerCommands, sendTest, applySectRoles, createCategories, postProposal };
+module.exports = { start, stop, status, getDiscordInfo, commandJSON, catalog, registerCommands, sendTest, applySectRoles, createCategories, postProposal, syncOffice, postTakeover };

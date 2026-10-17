@@ -326,7 +326,7 @@ const DEFS = {
     group: 'World', label: 'Battle (war channel)',
     buttons: [['wJoinA', 'wJoinD', 'wPlan', 'wDuel']],
     placeholders: ['region', 'attacker', 'defender', 'attackerArmy', 'defenderArmy', 'resolves', 'duels', 'champions', 'terrain', 'fort'],
-    sample: { region: 'Kaifeng', attacker: 'Blood Cult', defender: 'Shaolin Sect', attackerArmy: '1,200 Spearmen · 400 Crossbowmen\nFormation: 🔺 Arrowhead · Momentum +8%', defenderArmy: '900 Shield & Sabre · 150 Sect Disciples\nFormation: ⬛ Square', resolves: '<t:1900000000:R>', duels: '🤺 Chung Myung defeated Baek Cheon', champions: 'Attacker: Baek Cheon\nDefender: Chung Myung', terrain: '🌊 Rivers & Lakes', fort: '3' },
+    sample: { region: 'Kaifeng', attacker: 'Blood Cult', defender: 'Shaolin Sect', attackerArmy: '1,200 Spearmen · 400 Crossbowmen\nFormation: Arrowhead · Duel dice +1\nCommander: Baek Cheon (fire 2 · shock 3 · maneuver 1)', defenderArmy: '900 Shield & Sabre · 150 Sect Disciples\nFormation: Square', resolves: '<t:1900000000:R>', duels: '🤺 Chung Myung defeated Baek Cheon', champions: 'Attacker: Baek Cheon\nDefender: Chung Myung', terrain: 'Rivers & Lakes (attacker -1 dice) · width 25k', fort: '3' },
     default: E({
       title: '⚔️ Battle of {region}',
       description: '**{attacker}** attacks **{defender}** · {terrain} · walls {fort}/5\nThe battle begins {resolves}. Until then champions may duel in RP; staff record the result with **Record duel**.',
@@ -342,7 +342,7 @@ const DEFS = {
   worldBattleResult: {
     group: 'World', label: 'Battle report',
     placeholders: ['region', 'winner', 'attacker', 'defender', 'rounds', 'losses', 'summary'],
-    sample: { region: 'Kaifeng', winner: 'Shaolin Sect', attacker: 'Blood Cult', defender: 'Shaolin Sect', rounds: '**1** 🏹 Volley vs 🛡️ Hold — losses 80 / 120 · morale 64 / 58\n**2** 🐎 Charge vs 🛡️ Hold — losses 150 / 90 · morale 48 / 50', losses: 'Blood Cult lost 430 · Shaolin Sect lost 310', summary: 'The Blood Cult routed in round 4.' },
+    sample: { region: 'Kaifeng', winner: 'Shaolin Sect', attacker: 'Blood Cult', defender: 'Shaolin Sect', rounds: '**Day 1–3 · 🏹 Fire** — dice 4 vs 6 · losses 210 / 160 · morale 52 / 58\n**Day 4–6 · ⚔️ Shock** — dice 8 vs 3 · losses 140 / 390 · morale 41 / 22', losses: 'Blood Cult lost 430 · Shaolin Sect lost 310', summary: 'Blood Cult broke and fled after 9 days.' },
     default: E({ title: '📜 Battle of {region} — {winner} victorious', description: '{summary}\n\n{rounds}', color: 0x8b0000, fields: [{ name: 'Losses', value: '{losses}', inline: false }] }),
   },
 };

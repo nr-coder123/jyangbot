@@ -9,9 +9,9 @@ const WS = require('../world/state');
 const runner = require('../world/runner');
 const { UserError, num, clone, arr, slug, norm, truncate, newId, isPlainObject, r2 } = require('../utils');
 
-const { geo, economy: E, events: EV, politics: P, diplomacy: D, military: M, power, common: C } = W;
+const { geo, economy: E, events: EV, politics: P, diplomacy: D, military: M, power, common: C, territory: T } = W;
 const MAPFILE = path.join(__dirname, '../world/mapdata.json');
-const LISTS = ['goods', 'workshopTypes', 'events', 'policies', 'treatyTypes', 'actions', 'unitTypes', 'formations', 'tactics', 'routes'];
+const LISTS = ['goods', 'workshopTypes', 'events', 'policies', 'treatyTypes', 'actions', 'unitTypes', 'formations', 'routes'];
 
 const w = () => store.state.world;
 const region = (key) => { const r = w().regions[key]; if (!r) throw new UserError('Unknown region.'); return r; };
@@ -52,7 +52,7 @@ function mount(app, { wrap, bot, diff }) {
     const world = w();
     return {
       world, calendar: C.calendar(s), markets: geo.marketKeys(s),
-      characters: s.characters.filter((c) => c.status === 'active').map((c) => ({ id: c.id, name: c.name, sect: c.sect, ownerId: c.ownerId, realm: c.realm, location: c.location, travel: c.travel, spouseId: c.spouseId, champion: M.championPower(s, c) })),
+      characters: s.characters.filter((c) => c.status === 'active').map((c) => ({ id: c.id, name: c.name, sect: c.sect, ownerId: c.ownerId, ownerTag: c.ownerTag, realm: c.realm, location: c.location, travel: c.travel, spouseId: c.spouseId, champion: M.championPower(s, c), office: T.officeOf(s, c), pips: M.generalPips(s, c), nyang: c.nyang })),
       sects: s.sects.map((x) => ({ name: x.name, playable: x.playable, roleId: x.roleId })),
       items: s.items.map((i) => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, price: i.shop?.price, tradeGood: i.tradeGood, economy: i.economy })),
       scripts: s.scripts.map((x) => ({ id: x.id, name: x.name })),
@@ -79,6 +79,9 @@ function mount(app, { wrap, bot, diff }) {
     for (const k of Object.keys(next.shopTiers)) next.shopTiers[k] = next.shopTiers[k] === null || next.shopTiers[k] === '' ? null : num(next.shopTiers[k]);
     next.powerWeights = Object.fromEntries(Object.entries({ ...before.powerWeights, ...(next.powerWeights || {}) }).map(([k, v]) => [k, Math.max(0, num(v))]));
     next.representativeRoleIds = arr(next.representativeRoleIds).map(String).filter(Boolean);
+    next.travelMode = next.travelMode === 'timed' ? 'timed' : 'channel';
+    next.travelSpeeds = arr(next.travelSpeeds).filter((x) => x && x.label).map((x) => ({ id: String(x.id || slug(x.label)), label: String(x.label).slice(0, 30), kmPerDay: Math.max(1, num(x.kmPerDay, 30)) }));
+    if (!next.travelSpeeds.length) next.travelSpeeds = clone(W.defaults.DEFAULT_WORLD_SETTINGS.travelSpeeds);
     if (next.startRegion && !geo.get(next.startRegion)) throw new UserError('Unknown start region.');
     w().settings = next;
     if (before.turnHours !== next.turnHours && w().lastTurnAt) w().nextTurnAt = new Date(Date.parse(w().lastTurnAt) + next.turnHours * 3600000).toISOString();
@@ -88,7 +91,7 @@ function mount(app, { wrap, bot, diff }) {
   app.put('/api/world/map', wrap(async (req) => {
     const b = req.body || {};
     const m = w().map;
-    for (const k of ['title', 'subtitle', 'era', 'lang']) if (b[k] !== undefined) m[k] = String(b[k]).slice(0, 200);
+    for (const k of ['title', 'subtitle', 'era', 'lang', 'colorStyle']) if (b[k] !== undefined) m[k] = String(b[k]).slice(0, 200);
     if (isPlainObject(b.layers)) m.layers = { ...m.layers, ...b.layers };
     if (Array.isArray(b.landmarks)) m.landmarks = b.landmarks.slice(0, 500).map((l) => ({ id: l.id || newId('lm-'), name: String(l.name || 'Landmark').slice(0, 80), hanzi: String(l.hanzi || '').slice(0, 40), type: String(l.type || 'sect_site'), xy: [num(l.xy?.[0]), num(l.xy?.[1])], region: l.region || '', factionId: l.factionId || '', notes: String(l.notes || '').slice(0, 1000) }));
     if (Array.isArray(b.frontiers)) m.frontiers = b.frontiers.slice(0, 200).map((f) => ({ id: f.id || newId('fl-'), name: String(f.name || 'Frontier').slice(0, 80), color: f.color || '#b3261e', style: ['solid', 'dashed', 'wall'].includes(f.style) ? f.style : 'dashed', points: arr(f.points).slice(0, 200).map((p) => [num(p[0]), num(p[1])]) }));
@@ -105,8 +108,15 @@ function mount(app, { wrap, bot, diff }) {
     if (b.controller && !C.faction(store.state, b.controller)) throw new UserError('Unknown faction.');
     if (b.scriptId) scriptOk(b.scriptId);
     if (b.workshops) b.workshops = arr(b.workshops).map((x) => { if (!E.workshopType(store.state, x.typeId)) throw new UserError(`Unknown workshop type ${x.typeId}.`); return x; });
+    const newController = 'controller' in b ? (b.controller || null) : undefined;
+    const follow = !!b.followProvince;
+    delete b.controller; delete b.ownController; delete b.followProvince;
     const merged = WS.normalizeRegion(key, { ...before, ...b, special: before.special });
     w().regions[key] = merged;
+    if (follow && key.includes('/')) {
+      merged.ownController = false;
+      if (T.isSplit(store.state, geo.provinceOf(key))) T.recomputeProvince(store.state, geo.provinceOf(key)); else T.syncChildren(store.state, geo.provinceOf(key));
+    } else if (newController !== undefined && (newController !== T.controllerOf(store.state, key) || (key.includes('/') && !merged.ownController))) T.paint(store.state, [key], newController);
     if (merged.population !== undefined && (b.production || b.population)) E.updatePrices(store.state, key, C.regionMods(store.state, key));
     log(req, 'world.region', `${geo.fullLabel(store.state, key)}: ${diff(before, merged, ['prices', 'priceHistory', 'targets', 'priceMods', 'history', 'last', 'stock'])}`);
     return { region: merged };
@@ -117,17 +127,88 @@ function mount(app, { wrap, bot, diff }) {
     log(req, 'world.special', `${geo.fullLabel(store.state, key)} ${req.body?.on ? 'is now a special prefecture (own market)' : 'is no longer special'}`);
     return { region: r };
   }));
+  // Painting returns an undo snapshot; the dashboard keeps it for Undo/Redo.
+  const controlOf = (keys) => keys.map((k) => ({ key: k, controller: w().regions[k]?.controller ?? null, ownController: !!w().regions[k]?.ownController, exists: !!w().regions[k] }));
   app.post('/api/world/paint', wrap(async (req) => {
-    const keys = arr(req.body?.keys).filter((k) => geo.get(k));
+    const keys = arr(req.body?.keys).filter((k) => geo.get(k)).slice(0, 2000);
     const fid = req.body?.controller || null;
-    if (fid && !C.faction(store.state, fid)) throw new UserError('Unknown faction.');
-    for (const k of keys) {
-      const r = w().regions[k] || WS.normalizeRegion(k, {});
-      r.controller = fid;
-      w().regions[k] = r;
-    }
-    log(req, 'world.paint', `${keys.map((k) => geo.label(store.state, k)).join(', ')} → ${fid ? C.faction(store.state, fid).name : 'no one'}`);
+    const before = T.paint(store.state, keys, fid, { log: false });
+    log(req, 'world.paint', `${keys.slice(0, 30).map((k) => geo.label(store.state, k)).join(', ')}${keys.length > 30 ? ` (+${keys.length - 30})` : ''} → ${fid ? C.faction(store.state, fid).name : 'unclaimed'}`);
+    return { before, changed: controlOf(before.map((x) => x.key)) };
+  }));
+  app.post('/api/world/paint/restore', wrap(async (req) => {
+    const snap = arr(req.body?.snapshot).filter((x) => x && geo.get(x.key));
+    const before = snap.map((x) => ({ key: x.key, existed: !!w().regions[x.key], controller: w().regions[x.key]?.controller ?? null, ownController: !!w().regions[x.key]?.ownController, occupiedBy: w().regions[x.key]?.occupiedBy || null }));
+    T.restore(store.state, snap);
+    log(req, 'world.paint', `undo/redo of ${snap.length} region(s)`);
+    return { before, changed: controlOf(snap.map((x) => x.key)) };
+  }));
+  app.post('/api/world/split', wrap(async (req) => {
+    const prov = req.body?.province;
+    const split = T.setSplit(store.state, prov, !!req.body?.on);
+    log(req, 'world.map', `${geo.label(store.state, prov)} ${req.body?.on ? 'split into prefectures' : 'shown whole'}`);
+    return { split };
+  }));
+  app.post('/api/world/clear-territory', wrap(async (req) => {
+    if (req.body?.confirm !== 'CLEAR') throw new UserError('Type CLEAR to confirm.');
+    const keys = Object.keys(w().regions).filter((k) => w().regions[k].controller);
+    const before = T.paint(store.state, keys.filter((k) => !k.includes('/')), null, { log: false });
+    before.push(...T.paint(store.state, keys.filter((k) => k.includes('/') && w().regions[k]?.controller), null, { log: false }));
+    for (const k of Object.keys(w().regions)) { const r = w().regions[k]; r.ownController = false; if ('occupiedBy' in r) r.occupiedBy = null; }
+    log(req, 'world.paint', `cleared all territory (${keys.length} regions)`);
+    return { before };
+  }));
+  app.post('/api/world/reset-relations', wrap(async (req) => {
+    let n = 0;
+    for (const rel of Object.values(w().relations)) { if (rel.value || rel.war) n++; rel.value = 0; if (req.body?.wars) rel.war = false; }
+    log(req, 'world.relation', `reset ${n} relation(s) to neutral${req.body?.wars ? ' and ended wars' : ''}`);
+    return { reset: n };
+  }));
+
+  // ----- takeovers -----
+  app.post('/api/world/takeovers', wrap(async (req) => {
+    const b = req.body || {};
+    const by = { id: req.user.id, name: `${req.user.username} (dashboard)` };
+    const t = b.approve === false ? T.requestTakeover(store.state, { regions: arr(b.regions), to: b.to || null, reason: b.reason, by, source: 'staff' }) : T.forceTakeover(store.state, { regions: arr(b.regions), to: b.to || null, reason: b.reason, by });
+    log(req, 'world.takeover', `${t.regions.map((k) => geo.label(store.state, k)).join(', ')} → ${C.faction(store.state, t.to)?.name || 'unclaimed'} (${t.status})`);
+    runner.step();
+    return { takeover: t };
+  }));
+  app.post('/api/world/takeovers/:id/:action', wrap(async (req) => {
+    const by = { id: req.user.id, name: `${req.user.username} (dashboard)` };
+    const fn = { approve: T.approveTakeover, reject: T.rejectTakeover, revert: T.revertTakeover }[req.params.action];
+    if (!fn) throw new UserError('Unknown action.');
+    const t = fn(store.state, req.params.id, by);
+    log(req, 'world.takeover', `${req.params.action}: ${t.regions.map((k) => geo.label(store.state, k)).join(', ')} → ${C.faction(store.state, t.to)?.name || 'unclaimed'}`);
+    runner.step();
+    return { takeover: t };
+  }));
+  app.delete('/api/world/takeovers/:id', wrap(async (req) => {
+    w().takeovers = w().takeovers.filter((t) => t.id !== req.params.id);
+    log(req, 'world.takeover', 'removed a takeover record');
     return { ok: true };
+  }));
+
+  // ----- offices & stipends -----
+  app.put('/api/world/office', wrap(async (req) => {
+    const c = store.state.characters.find((x) => x.id === req.body?.charId);
+    if (!c) throw new UserError('Character not found.');
+    const f = T.setOffice(store.state, c, req.body?.office || 'member');
+    log(req, 'world.office', `${c.name} is now ${req.body?.office || 'member'} of ${f.name}`);
+    if (bot.syncOffice) bot.syncOffice(c).catch(() => {});
+    return { office: T.officeOf(store.state, c) };
+  }));
+  app.get('/api/world/stipends/:id', wrap(async (req) => {
+    const f = faction(req.params.id);
+    return { plan: T.stipendPlan(store.state, f, req.query.fund !== undefined ? num(req.query.fund) : undefined), last: f.lastStipend };
+  }));
+  app.post('/api/world/stipends/:id/pay', wrap(async (req) => {
+    const f = faction(req.params.id);
+    const plan = T.payStipends(store.state, f);
+    if (!plan) throw new UserError('Nothing to pay (empty fund or no members).');
+    log(req, 'world.stipend', `${f.name} paid ${plan.total} in stipends now`);
+    runner.step();
+    return { plan };
   }));
 
   // ----- lists (goods, workshops, events, policies, treaties, actions, troops, formations, tactics, routes) -----
@@ -290,7 +371,7 @@ function mount(app, { wrap, bot, diff }) {
     const key = geo.marketOf(store.state, b.region);
     if (!w().regions[key]) throw new UserError('Unknown region.');
     const units = Object.fromEntries(Object.entries(b.units || {}).map(([k, v]) => [k, Math.max(0, Math.floor(num(v)))]).filter(([k, v]) => v > 0 && M.unitType(store.state, k)));
-    const a = { id: newId('ar-'), name: String(b.name || `${f.name} Army`), factionId: f.id, region: key, units, commanderId: b.commanderId || '', champions: arr(b.champions), morale: num(b.morale, 70), supply: num(b.supply, 100), formationId: b.formationId || 'square', stance: b.stance || 'balanced', status: 'garrison', march: null, createdTurn: w().turn };
+    const a = { id: newId('ar-'), name: String(b.name || `${f.name} Army`), factionId: f.id, region: key, units, commanderId: b.commanderId || '', champions: arr(b.champions), morale: num(b.morale, 70), supply: num(b.supply, 100), formationId: b.formationId || 'square', status: 'garrison', march: null, createdTurn: w().turn, scriptId: scriptOk(b.scriptId) };
     w().armies.push(a);
     log(req, 'world.army', `created ${a.name} in ${geo.label(store.state, key)} (${M.men(a)} men)`);
     return { army: a };
@@ -299,7 +380,8 @@ function mount(app, { wrap, bot, diff }) {
     const a = M.army(store.state, req.params.id);
     if (!a) throw new UserError('Army not found.');
     const b = req.body || {};
-    for (const k of ['name', 'commanderId', 'formationId', 'stance']) if (b[k] !== undefined) a[k] = b[k];
+    if (b.scriptId !== undefined) a.scriptId = scriptOk(b.scriptId);
+    for (const k of ['name', 'commanderId', 'formationId']) if (b[k] !== undefined) a[k] = b[k];
     for (const k of ['morale', 'supply']) if (b[k] !== undefined) a[k] = Math.max(0, Math.min(100, num(b[k])));
     if (b.region) { a.region = geo.marketOf(store.state, b.region); a.march = null; if (a.status === 'marching') a.status = 'garrison'; }
     if (b.units) a.units = Object.fromEntries(Object.entries(b.units).map(([k, v]) => [k, Math.max(0, Math.floor(num(v)))]).filter(([k, v]) => v > 0));
@@ -339,7 +421,7 @@ function mount(app, { wrap, bot, diff }) {
   }));
   app.post('/api/world/battles/:id/plan', wrap(async (req) => {
     const b = M.battle(store.state, req.params.id);
-    M.setPlan(store.state, b, req.body?.side === 'D' ? 'D' : 'A', { formationId: req.body?.formationId, plan: req.body?.plan, commanderId: req.body?.commanderId });
+    M.setPlan(store.state, b, req.body?.side === 'D' ? 'D' : 'A', { formationId: req.body?.formationId, commanderId: req.body?.commanderId });
     if (Array.isArray(req.body?.champions)) b.sides[req.body.side === 'D' ? 'D' : 'A'].champions = req.body.champions;
     log(req, 'world.battle', `plan updated (${req.body?.side})`);
     return { battle: b };
@@ -394,15 +476,18 @@ function mount(app, { wrap, bot, diff }) {
       } else if (mine && req.body?.colors !== false) { mine.color = f.color || mine.color; if (f.secondaryColor) mine.secondaryColor = f.secondaryColor; if (f.hanzi && !mine.hanzi) mine.hanzi = f.hanzi; }
       if (mine) map.set(f.id, mine.id);
     }
-    for (const [key, ps] of Object.entries(p.provinces)) {
+    if (Array.isArray(p.subdividedRegions)) st.world.map.split = [...new Set(p.subdividedRegions.filter((k) => geo.isProvince(k)))];
+    const entries = Object.entries(p.provinces).map(([key, ps]) => {
       let k = key;
       if (!geo.get(k)) { const sub = geo.prefectures().find((x) => x.hanzi === key); k = sub ? sub.key : null; }
-      if (!k) continue;
-      const r = st.world.regions[k] || WS.normalizeRegion(k, {});
-      if (ps.factionId !== undefined) { r.controller = ps.factionId ? map.get(ps.factionId) || r.controller : null; painted++; }
+      return [k, ps];
+    }).filter(([k]) => k).sort((a, b) => a[0].includes('/') - b[0].includes('/')); // provinces first
+    for (const [k, ps] of entries) {
+      const isPref = k.includes('/');
+      if (ps.factionId !== undefined && (!isPref || T.isSplit(st, geo.provinceOf(k)))) { T.paint(st, [k], ps.factionId ? map.get(ps.factionId) || null : null, { log: false }); painted++; }
+      const r = st.world.regions[k] || (st.world.regions[k] = WS.normalizeRegion(k, { controller: T.controllerOf(st, k) }));
       if (ps.customDisplayName) r.displayName = ps.customDisplayName;
       if (ps.notes) r.notes = ps.notes;
-      st.world.regions[k] = r;
     }
     if (Array.isArray(p.landmarks) || Array.isArray(p.customPins)) {
       const W0 = 1400; const H0 = 920; const S0 = 1100; const C0 = [104, 36];
@@ -419,7 +504,6 @@ function mount(app, { wrap, bot, diff }) {
       const rad = (d) => (d * Math.PI) / 180; const merc = (lat) => Math.log(Math.tan(Math.PI / 4 + rad(lat) / 2));
       for (const f of p.frontierLines) st.world.map.frontiers.push({ id: newId('fl-'), name: f.name || 'Frontier', color: f.color || '#b3261e', style: f.style === 'solid' ? 'solid' : f.style === 'wall' ? 'wall' : 'dashed', points: arr(f.points).map(([lon, lat]) => [r2(W0 / 2 + S0 * (rad(lon) - rad(C0[0]))), r2(H0 / 2 - S0 * (merc(lat) - merc(C0[1])))]) });
     }
-    for (const sub of arr(p.subdividedRegions)) for (const pf of geo.prefectures(sub)) if (p.provinces[pf.hanzi]?.factionId) { /* painted above */ }
     if (p.title) st.world.map.title = p.title;
     if (p.subtitle) st.world.map.subtitle = p.subtitle;
     if (p.era) st.world.map.era = p.era;

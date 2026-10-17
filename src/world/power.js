@@ -24,7 +24,7 @@ function pillars(state, f) {
   const w = state.world;
   const mem = C.members(state, f);
   const armies = w.armies.filter((a) => a.factionId === f.id && a.status !== 'disbanded');
-  const military = armies.reduce((s, a) => s + M.armyStrength(state, a), 0) + mem.reduce((s, c) => s + M.championPower(state, c), 0);
+  const military = armies.reduce((s, a) => s + M.armyStrength(state, a), 0) + mem.filter((c) => !M.isNonCombatant(state, c)).reduce((s, c) => s + M.championPower(state, c), 0);
   const regions = C.controlled(state, f.id);
   let wsProfit = 0;
   for (const r of Object.values(w.regions)) for (const ws of r.workshops || []) if (ws.owner.type === 'faction' && ws.owner.id === f.id) wsProfit += Math.max(0, num(ws.lastProfit));

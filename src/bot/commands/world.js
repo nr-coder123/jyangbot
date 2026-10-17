@@ -18,7 +18,7 @@ const WP = require('../worldpanels');
 const { EPH, actor, requireChar, requireAccess, isStaff, sendToChannel } = require('../util');
 const { UserError, fmt, truncate, num, norm } = require('../../utils');
 
-const { geo, economy: E, common: C, military: M, politics: P, diplomacy: D, events: EV } = W;
+const { geo, economy: E, common: C, military: M, politics: P, diplomacy: D, events: EV, territory: T } = W;
 const st = () => store.state;
 
 const cmd = new SlashCommandBuilder()
@@ -78,7 +78,12 @@ function nearbyOptions(c, from, { exclude = [], hoursPer = 'travelHoursPer100' }
     const rt = geo.route(s, from, k);
     return { k, hops, h: rt ? rt.distance / 100 * num(s.world.settings[hoursPer], 1.5) : 0 };
   }).sort((a, b) => a.h - b.h);
-  return list.slice(0, 25).map((x) => ({ label: geo.fullLabel(s, x.k), value: x.k, description: `${x.hops} stage(s) · ~${fmt(Math.round(x.h * 10) / 10)} h · prosperity ${Math.round(s.world.regions[x.k].prosperity)}` }));
+  const rp = T.channelMode(s);
+  return list.slice(0, 25).map((x) => {
+    const trip = rp ? T.rpTravel(s, from, x.k) : null;
+    const how = trip ? `${fmt(trip.km)} km · ~${trip.days[0]?.days} d ${trip.days[0]?.label.toLowerCase()}` : `~${fmt(Math.round(x.h * 10) / 10)} h`;
+    return { label: geo.fullLabel(s, x.k), value: x.k, description: `${x.hops} stage(s) · ${how} · prosperity ${Math.round(s.world.regions[x.k].prosperity)}` };
+  });
 }
 
 // ---------- views ----------
@@ -93,7 +98,7 @@ VIEWS.region = (ctx, key) => {
   if (ctx.isOwner) {
     rows[1] = row(
       btn(cid('v', ctx, 'war'), 'wWar'),
-      key !== loc && !E.isTravelling(c) ? btn(cid('a', ctx, 'travel', key), 'wTravel', { style: ButtonStyle.Success, label: `Travel here (~${fmt(Math.round(E.travelInfo(s, c, key).hours * 10) / 10)} h)` }) : null,
+      key !== loc && !E.isTravelling(c) ? btn(cid('a', ctx, 'travel', key), 'wTravel', { style: ButtonStyle.Success, label: T.channelMode(s) ? 'Go here (RP)' : `Travel here (~${fmt(Math.round(E.travelInfo(s, c, key).hours * 10) / 10)} h)` }) : null,
       key !== loc ? btn(cid('v', ctx, 'region', loc), 'back', { label: 'Where I am' }) : null,
       E.isTravelling(c) ? btn(cid('a', ctx, 'stoptravel'), 'cancel', { label: 'Turn back' }) : null,
     );
@@ -193,6 +198,10 @@ VIEWS.politics = (ctx) => {
       ...adopted.map((x) => ({ label: `Revoke: ${x.def.name}${x.region ? ` (${WP.regionName(x.region)})` : ''}`, value: `-${x.def.id}|${x.region}`, emoji: '✖️' })),
       ...pol.filter((x) => !adopted.some((a) => a.def.id === x.id && x.scope !== 'region')).map((x) => ({ label: `${x.name} — ${x.cost.influence} infl${x.upkeep.treasury ? `, ${x.upkeep.treasury}/turn` : ''}`, value: `+${x.id}`, emoji: x.emoji, description: truncate(x.description, 100) })),
     ])));
+    rows.push(row(
+      btn(cid('a', ctx, 'claim'), 'wPolitics', { label: 'Claim a region (staff approve)' }),
+      btn(cid('a', ctx, 'stipend'), 'wPolitics', { label: `Stipends (${fmt(p.faction.stipendRate)}%)` }),
+    ));
   }
   const mineToAnswer = s.world.proposals.filter((x) => x.status.startsWith('awaiting') && ((x.status === 'awaiting-target' && p.rep && x.to === p.faction?.id) || (x.status === 'awaiting-character' && s.characters.find((ch) => ch.id === x.targetCharId)?.ownerId === ctx.viewer)));
   if (mineToAnswer.length) rows.push(row(select(cid('s', ctx, 'answer'), `📨 ${mineToAnswer.length} proposal(s) waiting for you…`, mineToAnswer.map((x) => ({ label: `${D.action(s, x.actionId)?.name} from ${C.faction(s, x.from)?.name}`, value: x.id, emoji: D.action(s, x.actionId)?.emoji })))));
@@ -224,7 +233,7 @@ VIEWS.war = (ctx) => {
   const canLead = p.faction && (C.isRepresentative(s, p.faction, c, ctx.member) || p.armies.some((a) => a.commanderId === c.id));
   if (ctx.isOwner && canLead) {
     if (p.armies.length) rows.push(row(select(cid('s', ctx, 'army'), '🚩 Command an army…', p.armies.map((a) => ({ label: `${a.name}`, value: a.id, description: `${WP.big(M.men(a))} men in ${WP.regionName(a.region)} · ${a.status}` })))));
-    if (C.isRepresentative(s, p.faction, c, ctx.member)) rows.push(row(select(cid('s', ctx, 'recruit'), '🪖 Recruit troops…', s.world.unitTypes.filter((u) => !u.kinds?.length || u.kinds.includes(p.faction.kind)).map((u) => ({ label: `${u.name} — ${u.cost} per 100`, value: u.id, emoji: u.emoji, description: `atk ${u.attack} · def ${u.defense} · needs ${Object.entries(u.needs || {}).map(([g, q]) => `${q} ${E.good(s, g)?.name}`).join(', ')} per 100` })))));
+    if (C.isRepresentative(s, p.faction, c, ctx.member)) rows.push(row(select(cid('s', ctx, 'recruit'), '🪖 Recruit troops…', s.world.unitTypes.filter((u) => !u.kinds?.length || u.kinds.includes(p.faction.kind)).map((u) => ({ label: `${u.name} — ${u.cost} per 100`, value: u.id, emoji: u.emoji, description: `fire ${num(u.fireOff)}/${num(u.fireDef)} · shock ${num(u.shockOff)}/${num(u.shockDef)} · needs ${Object.entries(u.needs || {}).map(([g, q]) => `${q} ${E.good(s, g)?.name}`).join(', ')} per 100` })))));
   }
   return { embeds: p.embeds, components: rows.filter(Boolean) };
 };
@@ -238,8 +247,7 @@ VIEWS.army = (ctx, armyId) => {
     ...p,
     components: [navRow(ctx), row(
       select(cid('s', ctx, 'march', a.id), '🚩 March to…', nearbyOptions(ctx.c, a.region, { exclude: [a.region] }).map((o) => ({ ...o, description: o.description.replace(/~[\d.]+ h · /, '') }))),
-    ), row(select(cid('s', ctx, 'formation', a.id), '🧭 Formation…', s.world.formations.map((f) => ({ label: `${f.name} (${f.hanzi})`, value: f.id, emoji: f.emoji, description: truncate(f.description, 100) })))),
-    row(select(cid('s', ctx, 'stance', a.id), '⚖️ Stance (used when no battle plan is set)…', [{ label: 'Aggressive', value: 'aggressive', emoji: '🔥' }, { label: 'Balanced', value: 'balanced', emoji: '⚖️' }, { label: 'Defensive', value: 'defensive', emoji: '🛡️' }])),
+    ), row(select(cid('s', ctx, 'formation', a.id), '🧭 Formation…', s.world.formations.map((f) => ({ label: `${f.name}${f.hanzi ? ` (${f.hanzi})` : ''}`, value: f.id, emoji: f.emoji, description: truncate(f.description, 100) })))),
     row(btn(cid('a', ctx, 'cmd', a.id), 'wPlan', { label: 'Take command' }), btn(cid('a', ctx, 'halt', a.id), 'cancel', { label: 'Halt' }), btn(cid('v', ctx, 'war'), 'back'))].filter(Boolean),
   };
 };
@@ -253,6 +261,7 @@ function render(ctx, view, arg, notice) {
 async function execute(i) {
   requireWorld();
   const c = requireChar(i.user.id);
+  if (T.notePresence(st(), c, i.channel)) store.markDirty();
   const ctx = { viewer: i.user.id, c, isOwner: true, member: i.member, channelRegion: geo.regionOfChannel(st(), i.channel) };
   const region = i.options.getString('region');
   const tab = i.options.getString('tab') || 'region';
@@ -349,14 +358,13 @@ async function onComponent(i) {
           input('army', 'Into which army? (blank = garrison there)', { required: false }),
         ));
       }
-      case 'march': case 'formation': case 'stance': {
+      case 'march': case 'formation': {
         const a = M.army(s, arg);
         if (!a) throw new UserError('Army not found.');
         const f = C.faction(s, a.factionId);
         if (!M.canCommand(s, c, f, ctx.member) || C.factionOfChar(s, c)?.id !== f.id) throw new UserError('You do not command this army.');
         if (name === 'march') { const rt = M.marchTo(s, a, v); log(i, 'world.army', `${a.name} marches to ${geo.label(s, v)}`); return i.update(render(ctx, 'army', a.id, `🚩 Marching to **${WP.regionName(v)}** — ${rt.hops} stage(s); armies move on each world turn.`)); }
-        if (name === 'formation') { const fm = M.formation(s, v); a.formationId = v; return i.update(render(ctx, 'army', a.id, `${fm.emoji} Formation set to **${fm.name}**.`)); }
-        a.stance = v; return i.update(render(ctx, 'army', a.id, `⚖️ Stance: **${v}**.`));
+        const fm = M.formation(s, v); a.formationId = v; return i.update(render(ctx, 'army', a.id, `${fm.emoji || '🧭'} Formation set to **${fm.name}**.`));
       }
       default: throw new UserError('Unknown menu.');
     }
@@ -366,7 +374,7 @@ async function onComponent(i) {
     case 'travel': {
       const r = E.startTravel(s, c, arg);
       log(i, 'world.travel', `${c.name}: ${geo.label(s, r.from)} → ${geo.label(s, arg)} (${r.hours} h)`);
-      return i.update(render(ctx, 'region', arg, r.instant ? `📍 You are now in **${WP.regionName(arg)}**.` : `🧭 You set out for **${WP.regionName(arg)}** — ${r.hops} stage(s), about ${fmt(r.hours)} h. You can't trade at a market while on the road.`));
+      return i.update(render(ctx, 'region', arg, r.instant ? `📍 You are now in **${WP.regionName(arg)}**.${r.rp ? `\n-# The journey from ${WP.regionName(r.from)}: ${r.rp.text}. Role-play it however you like — nobody waits.` : ''}` : `🧭 You set out for **${WP.regionName(arg)}** — ${r.hops} stage(s), about ${fmt(r.hours)} h. You can't trade at a market while on the road.`));
     }
     case 'stoptravel': {
       if (!E.isTravelling(c)) throw new UserError('You are not travelling.');
@@ -394,6 +402,19 @@ async function onComponent(i) {
       if (!a || C.factionOfChar(s, c)?.id !== f?.id || !C.isRepresentative(s, f, c, ctx.member)) throw new UserError('Only your faction\'s representatives can name a commander.');
       a.commanderId = c.id; if (!a.champions.includes(c.id)) a.champions.push(c.id);
       return i.update(render(ctx, 'army', a.id, `🎖️ **${c.name}** now commands **${a.name}**.`));
+    }
+    case 'claim': {
+      const f = repOf(s, c, ctx.member);
+      return i.showModal(new ModalBuilder().setCustomId(['wm', 'claim', viewer].join(':')).setTitle(truncate(`${f.name}: claim land`, 45)).addComponents(
+        input('region', 'Region (province or prefecture)', { value: geo.label(s, E.locationOf(s, c)) }),
+        input('reason', 'Why? (staff read this)', { style: TextInputStyle.Paragraph, placeholder: 'e.g. ceded after the war, bought from the magistrate, our founder\'s homeland…' }),
+      ));
+    }
+    case 'stipend': {
+      const f = repOf(s, c, ctx.member);
+      return i.showModal(new ModalBuilder().setCustomId(['wm', 'stipend', viewer].join(':')).setTitle(truncate(`${f.name}: stipends`, 45)).addComponents(
+        input('rate', `% of each turn's income (0–${num(s.world.settings.maxStipendRate, 30)})`, { value: String(num(f.stipendRate)) }),
+      ));
     }
     case 'halt': {
       const a = M.army(s, arg); if (!a) throw new UserError('Army not found.');
@@ -465,8 +486,60 @@ async function onModal(i) {
       const rushed = Object.entries(r.cost.rush || {}).filter(([, q]) => q > 0).map(([g, q]) => `${fmt(q)} ${E.good(s, g)?.name || g}`);
       return i.update(render(ctx, 'army', r.army.id, `🪖 Raised troops for ${fmt(r.cost.total)} (${fmt(r.cost.nyang)} pay + ${fmt(r.cost.goodsCost)} equipment bought from the market${rushed.length ? `; the market was short, so ${rushed.join(', ')} were ordered from the smiths at 2.5× base price` : ''}).`));
     }
+    case 'claim': {
+      const f = repOf(s, c, ctx.member);
+      const q = norm(val('region'));
+      const key = [...geo.provinces(), ...geo.prefectures()].map((x) => x.key).find((k) => norm(geo.label(s, k)) === q || norm(geo.fullLabel(s, k)) === q || geo.get(k)?.hanzi === val('region') || k === val('region'))
+        || [...geo.provinces(), ...geo.prefectures()].map((x) => x.key).find((k) => norm(geo.fullLabel(s, k)).includes(q));
+      if (!key) throw new UserError(`No region called "${val('region')}".`);
+      if (T.controllerOf(s, key) === f.id) throw new UserError(`${f.name} already holds ${geo.label(s, key)}.`);
+      const t = T.requestTakeover(s, { regions: [key], to: f.id, reason: val('reason'), by: { id: i.user.id, name: c.name, charId: c.id } });
+      log(i, 'world.takeover', `${c.name} (${f.name}) claimed ${geo.label(s, key)}`);
+      await postTakeover(i.client, t);
+      return i.update(render(ctx, 'politics', null, `📜 Claim on **${geo.fullLabel(s, key)}** sent to staff.`));
+    }
+    case 'stipend': {
+      const f = repOf(s, c, ctx.member);
+      const rate = Math.max(0, Math.min(num(s.world.settings.maxStipendRate, 30), num(val('rate'))));
+      f.stipendRate = rate;
+      log(i, 'world.stipend', `${c.name} set ${f.name}'s stipend rate to ${rate}%`);
+      const plan = T.stipendPlan(s, f);
+      return i.update(render(ctx, 'politics', null, `💰 **${rate}%** of each turn's net income now goes to the stipend fund (paid to members every ${num(s.world.settings.stipendEveryTurns, 28)} turns). Fund: ${fmt(f.stipendFund)} · members ${plan.members}.`));
+    }
     default: throw new UserError('Unknown form.');
   }
+}
+
+// ---------- takeover posts (staff approve in Discord) ----------
+async function postTakeover(client, t) {
+  const s = st();
+  const ch = s.settings.channels.log || s.settings.channels.diplomacy || s.settings.channels.world;
+  if (!ch) return;
+  const to = C.faction(s, t.to);
+  const lines = [
+    `📜 **Takeover request** — ${t.regions.map((k) => `**${geo.fullLabel(s, k)}**`).join(', ')}`,
+    `From ${[...new Set(t.from.map((id) => C.faction(s, id)?.name || 'unclaimed'))].join(', ')} → **${to?.name || 'unclaimed'}**`,
+    `${t.source === 'conquest' ? '🏴 After a long occupation' : `By ${t.by.name || 'staff'}`}${t.reason ? ` — “${truncate(t.reason, 600)}”` : ''}`,
+  ];
+  const finished = t.status !== 'pending';
+  const payload = { content: lines.join('\n') + (finished ? `\n**${t.status}**${t.decidedBy ? ` by ${t.decidedBy}` : ''}` : ''), components: finished ? [] : [row(btn(`wt:${t.id}:approve`, 'wAccept', { style: ButtonStyle.Success, label: 'Approve (staff)' }), btn(`wt:${t.id}:reject`, 'wDecline', { style: ButtonStyle.Danger, label: 'Reject' }))], allowedMentions: { parse: [] } };
+  for (const m of t.messages || []) { try { const chan = await client.channels.fetch(m.channelId); const msg = await chan.messages.fetch(m.messageId); await msg.edit(payload); return; } catch {} }
+  const sent = await sendToChannel(client, ch, payload);
+  if (sent) t.messages = [{ channelId: sent.channelId, messageId: sent.id }];
+}
+async function onTakeoverButton(i) {
+  requireWorld();
+  if (!isStaff(i)) throw new UserError('Only staff can approve or reject takeovers.');
+  const [, id, what] = i.customId.replace(/~\d+$/, '').split(':');
+  const s = st();
+  const by = { id: i.user.id, name: i.user.username };
+  const t = what === 'approve' ? T.approveTakeover(s, id, by) : T.rejectTakeover(s, id, by);
+  store.log(actor(i), 'world.takeover', `${what}: ${t.regions.map((k) => geo.label(s, k)).join(', ')} → ${C.faction(s, t.to)?.name || 'unclaimed'}`);
+  store.markDirty();
+  await i.deferUpdate().catch(() => {});
+  await postTakeover(i.client, t);
+  require('../../world/runner').step();
+  return i.followUp({ content: what === 'approve' ? '👑 Approved — the map is updated. Undo it any time in the dashboard (World → Map → Takeovers).' : '✖️ Rejected.', flags: EPH }).catch(() => {});
 }
 
 // ---------- diplomacy posts ----------
@@ -544,10 +617,10 @@ async function onBattleButton(i) {
   if (what === 'plan') {
     const k = M.sideOf(s, b, myF?.id);
     if (!k || (b.sides[k].commanderId !== c.id && !C.isRepresentative(s, myF, c, i.member))) throw new UserError('Only the commander or a representative of a side can set its plan.');
-    const tactics = s.world.tactics.map((t) => t.id).join(', ');
+    const cmd = s.characters.find((x) => x.id === b.sides[k].commanderId);
     return i.showModal(new ModalBuilder().setCustomId(`wbm:${bid}:plan:${k}`).setTitle('Battle plan').addComponents(
       input('formation', 'Formation', { value: M.formation(s, b.sides[k].formationId)?.name || '', placeholder: s.world.formations.map((f) => f.name).join(', ').slice(0, 100) }),
-      input('plan', `Tactic per round (${num(s.world.settings.battleRounds, 5)} rounds)`, { value: (b.sides[k].plan || []).join(', ') || 'volley, hold, charge, hold, charge', placeholder: tactics.slice(0, 100), style: TextInputStyle.Paragraph }),
+      input('commander', 'Commander (character name, blank = none)', { value: cmd?.name || '', required: false, placeholder: 'Their Qi, Strength and Mobility become general pips' }),
     ));
   }
   throw new UserError('Unknown button.');
@@ -571,12 +644,21 @@ async function onBattleModal(i) {
   }
   if (what === 'plan') {
     const fm = s.world.formations.find((f) => norm(f.name) === norm(val('formation')) || f.id === norm(val('formation')) || f.hanzi === val('formation'));
-    const plan = val('plan').split(/[,\n;]+/).map((x) => x.trim()).filter(Boolean).map((x) => s.world.tactics.find((t) => norm(t.name) === norm(x) || t.id === norm(x))?.id).filter(Boolean);
-    M.setPlan(s, b, k, { formationId: fm?.id, plan });
-    store.log(actor(i), 'world.battle', `plan for ${k} at ${geo.label(s, b.region)}: ${fm?.name || '(same)'} · ${plan.join(', ')}`);
+    let commanderId;
+    if (val('commander')) {
+      const cmd = s.characters.find((x) => x.status === 'active' && norm(x.name) === norm(val('commander')));
+      if (!cmd) throw new UserError(`No character called "${val('commander')}".`);
+      const sideF = b.sides[k].factionId;
+      if (C.factionOfChar(s, cmd)?.id !== sideF && C.stance(s, C.factionOfChar(s, cmd)?.id, sideF) !== 'allied') throw new UserError(`${cmd.name} is not on this side.`);
+      commanderId = cmd.id;
+    } else commanderId = '';
+    M.setPlan(s, b, k, { formationId: fm?.id, commanderId });
+    const cmd = s.characters.find((x) => x.id === b.sides[k].commanderId);
+    const pips = cmd ? M.generalPips(s, cmd) : null;
+    store.log(actor(i), 'world.battle', `plan for ${k} at ${geo.label(s, b.region)}: ${fm?.name || '(same)'} · commander ${cmd?.name || 'none'}`);
     await i.deferUpdate().catch(() => {});
     await refreshBattle(i, b, true);
-    return i.followUp({ content: `🗺️ Plan set: ${fm ? `${fm.emoji} ${fm.name} · ` : ''}${plan.map((t) => M.tactic(s, t)?.emoji + ' ' + M.tactic(s, t)?.name).join(' → ')}${plan.length < num(s.world.settings.battleRounds, 5) ? ' (later rounds follow the army\'s stance)' : ''}`, flags: EPH }).catch(() => {});
+    return i.followUp({ content: `🗺️ Plan set: **${M.formation(s, b.sides[k].formationId)?.name}**${cmd ? ` · commander **${cmd.name}** (fire ${pips.fire} · shock ${pips.shock} · maneuver ${pips.maneuver} · siege ${pips.siege})` : ' · no commander'}.`, flags: EPH }).catch(() => {});
   }
 }
 
@@ -593,7 +675,7 @@ async function refreshBattle(i, b, deferred = false) {
 
 module.exports = {
   commands: [{ data: cmd, execute, autocomplete }],
-  buttons: { w: onComponent, wd: onProposalButton, wb: onBattleButton },
+  buttons: { w: onComponent, wd: onProposalButton, wb: onBattleButton, wt: onTakeoverButton },
   modals: { wm: onModal, wbm: onBattleModal },
-  postProposal, battleComponents, render, VIEWS,
+  postProposal, postTakeover, battleComponents, render, VIEWS,
 };

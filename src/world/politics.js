@@ -93,6 +93,9 @@ function tickFactions(state, ledger) {
         if (def.effects?.relation) for (const o of w.factions) if (o.id !== f.id && o.active) C.addRelation(state, f.id, o.id, num(def.effects.relation) * strength);
       }
     }
+    // Donations, disciples' fees and the sect's own fields: a small income even without land.
+    const dues = r2(num(w.settings.baseIncome, 5) + num(w.settings.memberIncome, 3) * C.members(state, f).length);
+    if (dues) { f.treasury = r2(f.treasury + dues); inc.dues = dues; }
     // Retainers, officials and upkeep of halls: a share of the treasury every turn (stops endless hoarding).
     const admin = r2(Math.max(0, f.treasury) * num(w.settings.adminCost, 1.5) / 100);
     f.treasury = r2(f.treasury - admin); inc.admin = -admin;

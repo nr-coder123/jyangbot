@@ -1,18 +1,13 @@
 'use strict';
 /**
- * Armies, formations, tactics and battles.
+ * Armies, formations and battles (Europa Universalis–style; see resolveBattle for the formula).
  *
- * When hostile armies meet, a battle opens with a preparation window (default 24 h, real time).
- * During it, commanders pick a formation and a tactic for each round, champions (player characters)
- * join, and staff record the outcome of in-character duels: every duel won adds momentum to that side,
- * a defeated commander shakes their army's morale. When the window closes the battle is simulated.
- *
- * Each round, for each side:
- *   attack  = Σ men × unit attack × counters × terrain × formation × tactic × morale × supply × (1 + momentum) + champions
- *   defence = Σ men × unit defence × terrain × formation × tactic × fortifications
- *   the enemy loses  min(35%, 10% × attack ÷ their defence)  of its men, and 1.6 morale per 1% lost.
- * An army whose morale falls below 25 routs; cavalry pursue routed or retreating enemies.
- * If nobody routs after the last round, the side with clearly higher morale (by 5+) wins; otherwise the defender holds.
+ * When hostile armies meet, a battle opens with a preparation window (default 24 h, real time). During it, each side
+ * picks a formation and a commander, champions (player characters) join, and staff record in-character duels:
+ * every duel won gives that side +1 die (max 2); a defeated commander leaves the field and shakes the army.
+ * When the window closes the battle is simulated day by day in the region where it is fought (terrain, walls, width).
+ * Custom code: armies, factions, formations and regions may define hooks.battleRound (each 3-day phase) and
+ * armies may define hooks.armyTick (each turn).
  */
 const geo = require('./geo');
 const C = require('./common');
@@ -21,7 +16,6 @@ const { num, r2, clamp, newId, UserError } = require('../utils');
 
 const unitType = (state, id) => state.world.unitTypes.find((u) => u.id === id) || null;
 const formation = (state, id) => state.world.formations.find((f) => f.id === id) || null;
-const tactic = (state, id) => state.world.tactics.find((t) => t.id === id) || null;
 const army = (state, id) => state.world.armies.find((a) => a.id === id) || null;
 const men = (a) => E.armyMen(a);
 
@@ -94,7 +88,7 @@ function recruit(state, f, regionKey, unitId, count, { name, staff = false } = {
   r.last = { ...r.last, raised: { [w.turn]: raisedThisTurn + count } };
   let a = w.armies.find((x) => x.factionId === f.id && x.region === regionKey && x.status === 'garrison' && (!name || x.name === name));
   if (!a) {
-    a = { id: newId('ar-'), name: name || `${f.name} — ${geo.label(state, regionKey)} Army`, factionId: f.id, region: regionKey, units: {}, commanderId: '', champions: [], morale: 70, supply: 100, formationId: 'square', stance: 'balanced', status: 'garrison', march: null, createdTurn: w.turn };
+    a = { id: newId('ar-'), name: name || `${f.name} — ${geo.label(state, regionKey)} Army`, factionId: f.id, region: regionKey, units: {}, commanderId: '', champions: [], morale: 70, supply: 100, formationId: 'square', status: 'garrison', march: null, createdTurn: w.turn, scriptId: '' };
     w.armies.push(a);
   }
   a.units[unitId] = num(a.units[unitId]) + count;
@@ -153,6 +147,15 @@ function tickArmies(state) {
       }
       if (a.march.step >= a.march.path.length - 1) { a.status = 'garrison'; a.march = null; C.wlog(state, 'army', `🏕️ **${a.name}** arrived in **${geo.label(state, a.region)}**.`); }
     }
+    // Custom code on the army itself (e.g. a famous banner that keeps morale up).
+    if (a.scriptId) {
+      const out = C.runHooks(state, [{ scriptId: a.scriptId, type: 'army', name: a.name }], 'armyTick', C.worldCtx(state, { army: { id: a.id, name: a.name, faction: f?.name || '', region: a.region, units: { ...a.units }, morale: a.morale, supply: a.supply, status: a.status }, region: C.regionSummary(state, geo.marketOf(state, a.region)) }), { morale: 0, supply: 0, attrition: 0, notes: [] });
+      if (out && typeof out === 'object') {
+        a.morale = r2(clamp(a.morale + num(out.morale), 0, 100)); a.supply = r2(clamp(a.supply + num(out.supply), 0, 100));
+        if (num(out.attrition)) for (const k of Object.keys(a.units)) a.units[k] = Math.max(0, Math.floor(a.units[k] * (1 - num(out.attrition) / 100)));
+        (out.notes || []).forEach((n) => notes.push(`${a.name}: ${n}`));
+      }
+    }
     // Supply & attrition
     const r = w.regions[a.region];
     const terrain = w.terrains[r?.terrain] || {};
@@ -192,10 +195,12 @@ function tickArmies(state) {
     const occupier = here.find((a) => a.status === 'garrison' && a.factionId !== r.controller && C.relation(state, a.factionId, r.controller).war);
     if (occupier && !here.some((a) => a.factionId === r.controller)) {
       if (r.occupiedBy !== occupier.factionId) { r.occupiedBy = occupier.factionId; r.occupiedSince = w.turn; C.wlog(state, 'war', `🏴 **${C.faction(state, occupier.factionId)?.name}** occupies **${geo.label(state, key)}**.`); (w.announceQueue ||= []).push({ kind: 'war', text: `🏴 **${C.faction(state, occupier.factionId)?.name}** occupies **${geo.label(state, key)}**!`, regions: [key] }); }
-      else if (w.settings.autoConquest && w.turn - r.occupiedSince >= num(w.settings.occupationTurns, 12)) {
-        const old = r.controller; r.controller = r.occupiedBy; r.occupiedBy = null;
-        C.wlog(state, 'war', `👑 **${geo.label(state, key)}** now belongs to **${C.faction(state, r.controller)?.name}** (taken from ${C.faction(state, old)?.name}).`);
-        (w.announceQueue ||= []).push({ kind: 'war', text: `👑 **${geo.label(state, key)}** has fallen to **${C.faction(state, r.controller)?.name}**.`, regions: [key] });
+      else if (w.turn - r.occupiedSince >= num(w.settings.occupationTurns, 12)) {
+        // A long occupation becomes a takeover: automatic if staff allow it, otherwise waiting for their approval.
+        const T = require('./territory');
+        const asked = w.takeovers.some((t) => t.source === 'conquest' && t.regions.includes(key) && t.to === r.occupiedBy && t.turn >= r.occupiedSince);
+        if (w.settings.autoConquest) T.forceTakeover(state, { regions: [key], to: r.occupiedBy, reason: 'Conquered after a long occupation', by: { name: 'war' } });
+        else if (!asked) { T.requestTakeover(state, { regions: [key], to: r.occupiedBy, reason: `Occupied for ${w.turn - r.occupiedSince} turns`, source: 'conquest', by: { name: C.faction(state, r.occupiedBy)?.name || '' } }); }
       }
     } else if (r.occupiedBy && !here.some((a) => a.factionId === r.occupiedBy)) { r.occupiedBy = null; C.wlog(state, 'war', `🏳️ **${geo.label(state, key)}** is free of occupation.`); }
   }
@@ -210,10 +215,10 @@ function openBattle(state, regionKey, attackerIds, defenderIds, { hours, by } = 
   const w = state.world;
   const side = (ids) => {
     const first = army(state, ids[0]);
-    return { factionId: first?.factionId, armies: ids, formationId: first?.formationId || 'square', plan: [], champions: [...new Set(ids.flatMap((id) => army(state, id)?.champions || []))], commanderId: first?.commanderId || '', momentum: 0, moraleShock: 0, ready: false };
+    return { factionId: first?.factionId, armies: ids, formationId: first?.formationId || 'square', champions: [...new Set(ids.flatMap((id) => army(state, id)?.champions || []))].filter((cid) => !isNonCombatant(state, cid)), commanderId: first?.commanderId || '', momentum: 0, moraleShock: 0, commanderFallen: false, ready: false };
   };
   const prep = num(hours, num(w.settings.battlePrepHours, 24));
-  const b = { id: newId('bt-'), region: regionKey, sides: { A: side(attackerIds), D: side(defenderIds) }, status: 'preparing', openedTurn: w.turn, openedAt: new Date().toISOString(), resolveAt: new Date(Date.now() + prep * 3600000).toISOString(), duels: [], rounds: [], result: null, by: by || null, messages: [] };
+  const b = { id: newId('bt-'), region: regionKey, sides: { A: side(attackerIds), D: side(defenderIds) }, status: 'preparing', openedTurn: w.turn, openedAt: new Date().toISOString(), resolveAt: new Date(Date.now() + prep * 3600000).toISOString(), duels: [], days: [], phases: [], result: null, by: by || null, messages: [] };
   for (const id of [...attackerIds, ...defenderIds]) { const a = army(state, id); if (a) a.status = 'battle'; }
   w.battles.unshift(b);
   if (w.battles.length > 60) w.battles.length = 60;
@@ -223,20 +228,26 @@ function openBattle(state, regionKey, attackerIds, defenderIds, { hours, by } = 
   (w.announceQueue ||= []).push({ kind: 'battle', text, battleId: b.id, regions: [regionKey] });
   return b;
 }
+function isNonCombatant(state, cid) {
+  const c = typeof cid === 'string' ? state.characters.find((x) => x.id === cid) : cid;
+  return !!c && require('./territory').isNonCombatant(state, c);
+}
 
 function battle(state, id) { const b = state.world.battles.find((x) => x.id === id); if (!b) throw new UserError('Battle not found.'); return b; }
 function sideOf(state, b, factionId) { return b.sides.A.factionId === factionId ? 'A' : b.sides.D.factionId === factionId ? 'D' : null; }
 
-function setPlan(state, b, sideKey, { formationId, plan, commanderId } = {}) {
+function setPlan(state, b, sideKey, { formationId, commanderId } = {}) {
   if (b.status !== 'preparing') throw new UserError('This battle has already been fought.');
   const s = b.sides[sideKey];
+  if (commanderId !== undefined) {
+    if (commanderId && isNonCombatant(state, commanderId)) throw new UserError('Representatives lead their faction in politics, not on the battlefield (dashboard → World → Settings → “Representatives may fight”).');
+    s.commanderId = commanderId;
+  }
   if (formationId) {
     const f = formation(state, formationId); if (!f) throw new UserError('Unknown formation.');
     const why = formationProblem(state, b, sideKey, f); if (why) throw new UserError(why);
     s.formationId = formationId;
   }
-  if (Array.isArray(plan)) s.plan = plan.slice(0, num(state.world.settings.battleRounds, 5)).map((t) => (tactic(state, t) ? t : 'hold'));
-  if (commanderId !== undefined) s.commanderId = commanderId;
   return s;
 }
 function sideUnits(state, b, sideKey) {
@@ -251,9 +262,9 @@ function formationProblem(state, b, sideKey, f) {
   if (req.minMen && total < req.minMen) return `${f.name} needs at least ${req.minMen} men.`;
   const comp = composition(state, units);
   for (const [role, share] of Object.entries(req.roles || {})) if (num(comp[role]) < share) return `${f.name} needs at least ${Math.round(share * 100)}% ${role}.`;
-  if (req.commanderRealm !== undefined) {
+  if (req.commanderRealm !== undefined && req.commanderRealm !== null && req.commanderRealm !== '') {
     const cmd = state.characters.find((c) => c.id === b.sides[sideKey].commanderId);
-    if (!cmd || num(cmd.realm) < req.commanderRealm) return `${f.name} needs a commander of the ${state.realms[req.commanderRealm]?.name || `realm ${req.commanderRealm}`} or higher.`;
+    if (!cmd || num(cmd.realm) < num(req.commanderRealm)) return `${f.name} needs a commander of the ${state.realms?.[req.commanderRealm]?.name || `realm ${req.commanderRealm}`} or higher.`;
   }
   if (req.commanderSect?.length) {
     const cmd = state.characters.find((c) => c.id === b.sides[sideKey].commanderId);
@@ -264,181 +275,225 @@ function formationProblem(state, b, sideKey, f) {
 
 function joinAsChampion(state, b, sideKey, c) {
   if (b.status !== 'preparing') throw new UserError('Too late — the battle has been fought.');
+  if (isNonCombatant(state, c)) throw new UserError(`${c.name} is a representative: they lead their faction in politics, not on the battlefield.`);
   for (const k of ['A', 'D']) b.sides[k].champions = b.sides[k].champions.filter((x) => x !== c.id);
   b.sides[sideKey].champions.push(c.id);
   if (!b.sides[sideKey].commanderId) b.sides[sideKey].commanderId = c.id;
 }
 
-/** Record an in-character duel. The winner's side gains momentum; a beaten commander shakes their army. */
+/** Record an in-character duel. The winner's side gets +1 die (max 2); a beaten commander leaves the field. */
 function recordDuel(state, b, winnerId, loserId, note = '', by = '') {
   if (b.status !== 'preparing') throw new UserError('The battle is over.');
   const s = state.world.settings;
   const side = (cid) => (b.sides.A.champions.includes(cid) ? 'A' : b.sides.D.champions.includes(cid) ? 'D' : null);
   const ws = side(winnerId); const ls = side(loserId);
   if (!ws || !ls || ws === ls) throw new UserError('Both duelists must be champions on opposite sides of this battle.');
-  b.sides[ws].momentum = r2(Math.min(num(s.maxMomentum, 0.3), b.sides[ws].momentum + num(s.duelMomentum, 0.08)));
+  b.sides[ws].momentum = r2(Math.min(num(s.maxMomentum, 2), num(b.sides[ws].momentum) + num(s.duelMomentum, 1)));
   let shock = '';
-  if (b.sides[ls].commanderId === loserId) { b.sides[ls].moraleShock = num(b.sides[ls].moraleShock) + 15; shock = ' Their commander has fallen — morale shaken!'; }
+  if (b.sides[ls].commanderId === loserId) { b.sides[ls].moraleShock = num(b.sides[ls].moraleShock) + 15; b.sides[ls].commanderFallen = true; shock = ' Their commander has fallen — the army fights leaderless and shaken!'; }
   b.sides[ls].champions = b.sides[ls].champions.filter((x) => x !== loserId);
-  const W = state.characters.find((c) => c.id === winnerId); const L = state.characters.find((c) => c.id === loserId);
+  const Wc = state.characters.find((c) => c.id === winnerId); const L = state.characters.find((c) => c.id === loserId);
   b.duels.push({ winner: winnerId, loser: loserId, note: String(note).slice(0, 300), by, at: new Date().toISOString() });
-  const text = `🤺 **${W?.name}** defeated **${L?.name}** in a duel before the Battle of ${geo.label(state, b.region)}.${shock}`;
+  const text = `🤺 **${Wc?.name}** defeated **${L?.name}** in a duel before the Battle of ${geo.label(state, b.region)}.${shock}`;
   C.wlog(state, 'war', text);
   return text;
 }
 
-function defaultTactic(stance, round) {
-  if (stance === 'aggressive') return round === 1 ? 'volley' : 'charge';
-  if (stance === 'defensive') return round === 1 ? 'volley' : 'hold';
-  return ['volley', 'hold', 'charge', 'hold', 'charge'][round - 1] || 'hold';
+/**
+ * General pips (0–6) from a commander's stats, EU4-style:
+ *   fire = Qi ÷ pipStat · shock = Strength ÷ pipStat · maneuver = Mobility ÷ pipStat · siege = Endurance ÷ pipStat
+ */
+function generalPips(state, c) {
+  if (!c) return { fire: 0, shock: 0, maneuver: 0, siege: 0 };
+  const per = Math.max(1, num(state.world.settings.pipStat, 30));
+  const p = (v) => Math.max(0, Math.min(6, Math.floor(num(v) / per)));
+  return { fire: p(c.stats?.qi), shock: p(c.stats?.strength), maneuver: p(c.stats?.mobility), siege: p(c.stats?.endurance) };
 }
 
-/** Run the battle. rng can be passed for tests. */
+/**
+ * Run the battle, Europa Universalis–style. rng can be passed for tests.
+ *
+ *   The fight lasts up to `battleDays` days, alternating 3-day FIRE and SHOCK phases. At the start of each phase both
+ *   sides roll a die (0–9). Every day, for each troop type u on side X fighting side Y:
+ *      dice      = roll + max(0, X general pips − Y general pips)  [fire or shock]
+ *                  + terrain penalty (attacker only; cancelled by better maneuver) + champion dice + duel dice
+ *      damage_u  = (15 + 5 × max(0, dice + u's offence pips − Y's defence pips)) × front men_u × u's power ÷ 1000
+ *                  × formation (fire/shock, vsRole) × counters × cavalry terrain × supply × casualtyScale
+ *      Y loses   Σ damage ÷ (Y formation defence × walls if Y defends its own land)   men-equivalents (elite units have power > 1)
+ *      Y morale  −= share of Y's strength lost × moraleScale ÷ Y formation morale  (+ 0.3 every day)
+ *   Only `width` thousand men per side fight at once (terrain width × formation width). An army at 0 morale routs;
+ *   the winner's cavalry then pursues. If both stand after the last day, the side with more morale left wins
+ *   (the defender holds a tie).
+ */
 function resolveBattle(state, b, rng = Math.random) {
   const w = state.world;
   if (b.status !== 'preparing') return b;
-  const R = num(w.settings.battleRounds, 5);
+  const set = w.settings;
+  const days = Math.max(3, num(set.battleDays, 30));
   const r = w.regions[b.region];
   const terrain = w.terrains[r?.terrain] || {};
-  const cal = C.calendar(state);
-  const sides = {};
+  const S = {};
   for (const k of ['A', 'D']) {
     const s = b.sides[k];
     const armies = s.armies.map((id) => army(state, id)).filter(Boolean);
     const units = sideUnits(state, b, k);
+    const total = Object.values(units).reduce((a, n) => a + n, 0);
     const morale = armies.length ? armies.reduce((a, x) => a + num(x.morale) * men(x), 0) / Math.max(1, armies.reduce((a, x) => a + men(x), 0)) : 50;
-    const supply = armies.length ? armies.reduce((a, x) => a + num(x.supply), 0) / armies.length : 50;
-    let f = formation(state, s.formationId) || formation(state, 'square');
+    const supply = armies.length ? armies.reduce((a, x) => a + num(x.supply) * men(x), 0) / Math.max(1, total) : 100;
+    let f = formation(state, s.formationId) || formation(state, 'square') || w.formations[0];
     if (formationProblem(state, b, k, f)) f = formation(state, 'square') || f;
-    const champs = s.champions.map((id) => state.characters.find((c) => c.id === id)).filter((c) => c && c.status === 'active');
-    sides[k] = { key: k, faction: C.faction(state, s.factionId), units, start: { ...units }, morale: clamp(morale - num(s.moraleShock), 0, 100), supply, formation: f, champions: champs, champPower: champs.reduce((a, c) => a + championPower(state, c), 0), momentum: num(s.momentum), plan: s.plan, stance: armies[0]?.stance || 'balanced', routed: false, retreated: false, exposed: 1 };
-  }
-  // Custom code can adjust each side before the fight (formations, factions, region scripts).
-  const ctxBase = { region: C.regionSummary(state, b.region) };
-  for (let round = 1; round <= R; round++) {
-    const A = sides.A; const D = sides.D;
-    const tacticOf = (S) => {
-      let t = tactic(state, S.plan[round - 1] || defaultTactic(S.stance, round)) || tactic(state, 'hold');
-      if (t.firstRoundOnly && round !== 1) t = tactic(state, 'charge');
-      if (t.needsAmbush && !terrain.ambush) t = tactic(state, 'hold');
-      if (t.seasons && !t.seasons.includes(cal.season)) t = tactic(state, 'hold');
-      return t;
+    const champs = s.champions.map((id) => state.characters.find((c) => c.id === id)).filter((c) => c && c.status === 'active' && !isNonCombatant(state, c));
+    const champPower = champs.reduce((a, c) => a + championPower(state, c), 0);
+    const cmd = s.commanderFallen ? null : state.characters.find((c) => c.id === s.commanderId) || null;
+    // Unit morale multipliers, men-weighted.
+    const unitMorale = total ? Object.entries(units).reduce((a, [id, n]) => a + num(unitType(state, id)?.morale, 1) * n, 0) / total : 1;
+    const maxMorale = r2(clamp(morale * unitMorale * num(f.morale, 1), 5, 150));
+    S[k] = {
+      key: k, faction: C.faction(state, s.factionId), units, start: { ...units }, maxMorale, morale: r2(Math.max(1, maxMorale - num(s.moraleShock))),
+      supply, formation: f, champions: champs, champPower, champDice: r2(Math.min(num(set.maxChampionDice, 2), champPower / Math.max(1, num(set.championDicePer, 600)))),
+      duelDice: num(s.momentum), commander: cmd, pips: generalPips(state, cmd), routed: false, armies,
     };
-    const tA = tacticOf(A); const tD = tacticOf(D);
-    const roundLog = { round, tactics: { A: tA.id, D: tD.id }, losses: {}, morale: {}, notes: [] };
-    const calc = (X, Y, tX, tY) => {
+  }
+  const A = S.A; const D = S.D;
+  const manA = A.pips.maneuver + num(A.formation.maneuver); const manD = D.pips.maneuver + num(D.formation.maneuver);
+  const terrainPenalty = Math.min(0, num(terrain.attackerPenalty) + Math.max(0, manA - manD)) + (terrain.riverCrossing && manA <= manD ? -1 : 0);
+  const siegePips = A.pips.siege + Object.entries(A.units).reduce((a, [id, n]) => a + num(unitType(state, id)?.siege) * n, 0) / Math.max(1, Object.values(A.units).reduce((a, n) => a + n, 0)) * 20;
+  // Walls only shelter a defender fighting on its own (or its occupied) land.
+  const ownWalls = r && D.faction && (r.controller === D.faction.id || r.occupiedBy === D.faction.id);
+  const walls = ownWalls ? 1 + Math.max(0, num(r.fort) - siegePips * 0.5) * num(set.wallStrength, 0.2) : 1;
+  const widthFor = (X) => Math.max(1, num(terrain.width, 30) * num(X.formation.width, 1)) * 1000;
+  const totalMen = (X) => Object.values(X.units).reduce((a, n) => a + Math.max(0, n), 0);
+  // Elite troops count as several men (unit "power"): they hit harder and take more to kill.
+  const pw = (id) => Math.max(0.1, num(unitType(state, id)?.power, 1));
+  const equiv = (X) => Object.entries(X.units).reduce((a, [id, n]) => a + Math.max(0, n) * pw(id), 0);
+  const scale = num(set.casualtyScale, 0.5);
+  const moraleScale = num(set.moraleScale, 400);
+
+  // Custom code: armies, factions, formations and the region can adjust each phase.
+  const sources = [];
+  for (const k of ['A', 'D']) {
+    const sideName = k === 'A' ? 'attacker' : 'defender';
+    for (const a of S[k].armies) if (a.scriptId) sources.push({ scriptId: a.scriptId, type: 'army', name: a.name, side: sideName });
+    if (S[k].faction?.scriptId) sources.push({ scriptId: S[k].faction.scriptId, type: 'faction', name: S[k].faction.name, side: sideName });
+    if (S[k].formation?.scriptId) sources.push({ scriptId: S[k].formation.scriptId, type: 'formation', name: S[k].formation.name, side: sideName });
+  }
+  if (r?.scriptId) sources.push({ scriptId: r.scriptId, type: 'region', name: geo.label(state, b.region), side: 'region' });
+  const sideCtx = (X) => ({ faction: X.faction?.name || '', factionId: X.faction?.id || '', formation: X.formation.id, morale: r2(X.morale), maxMorale: X.maxMorale, men: totalMen(X), units: { ...X.units }, commander: X.commander ? { name: X.commander.name, realm: X.commander.realm, pips: X.pips } : null, champions: X.champions.map((c) => c.name) });
+
+  b.days = []; b.phases = [];
+  let phaseMods = { A: { dice: 0, damage: 1, morale: 0 }, D: { dice: 0, damage: 1, morale: 0 } };
+  let rolls = { A: 0, D: 0 };
+  let phase = 'fire';
+  let day = 0;
+  for (day = 1; day <= days; day++) {
+    if ((day - 1) % 3 === 0) {
+      phase = Math.floor((day - 1) / 3) % 2 === 0 ? 'fire' : 'shock';
+      rolls = { A: Math.floor(rng() * 10), D: Math.floor(rng() * 10) };
+      phaseMods = { A: { dice: 0, damage: 1, morale: 0 }, D: { dice: 0, damage: 1, morale: 0 }, notes: [] };
+      if (sources.length) {
+        let value = { attacker: { dice: 0, damage: 1, morale: 0 }, defender: { dice: 0, damage: 1, morale: 0 }, notes: [] };
+        for (const src of sources) {
+          const ctx = C.worldCtx(state, { region: C.regionSummary(state, b.region) || { key: b.region, terrain: r?.terrain }, day, phase, rolls: { attacker: rolls.A, defender: rolls.D }, side: src.side, attacker: sideCtx(A), defender: sideCtx(D) });
+          const out = C.runHooks(state, [src], 'battleRound', ctx, value);
+          if (out && typeof out === 'object') value = { attacker: { dice: 0, damage: 1, morale: 0, ...(out.attacker || {}) }, defender: { dice: 0, damage: 1, morale: 0, ...(out.defender || {}) }, notes: Array.isArray(out.notes) ? out.notes : [] };
+        }
+        phaseMods = { A: { dice: num(value.attacker.dice), damage: Math.max(0, num(value.attacker.damage, 1)), morale: num(value.attacker.morale) }, D: { dice: num(value.defender.dice), damage: Math.max(0, num(value.defender.damage, 1)), morale: num(value.defender.morale) } };
+        A.morale = r2(clamp(A.morale + phaseMods.A.morale, 0, A.maxMorale)); D.morale = r2(clamp(D.morale + phaseMods.D.morale, 0, D.maxMorale));
+        phaseMods.notes = value.notes.map(String).slice(0, 5);
+      }
+      b.phases.push({ day, phase, rolls: { ...rolls }, dice: { A: null, D: null }, notes: phaseMods.notes || [] });
+    }
+    const dealt = {};
+    for (const [X, Y, k] of [[A, D, 'A'], [D, A, 'D']]) {
+      const pip = phase === 'fire' ? 'fire' : 'shock';
+      const dice = rolls[k] + Math.max(0, X.pips[pip] - Y.pips[pip]) + (k === 'A' ? terrainPenalty : 0) + X.champDice + X.duelDice + phaseMods[k].dice;
+      const ph = b.phases[b.phases.length - 1]; if (ph.dice[k] === null) ph.dice[k] = r2(dice);
+      const yeq = equiv(Y) || 1;
+      const defPip = Object.entries(Y.units).reduce((a, [id, n]) => a + num(unitType(state, id)?.[pip + 'Def']) * n * pw(id), 0) / yeq;
       const compY = composition(state, Y.units);
-      const enemyTac = num(Y.formation.enemyTactics, 1);
-      const tacMul = (v) => 1 + (num(v, 1) - 1) * enemyTac;
-      let atk = 0;
+      const xmen = totalMen(X) || 1;
+      const front = Math.min(1, widthFor(X) / xmen);
+      let dmg = 0;
       for (const [id, n] of Object.entries(X.units)) {
         const u = unitType(state, id); if (!u || n <= 0) continue;
-        let m = num(u.attack);
-        let counter = 0; for (const [role, share] of Object.entries(compY)) counter += share * num(u.counters?.[role], 1);
-        m *= counter || 1;
-        if (u.role === 'cavalry') m *= num(terrain.cavalry, 1) * num(tX.cavalry, 1);
-        if (u.role === 'ranged') m *= num(terrain.ranged, 1) * num(tX.ranged, 1) * (tX.id === 'volley' ? num(u.volley, 1) / 1.6 : 1);
-        else if (tX.melee) m *= num(tX.melee);
-        let vs = 0; for (const [role, share] of Object.entries(compY)) vs += share * num(X.formation.vsRole?.[role], 1);
-        m *= vs || 1;
-        atk += n * m;
+        const eff = Math.max(0, dice + num(u[pip + 'Off']) - defPip);
+        let d = (15 + 5 * eff) * (n * pw(id) * front) / 1000;
+        let counter = 0; let vs = 0;
+        for (const [role, share] of Object.entries(compY)) { counter += share * num(u.counters?.[role], 1); vs += share * num(X.formation.vsRole?.[role], 1); }
+        d *= (counter || 1) * (vs || 1) * num(X.formation[pip], 1);
+        if (u.role === 'cavalry' && pip === 'shock') d *= num(terrain.cavalry, 1);
+        dmg += d;
       }
-      atk *= num(X.formation.attack, 1) * tacMul(num(X.formation.tactics?.[tX.id], 1)) * num(X.formation.counters?.[Y.formation.id], 1);
-      atk *= tacMul(num(tX.attack, 1)) * tacMul(num(tX.beats?.[tY.id], 1));
-      atk *= (0.5 + X.morale / 200) * (0.6 + 0.4 * X.supply / 100) * (1 + X.momentum);
-      const champ = X.champPower * (tX.retreat ? 0.3 : 1);
-      if (tX.backfire && rng() < tX.backfire) { atk *= 0.4; roundLog.notes.push(`🔥 The wind turns — ${X.faction?.name}'s fire attack backfires!`); }
-      let def = 0;
-      for (const [id, n] of Object.entries(Y.units)) {
-        const u = unitType(state, id); if (!u || n <= 0) continue;
-        def += n * num(u.defense) * (['infantry', 'spear'].includes(u.role) ? num(terrain.infantryDef, 1) : 1);
-      }
-      def *= num(Y.formation.defense, 1) * num(tY.defense, 1) * Y.exposed;
-      if (Y.key === 'D') {
-        const siege = Object.entries(X.units).reduce((a, [id, n]) => a + num(unitType(state, id)?.siege) * n, 0) / Math.max(1, Object.values(X.units).reduce((a, n) => a + n, 0));
-        def *= (1 + num(r?.fort) * 0.08 * (1 - Math.min(0.8, siege * 4))) * num(terrain.defense, 1);
-      }
-      def += Y.champPower * 0.5;
-      const total = atk + champ;
-      const frac = clamp(0.1 * total / Math.max(1, def) * (0.85 + rng() * 0.3), 0, 0.35);
-      return { atk: r2(atk), champ: r2(champ), def: r2(def), frac };
-    };
-    let resA = calc(A, D, tA, tD); let resD = calc(D, A, tD, tA);
-    const sources = [...new Set([b.sides.A, b.sides.D].flatMap((s) => [formation(state, s.formationId)?.scriptId, C.faction(state, s.factionId)?.scriptId]).filter(Boolean))].map((id) => ({ scriptId: id, type: 'battle', name: 'battle' }));
-    if (r?.scriptId) sources.push({ scriptId: r.scriptId, type: 'region', name: geo.label(state, b.region) });
-    if (sources.length) {
-      const out = C.runHooks(state, sources, 'battleRound', C.worldCtx(state, { ...ctxBase, round, attacker: { faction: A.faction?.name, formation: A.formation.id, tactic: tA.id, morale: A.morale, men: Object.values(A.units).reduce((a, n) => a + n, 0) }, defender: { faction: D.faction?.name, formation: D.formation.id, tactic: tD.id, morale: D.morale, men: Object.values(D.units).reduce((a, n) => a + n, 0) } }), { attackerLoss: resD.frac, defenderLoss: resA.frac, notes: [] });
-      if (out) { resD.frac = clamp(num(out.attackerLoss, resD.frac), 0, 0.9); resA.frac = clamp(num(out.defenderLoss, resA.frac), 0, 0.9); (out.notes || []).forEach((n) => roundLog.notes.push(String(n))); }
+      dmg *= scale * (0.6 + 0.4 * clamp(X.supply, 0, 100) / 100) * phaseMods[k].damage;
+      let resist = num(Y.formation.defense, 1);
+      if (Y === D) resist *= walls;
+      dealt[k] = dmg / Math.max(0.2, resist);
     }
-    const applyLoss = (Y, frac) => {
+    // Casualties are in men-equivalents, spread by share of strength.
+    const applyLoss = (Y, cas) => {
+      const total = equiv(Y); if (!total) return { men: 0, frac: 0 };
+      const toLose = Math.min(total, cas);
       let lost = 0;
-      const weights = Object.entries(Y.units).map(([id, n]) => [id, n, n / Math.max(0.5, num(unitType(state, id)?.defense, 1))]);
-      const wsum = weights.reduce((a, [, , x]) => a + x, 0) || 1;
-      const total = Object.values(Y.units).reduce((a, n) => a + n, 0);
-      const toLose = Math.round(total * frac);
-      for (const [id, n, wgt] of weights) { const l = Math.min(n, Math.round(toLose * wgt / wsum)); Y.units[id] = n - l; lost += l; }
-      return lost;
+      for (const [id, n] of Object.entries(Y.units)) { const l = Math.min(n, Math.round(toLose * (n * pw(id) / total) / pw(id))); Y.units[id] = n - l; lost += l; }
+      return { men: lost, frac: toLose / total };
     };
-    roundLog.losses.D = applyLoss(D, resA.frac); roundLog.losses.A = applyLoss(A, resD.frac);
-    roundLog.power = { A: resA, D: resD };
-    A.morale = r2(clamp(A.morale - resD.frac * 160 - (round === 1 ? num(tD.moraleHit) : 0) + num(A.formation.morale), 0, 100));
-    D.morale = r2(clamp(D.morale - resA.frac * 160 - (round === 1 ? num(tA.moraleHit) : 0) + num(D.formation.morale), 0, 100));
-    A.exposed = tD.exposes ? num(tD.exposes) : 1; D.exposed = tA.exposes ? num(tA.exposes) : 1;
-    roundLog.morale = { A: A.morale, D: D.morale };
-    b.rounds.push(roundLog);
-    if (tA.retreat) A.retreated = true;
-    if (tD.retreat) D.retreated = true;
-    if (A.morale < 25) A.routed = true;
-    if (D.morale < 25) D.routed = true;
-    if (A.routed || D.routed || A.retreated || D.retreated) break;
+    const lD = applyLoss(D, dealt.A); const lA = applyLoss(A, dealt.D);
+    const lostA = lA.men; const lostD = lD.men;
+    A.morale = r2(Math.max(0, A.morale - lA.frac * moraleScale / num(A.formation.morale, 1) - 0.3));
+    D.morale = r2(Math.max(0, D.morale - lD.frac * moraleScale / num(D.formation.morale, 1) - 0.3));
+    b.days.push({ day, phase, lost: { A: lostA, D: lostD }, morale: { A: A.morale, D: D.morale }, men: { A: totalMen(A), D: totalMen(D) } });
+    if (A.morale <= 0 || !totalMen(A)) A.routed = true;
+    if (D.morale <= 0 || !totalMen(D)) D.routed = true;
+    if (A.routed || D.routed) break;
   }
-  // Pursuit
-  const pursue = (Winner, Loser) => {
-    const comp = composition(state, Winner.units);
-    let p = 0; for (const [id, n] of Object.entries(Winner.units)) p += num(unitType(state, id)?.pursuit) * n;
-    const total = Object.values(Winner.units).reduce((a, n) => a + n, 0) || 1;
-    const frac = clamp(num(comp.cavalry) * 0.4 * (p / total || 1) * (Loser.retreated && !Loser.routed ? 0.5 : 1) * (Loser.formation.tactics?.retreat ? 0.6 : 1), 0, 0.3);
-    const lost = Math.round(Object.values(Loser.units).reduce((a, n) => a + n, 0) * frac);
-    for (const id of Object.keys(Loser.units)) Loser.units[id] = Math.max(0, Loser.units[id] - Math.round(lost * Loser.units[id] / Math.max(1, Object.values(Loser.units).reduce((a, n) => a + n, 0))));
+  // Pursuit by the winner's cavalry.
+  const pursue = (Win, Lose) => {
+    const comp = composition(state, Win.units);
+    let p = 0; for (const [id, n] of Object.entries(Win.units)) p += num(unitType(state, id)?.pursuit, 1) * n;
+    const tot = totalMen(Win) || 1;
+    const frac = clamp(num(comp.cavalry) * 0.4 * (p / tot) * (num(Lose.formation.maneuver) > 0 ? 0.7 : 1), 0, 0.3);
+    const lost = Math.round(totalMen(Lose) * frac);
+    const lt = totalMen(Lose) || 1;
+    for (const id of Object.keys(Lose.units)) Lose.units[id] = Math.max(0, Lose.units[id] - Math.round(lost * Lose.units[id] / lt));
     return lost;
   };
-  let winner = null; let pursuit = 0;
-  const A = sides.A; const D = sides.D;
-  if ((A.routed || A.retreated) && !(D.routed || D.retreated)) { winner = 'D'; pursuit = pursue(D, A); }
-  else if ((D.routed || D.retreated) && !(A.routed || A.retreated)) { winner = 'A'; pursuit = pursue(A, D); }
-  else {
-    // Nobody broke: the side with clearly better morale left carries the day; otherwise the defender holds.
-    winner = A.morale > D.morale + 5 ? 'A' : 'D';
-  }
-  // Write back to the armies (losses spread over each side's armies proportionally).
+  let winner; let pursuit = 0;
+  if (A.routed && !D.routed) { winner = 'D'; pursuit = pursue(D, A); }
+  else if (D.routed && !A.routed) { winner = 'A'; pursuit = pursue(A, D); }
+  else if (A.routed && D.routed) winner = A.morale / A.maxMorale > D.morale / D.maxMorale ? 'A' : 'D';
+  else winner = A.morale / A.maxMorale > D.morale / D.maxMorale + 0.05 ? 'A' : 'D';
+  // Write back (losses spread over each side's armies proportionally).
   for (const k of ['A', 'D']) {
-    const S = sides[k];
+    const X = S[k];
     for (const id of b.sides[k].armies) {
       const a = army(state, id); if (!a) continue;
       for (const [u, n] of Object.entries(a.units)) {
-        const before = num(S.start[u]); const after = num(S.units[u]);
+        const before = num(X.start[u]); const after = num(X.units[u]);
         a.units[u] = before ? Math.round(n * after / before) : n;
         if (a.units[u] <= 0) delete a.units[u];
       }
-      a.morale = r2(clamp(S.morale + (k === winner ? 10 : 0), 5, 100));
+      a.morale = r2(clamp(X.morale / Math.max(1, X.maxMorale) * 70 + (k === winner ? 15 : 0), 5, 100));
       a.status = men(a) ? 'garrison' : 'disbanded';
     }
   }
-  // The loser retreats to the nearest friendly region.
   const loser = winner === 'A' ? 'D' : 'A';
   for (const id of b.sides[loser].armies) {
     const a = army(state, id); if (!a || a.status === 'disbanded') continue;
     const home = geo.neighbors(state, b.region).find((k) => ['own', 'friendly'].includes(canEnter(state, a, k)));
     if (home) { a.region = home; a.march = null; }
-    a.morale = r2(Math.max(5, a.morale - 10));
   }
-  const lostA = Object.values(A.start).reduce((a, n) => a + n, 0) - Object.values(A.units).reduce((a, n) => a + n, 0);
-  const lostD = Object.values(D.start).reduce((a, n) => a + n, 0) - Object.values(D.units).reduce((a, n) => a + n, 0);
+  const sum = (u) => Object.values(u).reduce((a, n) => a + n, 0);
+  const lostA = sum(A.start) - sum(A.units); const lostD = sum(D.start) - sum(D.units);
   b.status = 'fought';
-  b.result = { winner, winnerFaction: sides[winner].faction?.id, lost: { A: lostA, D: lostD }, pursuit, routed: { A: A.routed, D: D.routed }, retreated: { A: A.retreated, D: D.retreated }, fought: new Date().toISOString() };
+  b.result = {
+    winner, winnerFaction: S[winner].faction?.id, lost: { A: lostA, D: lostD }, pursuit, routed: { A: A.routed, D: D.routed }, days: Math.min(day, days), fought: new Date().toISOString(),
+    terrain: r?.terrain || 'plains', terrainPenalty, width: { A: widthFor(A), D: widthFor(D) }, walls: r2(walls),
+    pips: { A: A.pips, D: D.pips }, commanders: { A: A.commander?.name || '', D: D.commander?.name || '' }, champDice: { A: A.champDice, D: D.champDice }, duelDice: { A: A.duelDice, D: D.duelDice },
+    morale: { A: [A.maxMorale, A.morale], D: [D.maxMorale, D.morale] }, formations: { A: A.formation.id, D: D.formation.id },
+  };
   if (r) { r.prosperity = r2(Math.max(0, r.prosperity - 3)); r.security = r2(Math.max(0, r.security - 8)); r.unrest = r2(Math.min(100, r.unrest + 4)); }
   if (A.faction && D.faction) C.addRelation(state, A.faction.id, D.faction.id, -5);
-  const text = `⚔️ **Battle of ${geo.label(state, b.region)}** — **${sides[winner].faction?.name}** ${winner === 'A' ? 'won the attack' : 'held the field'}. Losses: ${A.faction?.name} ${lostA}, ${D.faction?.name} ${lostD}.`;
+  const text = `⚔️ **Battle of ${geo.label(state, b.region)}** — **${S[winner].faction?.name}** ${winner === 'A' ? 'won the attack' : 'held the field'} after ${b.result.days} day${b.result.days === 1 ? '' : 's'}. Losses: ${A.faction?.name} ${lostA.toLocaleString('en-US')}, ${D.faction?.name} ${lostD.toLocaleString('en-US')}.`;
   C.wlog(state, 'war', text);
   (w.announceQueue ||= []).push({ kind: 'battle-result', text, battleId: b.id, regions: [b.region] });
   return b;
@@ -452,35 +507,39 @@ function resolveDue(state, now = Date.now()) {
 }
 
 /**
- * Quick what-if used by the dashboard: simulate two compositions without touching the world.
- * spec: { A: { units, formationId, plan, morale, champions: [power] }, D: {...}, terrain, fort }
+ * Quick what-if used by the dashboard: simulate two forces without touching the world.
+ * spec: { A: { units, formationId, morale, supply, general: { fire, shock, maneuver, siege }, champions: [power], duelDice }, D: {...}, terrain, fort }
  */
 function simulate(state, spec, runs = 200) {
-  let winsA = 0; let lossA = 0; let lossD = 0; let rounds = 0;
-  const champs = (list, side) => (list || []).map((p, i) => ({ id: `__c${side}${i}`, status: 'active', realm: 0, stats: { strength: num(p), endurance: 0, mobility: 0 } }));
-  const characters = [...champs(spec.A?.champions, 'A'), ...champs(spec.D?.champions, 'D')];
+  let winsA = 0; let lossA = 0; let lossD = 0; let dayCount = 0;
+  const per = Math.max(1, num(state.world.settings.pipStat, 30));
+  const general = (g, k) => ({ id: `__g${k}`, name: k === 'A' ? 'Attacking general' : 'Defending general', status: 'active', realm: 11, stats: { qi: num(g?.fire) * per, strength: num(g?.shock) * per, mobility: num(g?.maneuver) * per, endurance: num(g?.siege) * per } });
+  const champs = (list, k) => (list || []).map((p, i) => ({ id: `__c${k}${i}`, name: `Champion ${i + 1}`, status: 'active', realm: 0, stats: { strength: num(p), endurance: 0, mobility: 0 } }));
+  const characters = [general(spec.A?.general, 'A'), general(spec.D?.general, 'D'), ...champs(spec.A?.champions, 'A'), ...champs(spec.D?.champions, 'D')];
+  let sample = null;
   for (let i = 0; i < runs; i++) {
     const w = {
       ...state.world,
-      settings: { ...state.world.settings, championRealmMult: [1], championScale: 1 },
+      settings: { ...state.world.settings, championRealmMult: [1], championScale: 1, representativesFight: true },
       regions: { __sim: { key: '__sim', terrain: spec.terrain || 'plains', fort: num(spec.fort), prosperity: 50, security: 50, unrest: 0, stock: {}, prices: {}, last: {}, controller: '__D', policies: [] } },
       factions: [{ id: '__A', name: 'Attacker', policies: [], scriptId: '' }, { id: '__D', name: 'Defender', policies: [], scriptId: '' }],
       relations: {}, treaties: [], log: [], announceQueue: [], activeEvents: [],
     };
-    const mk = (id, fid, s) => ({ id, name: id, factionId: fid, region: '__sim', units: { ...(s.units || {}) }, champions: [], morale: num(s.morale, 70), supply: num(s.supply, 100), formationId: s.formationId || 'square', stance: s.stance || 'balanced', status: 'garrison' });
+    const mk = (id, fid, s) => ({ id, name: id, factionId: fid, region: '__sim', units: { ...(s.units || {}) }, champions: [], morale: num(s.morale, 70), supply: num(s.supply, 100), formationId: s.formationId || 'square', status: 'garrison', scriptId: '' });
     w.armies = [mk('aA', '__A', spec.A || {}), mk('aD', '__D', spec.D || {})];
-    const side = (fid, aid, s, key) => ({ factionId: fid, armies: [aid], formationId: s.formationId || 'square', plan: s.plan || [], champions: characters.filter((c) => c.id.startsWith(`__c${key}`)).map((c) => c.id), commanderId: '', momentum: num(s.momentum), moraleShock: 0 });
-    const b = { id: 'sim', region: '__sim', sides: { A: side('__A', 'aA', spec.A || {}, 'A'), D: side('__D', 'aD', spec.D || {}, 'D') }, status: 'preparing', duels: [], rounds: [] };
+    const side = (fid, aid, s, key) => ({ factionId: fid, armies: [aid], formationId: s.formationId || 'square', champions: characters.filter((c) => c.id.startsWith(`__c${key}`)).map((c) => c.id), commanderId: `__g${key}`, momentum: num(s.duelDice), moraleShock: 0 });
+    const b = { id: 'sim', region: '__sim', sides: { A: side('__A', 'aA', spec.A || {}, 'A'), D: side('__D', 'aD', spec.D || {}, 'D') }, status: 'preparing', duels: [], days: [], phases: [] };
     w.battles = [b];
     resolveBattle({ ...state, characters, world: w }, b);
     if (b.result.winner === 'A') winsA++;
-    lossA += b.result.lost.A; lossD += b.result.lost.D; rounds += b.rounds.length;
+    lossA += b.result.lost.A; lossD += b.result.lost.D; dayCount += b.result.days;
+    if (!sample) sample = { days: b.days, phases: b.phases, result: b.result };
   }
-  return { runs, attackerWins: r2(winsA / runs * 100), avgLossA: Math.round(lossA / runs), avgLossD: Math.round(lossD / runs), avgRounds: r2(rounds / runs) };
+  return { runs, attackerWins: r2(winsA / runs * 100), avgLossA: Math.round(lossA / runs), avgLossD: Math.round(lossD / runs), avgDays: r2(dayCount / runs), sample };
 }
 
 module.exports = {
-  unitType, formation, tactic, army, men, composition, armyStrength, championPower, canCommand,
+  unitType, formation, army, men, composition, armyStrength, championPower, canCommand,
   recruitCost, recruit, marchTo, canEnter, tickArmies, openBattle, battle, sideOf, setPlan, sideUnits, formationProblem,
-  joinAsChampion, recordDuel, resolveBattle, resolveDue, simulate, defaultTactic,
+  joinAsChampion, recordDuel, resolveBattle, resolveDue, simulate, generalPips, isNonCombatant,
 };

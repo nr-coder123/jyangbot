@@ -49,6 +49,10 @@ async function api(path, opts = {}) {
   }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || res.statusText);
+  // Our own saves shouldn't show the "new changes" banner.
+  if (opts.method && opts.method !== 'GET' && typeof D !== 'undefined' && D) {
+    try { const r = await fetch('/api/rev', { credentials: 'same-origin' }).then((x) => (x.ok ? x.json() : null)); if (r) D.rev = r.rev; } catch {}
+  }
   return data;
 }
 

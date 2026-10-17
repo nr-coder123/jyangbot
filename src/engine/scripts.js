@@ -17,7 +17,7 @@ const vm = require('vm');
 const { clone } = require('../utils');
 
 const TIMEOUT_MS = 150;
-const HOOKS = ['effects', 'qiGain', 'breakthroughChance', 'consume', 'regionTick', 'factionTick', 'treatyTick', 'eventStart', 'diplomacy', 'battleRound', 'shopPrice'];
+const HOOKS = ['effects', 'qiGain', 'breakthroughChance', 'consume', 'regionTick', 'factionTick', 'treatyTick', 'eventStart', 'diplomacy', 'battleRound', 'armyTick', 'shopPrice'];
 
 /** Name of a character reference. kind: 'art' (martial arts, cultivation, qi core), 'trait' or 'item'. */
 function refName(state, ref, kind = 'art') {

@@ -110,7 +110,7 @@ async function executeHelp(i) {
     '**Tools:** `/compare @player` · `/item` to read any item · `/purify` Feng Shui calculator',
     ...(store.state.world?.settings?.enabled ? [
       '**The world:** `/world` — your region, its market (trade goods move with supply and demand), travel, caravans, workshops, politics and war. Sect shops are in `/market`.',
-      (() => { try { const r = require('../../world').power.report(store.state).recommend; return r.length ? `-# Sects looking for disciples right now: ${r.map((x) => `${x.icon || ''} ${x.name}`).join(' · ')}` : ''; } catch { return ''; } })(),
+      (() => { try { const r = require('../../world').power.report(store.state).recommend; return r.length ? `-# Sects looking for disciples right now: ${r.map((x) => x.name).join(' · ')}` : ''; } catch { return ''; } })(),
     ].filter(Boolean) : []),
     '',
     `-# Rules: no stat above ${s.maxSingleStatPercent}% of your stat points (Qi not counted). "Stat points" only go into Strength/Endurance/Mobility; "flexible points" can also go into Qi.`,

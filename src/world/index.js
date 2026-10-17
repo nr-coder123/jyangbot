@@ -11,5 +11,6 @@ module.exports = {
   diplomacy: require('./diplomacy'),
   military: require('./military'),
   power: require('./power'),
+  territory: require('./territory'),
   tick: require('./tick'),
 };

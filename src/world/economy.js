@@ -442,6 +442,8 @@ function startTravel(state, c, to) {
   if (c.travel && Date.parse(c.travel.arriveAt) > Date.now()) throw new UserError(`You are already travelling to **${geo.label(state, c.travel.to)}** (arrive <t:${Math.floor(Date.parse(c.travel.arriveAt) / 1000)}:R>).`);
   if (!geo.get(to)) throw new UserError('Unknown destination.');
   const info = travelInfo(state, c, to);
+  // Text RP: by default nobody waits — you simply are where you post. The trip is only described.
+  if ((state.world.settings.travelMode || 'channel') === 'channel') { c.location = to; c.travel = null; return { ...info, instant: true, rp: require('./territory').rpTravel(state, info.from, to) }; }
   if (info.hops === 0 && geo.marketOf(state, to) === geo.marketOf(state, info.from)) { c.location = to; c.travel = null; return { ...info, instant: true }; }
   const now = Date.now();
   c.travel = { from: info.from, to, path: info.path, departAt: new Date(now).toISOString(), arriveAt: new Date(now + info.hours * 3600000).toISOString() };
@@ -506,6 +508,7 @@ function buyGood(state, c, goodId, qty) {
   const it = itemForGood(state, goodId);
   if (!it) throw new UserError('This good has no inventory item yet. Staff can create it in the dashboard (World → Economy → "Create good items").');
   const q = quote(state, key, goodId, qty, 'buy', c);
+  checkTradeCap(state, c, q.total);
   if (c.nyang < q.total) throw new UserError(`You need ${fmt(q.total)} ${state.settings.currencyName} (you have ${fmt(c.nyang)}).`);
   const r = state.world.regions[key];
   c.nyang = r2(c.nyang - q.total);
@@ -514,8 +517,14 @@ function buyGood(state, c, goodId, qty) {
   payTariff(state, r, q.tax);
   c.inventory[it.id] = (c.inventory[it.id] || 0) + q.qty;
   r.last.tradeValue = r2(num(r.last.tradeValue) + q.total);
+  require('./territory').noteTrade(state, c, q.total);
   refreshPrice(state, key, goodId);
   return { ...q, key, item: it };
+}
+/** Each character can only move so much money through the markets per turn (stops arbitrage farming). */
+function checkTradeCap(state, c, value) {
+  const room = require('./territory').tradeRoom(state, c);
+  if (value > room) throw new UserError(room <= 0 ? `You've traded as much as one merchant can this turn (${fmt(state.world.settings.maxTradePerTurn)} ${state.settings.currencyName}). The next turn starts <t:${Math.floor(Date.parse(state.world.nextTurnAt || new Date().toISOString()) / 1000)}:R>.` : `That's more than you can still trade this turn — about ${fmt(room)} ${state.settings.currencyName} left.`);
 }
 function sellGood(state, c, goodId, qty) {
   const key = requireAt(state, c);
@@ -523,6 +532,7 @@ function sellGood(state, c, goodId, qty) {
   if (!it || (c.inventory[it.id] || 0) < qty) throw new UserError(`You don't have ${qty} ${good(state, goodId)?.name || goodId}.`);
   const r = state.world.regions[key];
   const q = quote(state, key, goodId, qty, 'sell', c);
+  checkTradeCap(state, c, q.total);
   if (r.coffers < q.total) throw new UserError(`The merchants of ${geo.label(state, key)} only have ${fmt(r.coffers)} ${state.settings.currencyName} left to buy with this turn. Sell fewer, or try another market.`);
   c.inventory[it.id] -= q.qty;
   if (c.inventory[it.id] <= 0) delete c.inventory[it.id];
@@ -531,6 +541,7 @@ function sellGood(state, c, goodId, qty) {
   r.coffers = r2(r.coffers - q.total - q.tax);
   payTariff(state, r, q.tax);
   r.last.tradeValue = r2(num(r.last.tradeValue) + q.total);
+  require('./territory').noteTrade(state, c, q.total);
   refreshPrice(state, key, goodId);
   return { ...q, key, item: it };
 }

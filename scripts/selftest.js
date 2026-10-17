@@ -480,6 +480,7 @@ test('world: buying raises the price, selling lowers it, the market pays from it
 
 test('world: travel blocks trading, caravans arrive and sell', () => {
   const { state, c } = worldFresh();
+  state.world.settings.travelMode = 'timed';
   c.nyang = 1000;
   const from = W.economy.requireAt(state, c);
   W.economy.buyGood(state, c, 'salt', 5);
@@ -492,6 +493,75 @@ test('world: travel blocks trading, caravans arrive and sell', () => {
   assert.strictEqual(out.arrivals.length, 1);
   assert.strictEqual(out.caravans.length, 1);
   assert.strictEqual(W.economy.locationOf(state, c), dest);
+});
+
+test('world: channel travel is instant, gives RP travel info, and posting moves you', () => {
+  const { state, c } = worldFresh();
+  assert.strictEqual(state.world.settings.travelMode, 'channel');
+  c.location = '河南';
+  const r = W.economy.startTravel(state, c, '四川');
+  assert.ok(r.instant && r.rp.km > 500 && r.rp.days.length === 3);
+  assert.strictEqual(W.economy.locationOf(state, c), '四川');
+  state.world.regions['江苏'].categoryId = 'cat-js';
+  const moved = W.territory.notePresence(state, c, { id: 'chan', parentId: 'cat-js' });
+  assert.deepStrictEqual(moved, { from: '四川', to: '江苏' });
+  // Per-turn trade cap
+  state.world.settings.maxTradePerTurn = 50; c.nyang = 10000;
+  assert.throws(() => W.economy.buyGood(state, c, 'grain', 30), /more than you can still trade|traded as much/);
+});
+
+test('world: painting, split provinces, takeovers and revert', () => {
+  const { state } = worldFresh();
+  const T = W.territory; const w = state.world;
+  const [f, g] = w.factions;
+  // Unsplit province: paint whole, prefectures follow.
+  const undo1 = T.paint(state, ['山东'], f.id);
+  assert.strictEqual(T.controllerOf(state, '山东/济南'), f.id);
+  // Split province (Henan): painting one prefecture leaves the others alone and the largest holder taxes the province.
+  T.paint(state, ['河南'], f.id);
+  const undo2 = T.paint(state, ['河南/洛阳'], g.id);
+  assert.strictEqual(T.controllerOf(state, '河南/洛阳'), g.id);
+  assert.strictEqual(T.controllerOf(state, '河南/开封'), f.id);
+  assert.strictEqual(w.regions['河南'].controller, f.id);
+  T.restore(state, undo2);
+  assert.strictEqual(T.controllerOf(state, '河南/洛阳'), f.id);
+  T.restore(state, undo1);
+  assert.strictEqual(T.controllerOf(state, '山东/济南'), null);
+  // Takeover: request → approve → revert
+  T.paint(state, ['江苏'], f.id);
+  const t = T.requestTakeover(state, { regions: ['江苏'], to: g.id, reason: 'Ceded after the war', by: { name: 'rep' } });
+  assert.strictEqual(t.status, 'pending');
+  T.approveTakeover(state, t.id, { name: 'staff' });
+  assert.strictEqual(T.controllerOf(state, '江苏'), g.id);
+  assert.strictEqual(T.controllerOf(state, '江苏/扬州'), g.id, 'special prefecture follows');
+  T.revertTakeover(state, t.id);
+  assert.strictEqual(T.controllerOf(state, '江苏'), f.id);
+  const t2 = T.forceTakeover(state, { regions: ['浙江'], to: g.id, reason: 'staff', by: { name: 'staff' } });
+  assert.strictEqual(t2.status, 'approved');
+});
+
+test('world: representatives, stipends with a soft cap', () => {
+  const { state, c, d } = worldFresh();
+  const T = W.territory;
+  const f = W.common.factionOfChar(state, c);
+  T.setOffice(state, c, 'representative');
+  assert.strictEqual(T.officeOf(state, c), 'representative');
+  assert.ok(T.isNonCombatant(state, c));
+  const extra = chars.createCharacter(state, { ownerId: '3', ownerTag: 'x', name: 'Yoon Jong', sect: 'Mount Hua Sect' });
+  // Tiny faction, huge fund: nobody gets more than their cap.
+  f.stipendFund = 100000;
+  const plan = T.stipendPlan(state, f);
+  assert.strictEqual(plan.members, 2);
+  const rep = plan.rows.find((x) => x.id === c.id); const mem = plan.rows.find((x) => x.id === extra.id);
+  assert.ok(rep.paid <= rep.cap && mem.paid <= mem.cap && rep.paid > mem.paid);
+  const before = c.nyang; const treasury = f.treasury;
+  T.payStipends(state, f);
+  assert.strictEqual(c.nyang, before + rep.paid);
+  assert.ok(f.treasury > treasury + 90000, 'the rest goes back to the treasury');
+  // Accrual
+  f.stipendRate = 20; f.treasury = 1000;
+  assert.strictEqual(T.accrueStipend(state, f, 100), 20);
+  assert.strictEqual(f.stipendFund, 20);
 });
 
 test('world: trade goods can only be handed over in the same region', () => {
@@ -545,14 +615,31 @@ test('world: diplomacy — trade agreement, political marriage needs consent and
   assert.ok(W.diplomacy.actionsFor(state, A.id, B.id).find((x) => x.action.id === 'war').reasons.length, 'cannot declare war on in-laws');
 });
 
-test('world: battles — duels add momentum, the bigger army usually wins, simulator agrees', () => {
+test('world: EU4-style battles — numbers, duel dice, generals, terrain, custom code', () => {
   const { state } = worldFresh();
-  const sim = W.military.simulate(state, { A: { units: { spearmen: 2000 } }, D: { units: { spearmen: 1000 } } }, 100);
-  assert.ok(sim.attackerWins > 80, `2:1 should win (${sim.attackerWins}%)`);
-  const even = W.military.simulate(state, { A: { units: { spearmen: 1000 }, momentum: 0.3 }, D: { units: { spearmen: 1000 } } }, 100);
-  assert.ok(even.attackerWins > 60, `momentum matters (${even.attackerWins}%)`);
-  const cav = W.military.simulate(state, { A: { units: { 'heavy-cav': 500 } }, D: { units: { crossbows: 1000 } } }, 100);
-  assert.ok(cav.attackerWins > 80, 'cavalry beats crossbows');
+  const sim = (A, D, extra = {}) => W.military.simulate(state, { A, D, ...extra }, 150).attackerWins;
+  assert.ok(sim({ units: { spearmen: 2000 } }, { units: { spearmen: 1000 } }) > 85, '2:1 should win');
+  const even = sim({ units: { swordsmen: 3000 } }, { units: { swordsmen: 3000 } });
+  assert.ok(sim({ units: { swordsmen: 3000 }, duelDice: 2 }, { units: { swordsmen: 3000 } }) > even + 15, 'duel dice matter');
+  assert.ok(sim({ units: { swordsmen: 3000 }, general: { shock: 3, fire: 3 } }, { units: { swordsmen: 3000 } }) > even + 15, 'general pips matter');
+  assert.ok(sim({ units: { swordsmen: 3000 } }, { units: { swordsmen: 3000 } }, { terrain: 'mountains' }) < even - 10, 'attacking into mountains is hard');
+  assert.ok(sim({ units: { 'heavy-cav': 1000 } }, { units: { crossbows: 2000 } }) > 60, 'cavalry beats crossbows');
+  // A battleRound hook on the army adds dice.
+  state.scripts.push({ id: 'banner', name: 'Tiger banner', enabled: true, code: 'hooks.battleRound = (ctx, v) => { if (ctx.side === "attacker") v.attacker.dice += 3; return v; };' });
+  const f = state.world.factions[0]; const g = state.world.factions[1];
+  W.diplomacy.declareWar(state, f.id, g.id);
+  const a = W.military.recruit(state, f, '河南', 'swordsmen', 3000, { staff: true }).army; a.scriptId = 'banner';
+  const d = W.military.recruit(state, g, '河南', 'swordsmen', 3000, { staff: true }).army;
+  let wins = 0;
+  for (let i = 0; i < 20; i++) {
+    a.units = { swordsmen: 3000 }; d.units = { swordsmen: 3000 }; a.morale = 70; d.morale = 70; a.region = d.region = '河南';
+    state.world.battles = [];
+    const b = W.military.openBattle(state, '河南', [a.id], [d.id], { hours: 0 });
+    W.military.resolveBattle(state, b);
+    if (b.result.winner === 'A') wins++;
+    assert.ok(b.days.length >= 1 && b.phases[0].phase === 'fire');
+  }
+  assert.ok(wins >= 15, `army script helps (${wins}/20)`);
 });
 
 test('world: balance report adds up and recommends playable sects', () => {

@@ -41,6 +41,18 @@ function makeDeliver(client) {
         continue;
       }
       if (item.kind === 'battle-result') continue; // posted with the battle below
+      if (item.kind === 'takeover') {
+        const t = s.world.takeovers.find((x) => x.id === item.takeoverId);
+        if (t) await worldCmd.postTakeover(client, t).catch(() => {});
+        continue;
+      }
+      if (item.kind === 'takeover-done') {
+        const t = s.world.takeovers.find((x) => x.id === item.takeoverId);
+        if (t?.messages?.length) await worldCmd.postTakeover(client, t).catch(() => {});
+      }
+      if (item.kind === 'stipend') {
+        for (const d of item.dms || []) { const c = s.characters.find((x) => x.id === d.charId); if (c?.ownerId) await dm(client, c.ownerId, { content: d.text }); }
+      }
       const key = item.kind === 'event' ? 'worldEvent' : 'worldNews';
       const payload = templates.render(s, key, { text: truncate(item.text, 3800), name: item.name || '', emoji: item.emoji || '', description: item.description || '', regions: (item.regions || []).map((k) => W.geo.label(s, k)).join(', '), turns: item.endTurn ? String(item.endTurn - s.world.turn) : '', calendar: cal });
       for (const id of channelFor(item)) await sendToChannel(client, id, { ...payload, allowedMentions: { parse: [] } });

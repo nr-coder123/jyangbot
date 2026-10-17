@@ -75,7 +75,13 @@ function validateSide(state, c, side, label, other) {
     if (it.tradeGood && other && state.world?.settings?.enabled) {
       const E = require('../world/economy');
       const a = require('../world/geo').marketOf(state, E.locationOf(state, c)); const b = require('../world/geo').marketOf(state, E.locationOf(state, other));
-      if (a !== b || E.isTravelling(c) || E.isTravelling(other)) throw new UserError(`**${it.name}** is cargo — both characters must be in the same region to hand it over (send a caravan instead).`);
+      if (a !== b || E.isTravelling(c) || E.isTravelling(other)) {
+        const geo = require('../world/geo'); const T = require('../world/territory');
+        const trip = T.rpTravel(state, a, b);
+        const where = (x, k) => `**${x.name}** is in **${geo.label(state, k)}**`;
+        const how = T.channelMode(state) ? ` To meet, one of you simply posts in a ${geo.label(state, b)} channel (no waiting).` : '';
+        throw new UserError(`**${it.name}** is cargo — both characters must be in the same region to hand it over (or send a caravan).\n${where(c, a)}, ${where(other, b)}${trip ? ` — ${trip.text}.` : '.'}${how}`);
+      }
     }
     if (qtyOf(c, side.itemId) < side.qty) throw new UserError(`${label}: **${c.name}** doesn't have ${side.qty}× ${it.name}.`);
   }
