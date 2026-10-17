@@ -35,9 +35,7 @@ function eligible(state, ev, key) {
   if (c.north && (geo.get(key)?.c?.[1] ?? 999) > NORTH_Y) return false;
   if (c.minProsperity !== undefined && r.prosperity < c.minProsperity) return false;
   if (c.maxProsperity !== undefined && r.prosperity > c.maxProsperity) return false;
-  if (c.minUnrest !== undefined && r.unrest < c.minUnrest) return false;
   if (c.maxSecurity !== undefined && r.security > c.maxSecurity) return false;
-  if (c.minCorruption !== undefined && r.corruption < c.minCorruption) return false;
   if (c.minPopulation !== undefined && r.population < c.minPopulation) return false;
   if (c.requiresProduction && !(num(r.production[c.requiresProduction]) > 0)) return false;
   if (c.shortage) {
@@ -63,7 +61,7 @@ function applyOnce(state, key, once) {
     for (const good of state.world.goods.filter((x) => x.id === g || x.category === g || g === '*')) r.stock[good.id] = r2(Math.max(0, num(r.stock[good.id]) * (1 + num(v))));
   }
   if (once.population) r.population = r2(Math.max(1, r.population * (1 + num(once.population) / 100)));
-  for (const k of ['prosperity', 'security', 'unrest', 'corruption']) if (once[k]) r[k] = r2(clamp(r[k] + num(once[k]), 0, 100));
+  for (const k of ['prosperity', 'security']) if (once[k]) r[k] = r2(clamp(r[k] + num(once[k]), 0, 100));
   if (once.coffers) r.coffers = r2(Math.max(0, Math.abs(num(once.coffers)) < 1 ? r.coffers * (1 + num(once.coffers)) : r.coffers + num(once.coffers)));
   if (once.treasury) { const f = C.faction(state, r.controller); if (f) f.treasury = r2(f.treasury + num(once.treasury)); }
 }

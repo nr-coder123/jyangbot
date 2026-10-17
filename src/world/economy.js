@@ -5,8 +5,8 @@
  *  · prices follow stock vs. what the market wants to hold:  price = base × (target ÷ stock)^elasticity
  *  · workshops turn local inputs into outputs (supply chains), merchant caravans move surplus to shortage
  *  · coffers = the merchants' purse: households fill it, imports and purchases from players drain it
- *  · prosperity rises with food, salt, trade and safety, and is dragged down by its own weight
- *    (corruption and decadence grow with wealth), so no region stays rich forever
+ *  · prosperity rises with food, salt, trade and safety, and is dragged down by its own weight,
+ *    so a region settles where its land and trade can carry it; events and wars shake it
  */
 const geo = require('./geo');
 const C = require('./common');
@@ -217,7 +217,7 @@ function tickRegion(state, key, ledger) {
   }
   // Households buy what they consume from the merchants, plus a little base trade: that fills the coffers.
   const income = (spent * num(s.spendingToCoffers, 0.9) + r.population * num(s.householdIncome, 1) * pf) * mods.income;
-  const taxes = income * num(r.taxRate) / 100 * mods.tax * (1 - num(r.corruption) / 200);
+  const taxes = income * num(r.taxRate) / 100 * mods.tax;
   r.coffers = r2(Math.min(r.population * num(s.maxCoffersPerPop, 60), Math.max(0, r.coffers + income - taxes + num(mods.coffers))));
   ledger.tax += taxes;
   // Spoilage
@@ -236,17 +236,13 @@ function tickRegion(state, key, ledger) {
   const lux = luxGoods.length ? luxGoods.reduce((a, g) => a + (sat[g.id] ?? 1), 0) / luxGoods.length : 1;
   const trade = Math.min(1.5, 0.5 * Math.log10(1 + num(r.last.tradeValue) / Math.max(1, r.population)));
   const growth = 3 * (food - 0.85) + 1.5 * (staple - 0.8) + 0.8 * lux * (r.prosperity < 70 ? 1 : 0.4) + trade + (r.security - 50) / 25;
-  const drag = Math.pow(r.prosperity / 100, 2) * 3 + r.corruption / 25 + r.unrest / 25;
+  const drag = Math.pow(r.prosperity / 100, 2) * 5;
   const noise = (Math.random() - 0.5) * 0.8;
   const dP = growth - drag + num(mods.prosperity) + noise;
   r.prosperity = r2(clamp(r.prosperity + dP, 0, 100));
-  // Corruption creeps up with wealth and falls when times are hard (dynastic cycle).
-  r.corruption = r2(clamp(r.corruption + 0.35 * (r.prosperity - 50) / 50 - 0.003 * r.corruption + num(mods.corruption), 0, 100));
-  // Unrest: hunger, taxes, injustice; calms when fed and safe.
-  r.unrest = r2(clamp(r.unrest + (1 - food) * 6 + (1 - staple) * 1.5 + (num(r.taxRate) - 12) / 8 + r.corruption / 60 - (r.security - 40) / 40 - 0.6 - 0.02 * r.unrest + num(mods.unrest), 0, 100));
-  // Security drifts toward a target set by forts, garrisons and unrest.
+  // Security (bandits on the roads) drifts toward a target set by walls, garrisons and hunger.
   const garrison = w.armies.some((a) => a.region === key && a.factionId === r.controller && a.status !== 'disbanded') ? 12 : 0;
-  const target = clamp(45 + num(r.fort) * 5 + garrison - r.unrest / 4, 5, 95);
+  const target = clamp(45 + C.wallsOf(state, key) * 5 + garrison - (1 - food) * 30, 5, 95);
   r.security = r2(clamp(r.security + (target - r.security) * 0.12 + num(mods.security), 0, 100));
   // Population grows with food and prosperity.
   // The land can only feed so many: growth slows as population passes its base (carrying capacity).
@@ -254,7 +250,7 @@ function tickRegion(state, key, ledger) {
   r.population = r2(Math.max(1, r.population * (1 + dPop / 100)));
   if (mods.fortGrowth) r.fort = r2(clamp(num(r.fort) + mods.fortGrowth, 0, 5));
   r.last = { ...r.last, food: r2(food), staple: r2(staple), lux: r2(lux), income: r2(income), taxes: r2(taxes), spent: r2(spent), dP: r2(dP), growth: r2(growth), drag: r2(drag), sources: mods.sources, notes: mods.notes || [], caravanRisk: r2(num(mods.caravanRisk)), tariff: r2(num(mods.tariff)), noGuild: num(mods.noGuildCaravans) > 0, tradeValue: 0, trade: r2(trade) };
-  r.history.push({ t: w.turn, p: r.prosperity, u: r.unrest, s: r.security, f: r2(food) });
+  r.history.push({ t: w.turn, p: r.prosperity, s: r.security, f: r2(food) });
   if (r.history.length > 60) r.history.splice(0, r.history.length - 60);
   // Controller collects the taxes
   const f = C.faction(state, r.occupiedBy || r.controller);
@@ -326,7 +322,7 @@ function raidRisk(state, key, extra = 0) {
 function embargoed(state, a, b) {
   const fa = state.world.regions[a]?.controller; const fb = state.world.regions[b]?.controller;
   if (!fa || !fb || fa === fb) return false;
-  return C.hasTreaty(state, fa, fb, 'embargo') || C.relation(state, fa, fb).war;
+  return C.atWar(state, fa, fb);
 }
 function dispatchNpcCaravans(state) {
   const w = state.world;
@@ -472,9 +468,8 @@ function tariffFor(state, key, c) {
   let t = num(w.settings.baseTariff, 3) + num(r.last?.tariff);
   if (f && r.controller) {
     if (f.id === r.controller) t = 0;
-    else if (C.hasTreaty(state, f.id, r.controller, 'trade')) t = Math.min(t, 0);
-    else if (C.hasTreaty(state, f.id, r.controller, 'embargo')) t *= 2;
-    if (C.relation(state, f.id, r.controller).war) throw new UserError(`**${geo.label(state, key)}** is held by ${C.faction(state, r.controller)?.name}, who are at war with your faction. The market won't deal with you.`);
+    else if (C.hasPerk(state, f.id, r.controller, 'freeTrade')) t = Math.min(t, 0);
+    if (C.atWar(state, f.id, r.controller)) throw new UserError(`**${geo.label(state, key)}** is held by ${C.faction(state, r.controller)?.name}, who are at war with your faction. The market won't deal with you.`);
   }
   return Math.max(0, t);
 }
@@ -504,6 +499,7 @@ function itemForGood(state, goodId) {
   return state.items.find((i) => i.tradeGood === goodId) || (g?.itemId && state.items.find((i) => i.id === g.itemId)) || null;
 }
 function buyGood(state, c, goodId, qty) {
+  if (!state.world.settings.playerMarketBuy) throw new UserError('Province markets sell to merchants and caravans, not to wandering martial artists. (Staff can allow it in World settings.)');
   const key = requireAt(state, c);
   const it = itemForGood(state, goodId);
   if (!it) throw new UserError('This good has no inventory item yet. Staff can create it in the dashboard (World → Economy → "Create good items").');
@@ -527,6 +523,7 @@ function checkTradeCap(state, c, value) {
   if (value > room) throw new UserError(room <= 0 ? `You've traded as much as one merchant can this turn (${fmt(state.world.settings.maxTradePerTurn)} ${state.settings.currencyName}). The next turn starts <t:${Math.floor(Date.parse(state.world.nextTurnAt || new Date().toISOString()) / 1000)}:R>.` : `That's more than you can still trade this turn — about ${fmt(room)} ${state.settings.currencyName} left.`);
 }
 function sellGood(state, c, goodId, qty) {
+  if (state.world.settings.playerMarketSell === false) throw new UserError('Selling to province markets is turned off (World settings).');
   const key = requireAt(state, c);
   const it = itemForGood(state, goodId);
   if (!it || (c.inventory[it.id] || 0) < qty) throw new UserError(`You don't have ${qty} ${good(state, goodId)?.name || goodId}.`);
@@ -557,6 +554,7 @@ function refreshPrice(state, key, goodId) {
 // ─────────── players: caravans ───────────
 function sendCaravan(state, c, to, goodId, qty, { escort = false, sell = true } = {}) {
   const w = state.world; const s = w.settings;
+  if (!s.playerCaravans) throw new UserError('Caravans are run by trade factions, not by single characters (World settings → Player caravans).');
   const from = requireAt(state, c);
   const dest = geo.marketOf(state, to);
   if (dest === from) throw new UserError('Pick a different market.');
@@ -692,12 +690,8 @@ function shopTerms(state, f, c, entry) {
   let tier = 'neutral';
   if (buyerF && buyerF.id === f.id) tier = 'member';
   else if (buyerF) {
-    const st = C.stance(state, f.id, buyerF.id);
-    const allyTreaty = state.world.treaties.some((t) => t.parties.includes(f.id) && t.parties.includes(buyerF.id) && state.world.treatyTypes.find((x) => x.id === t.type)?.shopTier === 'ally');
-    if (st === 'war') tier = 'war';
-    else if (st === 'allied' || allyTreaty || st === 'friendly') tier = 'ally';
-    else if (st === 'rival' || st === 'hostile') tier = 'rival';
-    if (C.hasTreaty(state, f.id, buyerF.id, 'embargo')) tier = 'war';
+    if (C.atWar(state, f.id, buyerF.id)) tier = 'war';
+    else if (C.hasPerk(state, f.id, buyerF.id, 'sharedShops')) tier = 'ally';
   }
   const pct = tiers[tier];
   if (tier === 'war' || pct === null || pct === undefined) return { tier, pct: 0, allowed: false, reason: `${f.name} will not sell to enemies.` };
@@ -744,7 +738,7 @@ function buyFromSectShop(state, c, factionId, itemId, qty) {
 
 module.exports = {
   LEVEL_MULT, goods, good, prosperityFactor, popDemand, targetsFor, unitPrice, updatePrices, priceIndex, initMarkets,
-  workshopType, workshopSlots, tickRegion, peddlerTrade, dispatchNpcCaravans, arriveNpcCaravans, raidRisk, embargoed, armyMen,
+  workshopType, workshopSlots, tickRegion, peddlerTrade, dispatchNpcCaravans, arriveNpcCaravans, raidRisk, embargoed, armyMen, journeyLoss, banditsTake,
   locationOf, travelInfo, startTravel, settleTravel, isTravelling, requireAt,
   tariffFor, quote, itemForGood, buyGood, sellGood, sendCaravan, settlePlayerCaravans,
   ownedWorkshops, buildWorkshop, upgradeWorkshop, sellWorkshop,

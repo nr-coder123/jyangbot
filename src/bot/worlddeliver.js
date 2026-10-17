@@ -17,6 +17,7 @@ function channelFor(item) {
   const s = st();
   const ch = s.settings.channels;
   if (['battle', 'battle-result', 'war'].includes(item.kind) && ch.war) return [ch.war];
+  if (['diplomacy', 'alliance'].includes(item.kind) && ch.diplomacy) return [ch.diplomacy];
   if (item.kind === 'event' && item.regions?.length) {
     const own = [...new Set(item.regions.map((k) => s.world.regions[k]?.announceChannelId || s.world.regions[W.geo.provinceOf(k)]?.announceChannelId).filter(Boolean))];
     if (own.length) return [...own, ...(ch.world && !own.includes(ch.world) ? [ch.world] : [])].slice(0, 4);
@@ -41,6 +42,16 @@ function makeDeliver(client) {
         continue;
       }
       if (item.kind === 'battle-result') continue; // posted with the battle below
+      if (item.kind === 'request') {
+        const q = s.world.requests.find((x) => x.id === item.requestId);
+        if (q && q.status === 'pending' && !(q.messages || []).length) await worldCmd.postRequest(client, q).catch(() => {});
+        continue;
+      }
+      if (item.kind === 'proposal') {
+        const p = s.world.proposals.find((x) => x.id === item.proposalId);
+        if (p && !(p.messages || []).length) await worldCmd.postProposal(client, p).catch(() => {});
+        continue;
+      }
       if (item.kind === 'takeover') {
         const t = s.world.takeovers.find((x) => x.id === item.takeoverId);
         if (t) await worldCmd.postTakeover(client, t).catch(() => {});

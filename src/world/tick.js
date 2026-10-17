@@ -8,6 +8,7 @@ const P = require('./politics');
 const D = require('./diplomacy');
 const M = require('./military');
 const T = require('./territory');
+const R = require('./realm');
 const { num, r2 } = require('../utils');
 
 /** Advance the world by one turn. Returns a summary. */
@@ -23,11 +24,13 @@ function runTurn(state, { by = 'system' } = {}) {
   const arrived = E.arriveNpcCaravans(state);
   const sent = E.dispatchNpcCaravans(state);
   const factionNotes = P.tickFactions(state, ledger);
+  R.tickBuildings(state);
+  const tradeArrived = R.settleFactionCaravans(state);
   const armyNotes = M.tickArmies(state);
   // Stipends: a share of the turn's net income is set aside, then paid out to members each season.
   for (const f of w.factions) {
     if (!f.active || !f.lastIncome) continue;
-    const net = Object.entries(f.lastIncome).filter(([k]) => k !== 'influence' && k !== 'stipend').reduce((a, [, v]) => a + num(v), 0);
+    const net = Object.entries(f.lastIncome).filter(([k]) => k !== 'stipend').reduce((a, [, v]) => a + num(v), 0);
     const put = T.accrueStipend(state, f, net);
     if (put) f.lastIncome.stipend = -put;
   }
@@ -40,7 +43,7 @@ function runTurn(state, { by = 'system' } = {}) {
   w.nextTurnAt = new Date(now + num(w.settings.turnHours, 6) * 3600000).toISOString();
   const avgP = regionResults.length ? r2(regionResults.reduce((a, x) => a + w.regions[x.key].prosperity, 0) / regionResults.length) : 0;
   const hungry = regionResults.filter((x) => x.food < 0.8).map((x) => x.key);
-  const summary = { turn: w.turn, at: w.lastTurnAt, by, calendar: C.calendar(state).text, events: started.map((e) => e.eventId), caravansSent: sent, localTrade: peddled, caravansArrived: arrived.length, avgProsperity: avgP, hungry, notes: [...factionNotes, ...armyNotes].slice(0, 20), players: ledger.players.length, stipends: stipends.map((x) => x.total) };
+  const summary = { turn: w.turn, at: w.lastTurnAt, by, calendar: C.calendar(state).text, events: started.map((e) => e.eventId), caravansSent: sent, localTrade: peddled, caravansArrived: arrived.length, avgProsperity: avgP, hungry, notes: [...factionNotes, ...armyNotes].slice(0, 20), players: ledger.players.length, trade: tradeArrived.length, stipends: stipends.map((x) => x.total) };
   w.history.unshift(summary);
   if (w.history.length > 200) w.history.length = 200;
   if (C.calendar(state).day === 1 && w.turn > 0) (w.announceQueue ||= []).push({ kind: 'season', text: `${C.calendar(state).emoji} **${C.calendar(state).seasonName}** has come — ${C.calendar(state).text}.` });

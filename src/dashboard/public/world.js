@@ -40,7 +40,16 @@ const facName = (id) => (id ? `${fac(id)?.icon || ''} ${fac(id)?.name || id}`.tr
 const goodOf = (id) => W_().goods.find((g) => g.id === id);
 const charName = (id) => WD.characters.find((c) => c.id === id)?.name || id || '—';
 const relKey = (a, b) => [a, b].sort().join('|');
-const relOf = (a, b) => (a === b ? { value: 100 } : W_().relations[relKey(a, b)] || { value: 0, war: false });
+const STANCE_COLOR = { self: '#d9a441', allied: '#4f9d5d', agreement: '#9cc58a', neutral: '#dcd3ba', war: '#a32020' };
+function stanceOf(a, b) {
+  const w = W_();
+  if (!a || !b) return 'neutral';
+  if (a === b) return 'self';
+  if (w.wars.some((x) => (x.attackers.includes(a) && x.defenders.includes(b)) || (x.attackers.includes(b) && x.defenders.includes(a)))) return 'war';
+  if (w.alliances.some((x) => x.members.includes(a) && x.members.includes(b))) return 'allied';
+  if (w.agreements.some((t) => t.parties.includes(a) && t.parties.includes(b))) return 'agreement';
+  return 'neutral';
+}
 const calText = () => WD.calendar?.text || '';
 const fmtN = (n) => (n === null || n === undefined ? '—' : Math.round(Number(n)).toLocaleString('en-US'));
 function sv(tag, attrs = {}, ...kids) {
@@ -65,7 +74,7 @@ function jsonField(label, value, rows = 6, help = '') {
 }
 function select(opts, value, attrs = {}) {
   const s = h('select', attrs, opts.map((o) => { const [v, l] = Array.isArray(o) ? o : [o, o]; return h('option', { value: v }, l); }));
-  s.value = value ?? '';
+  if (value !== undefined && value !== null) s.value = value;
   return s;
 }
 const factionOpts = (none = '— none —') => [['', none], ...W_().factions.map((f) => [f.id, `${f.icon || ''} ${f.name}${f.active ? '' : ' (inactive)'}`])];
@@ -98,11 +107,11 @@ const MAPV = (() => {
   try { saved = JSON.parse(localStorage.getItem('jh_map') || '{}'); } catch {}
   return {
     tool: 'paint', overlay: saved.overlay || 'political', good: saved.good || 'grain', relF: saved.relF || '', paintF: saved.paintF || '', side: saved.side || 'factions', sideOpen: saved.sideOpen !== false,
-    layers: { borders: false, rivers: true, mountains: true, labels: true, factionNames: true, landmarks: true, armies: true, caravans: false, events: false, routes: false, title: false, ...(saved.layers || {}) },
-    vb: { ...MAP_HOME }, frontier: null, undo: [], redo: [], hover: null, search: '',
+    layers: { borders: false, rivers: true, mountains: true, labels: true, factionNames: true, alliances: true, landmarks: true, armies: true, caravans: false, events: false, routes: false, title: false, ...(saved.layers || {}) },
+    vb: { ...MAP_HOME }, frontier: null, allianceId: saved.allianceId || '', undo: [], redo: [], hover: null, search: '',
   };
 })();
-const saveMapPrefs = () => { try { localStorage.setItem('jh_map', JSON.stringify({ overlay: MAPV.overlay, good: MAPV.good, relF: MAPV.relF, layers: MAPV.layers, paintF: MAPV.paintF, side: MAPV.side, sideOpen: MAPV.sideOpen })); } catch {} };
+const saveMapPrefs = () => { try { localStorage.setItem('jh_map', JSON.stringify({ overlay: MAPV.overlay, good: MAPV.good, relF: MAPV.relF, layers: MAPV.layers, paintF: MAPV.paintF, side: MAPV.side, sideOpen: MAPV.sideOpen, allianceId: MAPV.allianceId })); } catch {} };
 const UNCLAIMED = '#dcd3ba';
 const splitSet = () => new Set(W_().map.split || []);
 const prefsOf = (prov) => MAPDATA.prefByProv?.get(prov) || [];
@@ -135,8 +144,6 @@ function regionValue(key) {
   switch (MAPV.overlay) {
     case 'prosperity': return r ? ramp(r.prosperity / 100) : UNCLAIMED;
     case 'security': return r ? ramp(r.security / 100) : UNCLAIMED;
-    case 'unrest': return r ? ramp(r.unrest / 100, true) : UNCLAIMED;
-    case 'corruption': return r ? ramp(r.corruption / 60, true) : UNCLAIMED;
     case 'food': return r ? ramp(((r.last?.food ?? 1) - 0.5) / 0.5) : UNCLAIMED;
     case 'price': { const g = goodOf(MAPV.good); return g && r ? priceRamp((r.prices?.[g.id] || g.basePrice) / g.basePrice) : UNCLAIMED; }
     case 'terrain': return TERRAIN_COLOR[r?.terrain] || UNCLAIMED;
@@ -144,9 +151,7 @@ function regionValue(key) {
     case 'relations': {
       const ctl = ctlOf(key);
       if (!MAPV.relF || !ctl) return UNCLAIMED;
-      if (ctl === MAPV.relF) return '#d9a441';
-      const rel = relOf(MAPV.relF, ctl);
-      return rel.war ? '#7a1010' : ramp((rel.value + 100) / 200);
+      return STANCE_COLOR[stanceOf(MAPV.relF, ctl)] || UNCLAIMED;
     }
     default: return fac(ctlOf(key))?.color || UNCLAIMED;
   }
@@ -163,10 +168,9 @@ function legendFor() {
   if (o === 'political') return [];
   if (o === 'price') return [box(priceRamp(0.4), 'cheap'), box(priceRamp(1), 'base'), box(priceRamp(2.5), 'dear')];
   if (o === 'terrain') return Object.entries(TERRAIN_COLOR).map(([k, c]) => box(c, W_().terrains[k]?.label || k));
-  if (o === 'relations') return [box('#d9a441', 'this faction'), box(ramp(1), 'friendly'), box(ramp(0.5), 'neutral'), box(ramp(0), 'hostile'), box('#7a1010', 'at war')];
+  if (o === 'relations') return [box(STANCE_COLOR.self, 'this faction'), box(STANCE_COLOR.allied, 'same alliance'), box(STANCE_COLOR.agreement, 'agreement'), box(STANCE_COLOR.neutral, 'neutral'), box(STANCE_COLOR.war, 'at war')];
   if (o === 'events') return [box('#e08a3c', 'event in progress')];
-  const rev = o === 'unrest' || o === 'corruption';
-  return [box(ramp(rev ? 1 : 0), 'low'), box(ramp(0.5), 'mid'), box(ramp(rev ? 0 : 1), 'high')];
+  return [box(ramp(0), 'low'), box(ramp(0.5), 'mid'), box(ramp(1), 'high')];
 }
 
 /** Contiguous groups of each faction's land, for one name label per group (as in the Map Studio). */
@@ -233,6 +237,32 @@ function buildMapSvg(onPick) {
   const occ = sv('g', { 'pointer-events': 'none' });
   for (const [k, r] of Object.entries(w.regions)) if (r.occupiedBy && geoOf(k)) occ.append(sv('path', { d: geoOf(k).d, fill: 'url(#wm-hatch)' }));
   svg.append(occ);
+  // Alliances (as in the Map Studio): a hatched or dotted wash over every member's land and one thick border around the bloc.
+  const allianceLabels = [];
+  if (MAPV.layers.alliances && MAPV.overlay === 'political') {
+    const defs = svg.querySelector('defs');
+    for (const al of (w.alliances || []).filter((a) => a.showOnMap !== false && a.members.length)) {
+      const mine = shapes.filter((x) => al.members.includes(ctlOf(x.key)));
+      if (!mine.length) continue;
+      const id = al.id.replace(/[^\w-]/g, '');
+      const width = Math.max(1, Number(al.style?.width) || 5);
+      const fill = al.style?.fill || 'hatched';
+      if (fill === 'hatched') defs.append(sv('pattern', { id: `al-pat-${id}`, width: 12, height: 12, patternUnits: 'userSpaceOnUse', patternTransform: 'rotate(45)' }, sv('line', { x1: 0, y1: 0, x2: 0, y2: 12, stroke: al.color, 'stroke-width': 2.5, opacity: 0.4 })));
+      if (fill === 'dots') defs.append(sv('pattern', { id: `al-pat-${id}`, width: 9, height: 9, patternUnits: 'userSpaceOnUse' }, sv('circle', { cx: 4.5, cy: 4.5, r: 1.4, fill: al.color, opacity: 0.55 })));
+      defs.append(sv('filter', { id: `al-rim-${id}`, x: '-5%', y: '-5%', width: '110%', height: '110%' },
+        sv('feMorphology', { in: 'SourceGraphic', operator: 'erode', radius: (width * 0.45).toFixed(2), result: 'in' }),
+        sv('feComposite', { in: 'SourceGraphic', in2: 'in', operator: 'out' })));
+      const g = sv('g', { 'pointer-events': 'none' });
+      if (fill !== 'none') g.append(sv('g', {}, ...mine.map((x) => sv('path', { d: x.d, fill: `url(#al-pat-${id})` }))));
+      g.append(sv('g', { filter: `url(#al-rim-${id})`, opacity: 0.95 }, ...mine.map((x) => sv('path', { d: x.d, fill: al.color, stroke: al.color, 'stroke-width': 2.6, 'stroke-linejoin': 'round' }))));
+      svg.append(g);
+      const area = mine.reduce((a, x) => a + (x.area || 1), 0);
+      const cx = mine.reduce((a, x) => a + x.c[0] * (x.area || 1), 0) / area; const cy = mine.reduce((a, x) => a + x.c[1] * (x.area || 1), 0) / area;
+      // The name sits under the bloc's southernmost land, clear of the faction names.
+      const low = mine.reduce((a, x) => (x.c[1] > a.c[1] ? x : a), mine[0]);
+      allianceLabels.push({ al, cx: (cx + low.c[0]) / 2, cy: low.c[1] + Math.sqrt(low.area || 1) * 0.45, area });
+    }
+  }
   // Special prefectures inside whole provinces: a quiet dotted outline (their own colour if they have their own ruler).
   const spec = sv('g', {});
   for (const [k, r] of Object.entries(w.regions)) {
@@ -299,6 +329,10 @@ function buildMapSvg(onPick) {
     const fs = Math.max(9, Math.min(30, 7 + Math.sqrt(c.area) / 9)) * zoomK;
     const name = lang === 'hanzi' && c.f.hanzi ? c.f.hanzi : lang === 'both' && c.f.hanzi ? `${c.f.name} · ${c.f.hanzi}` : c.f.name;
     labG.append(sv('text', { x: c.cx, y: c.cy - (MAPV.layers.labels ? fs * 0.45 : -fs * 0.3), 'font-size': fs.toFixed(1), 'text-anchor': 'middle', fill: c.f.color, 'font-weight': 700, stroke: '#000', 'stroke-width': Math.max(1.2, fs / 7).toFixed(2), 'paint-order': 'stroke', 'letter-spacing': 0.5 }, name));
+  }
+  for (const x of allianceLabels) {
+    const fs = Math.max(8, Math.min(22, 6 + Math.sqrt(x.area) / 14)) * zoomK;
+    labG.append(sv('text', { x: x.cx, y: x.cy, 'font-size': fs.toFixed(1), 'text-anchor': 'middle', fill: x.al.color, 'font-weight': 700, 'font-style': 'italic', stroke: '#ede2cc', 'stroke-width': Math.max(1.5, fs / 6).toFixed(2), 'paint-order': 'stroke', 'letter-spacing': 2 }, (lang === 'hanzi' && x.al.hanzi ? x.al.hanzi : x.al.name).toUpperCase()));
   }
   svg.append(labG);
   if (MAPV.layers.landmarks) {
@@ -432,6 +466,7 @@ const ICONS = {
   minus: ['M5 12h14'],
   fit: ['M8 3H5a2 2 0 0 0-2 2v3', 'M21 8V5a2 2 0 0 0-2-2h-3', 'M3 16v3a2 2 0 0 0 2 2h3', 'M16 21h3a2 2 0 0 0 2-2v-3'],
   panel: ['M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', 'M15 3v18'],
+  alliance: ['M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z', 'M8 11h8', 'M12 7v8'],
 };
 function icon(name, size = 18) {
   return sv('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, ...(ICONS[name] || []).map((d) => sv('path', { d })));
@@ -451,7 +486,7 @@ function applyControl(changed) {
 
 VIEWS.map = async () => {
   await loadWorld();
-  const w = W_();
+  let w = W_();
   if (MAPV.paintF && !fac(MAPV.paintF)) MAPV.paintF = '';
   const studio = h('div', { class: 'wm-studio' });
   const holder = h('div', { class: 'wm-canvas' });
@@ -465,7 +500,7 @@ VIEWS.map = async () => {
   const drawStatus = () => {
     const k = MAPV.hover;
     status.replaceChildren(k ? h('span', {}, h('b', {}, rfull(k)), ` ${geoOf(k)?.hanzi || ''} — `, (() => { const f = fac(ctlOf(k)); return f ? h('span', { style: `color:${f.color};font-weight:600` }, f.name) : h('span', { class: 'muted' }, 'unclaimed'); })(), W_().regions[k]?.special ? h('span', { class: 'muted' }, ' · own market') : null)
-      : h('span', { class: 'muted' }, MAPV.tool === 'paint' ? (fac(MAPV.paintF) ? `Click or drag to paint ${fac(MAPV.paintF).name}. Drag the sea to move.` : 'Pick a faction to paint with.') : MAPV.tool === 'erase' ? 'Click or drag to unclaim land.' : MAPV.tool === 'landmark' ? 'Click the map to place a landmark.' : MAPV.tool === 'frontier' ? 'Click points to draw a line.' : 'Click a region to inspect it.'));
+      : h('span', { class: 'muted' }, MAPV.tool === 'paint' ? (fac(MAPV.paintF) ? `Click or drag to paint ${fac(MAPV.paintF).name}. Drag the sea to move.` : 'Pick a faction to paint with.') : MAPV.tool === 'erase' ? 'Click or drag to unclaim land.' : MAPV.tool === 'alliance' ? 'Click a region to add or remove its ruler from the alliance.' : MAPV.tool === 'landmark' ? 'Click the map to place a landmark.' : MAPV.tool === 'frontier' ? 'Click points to draw a line.' : 'Click a region to inspect it.'));
   };
   // ----- painting with undo / redo -----
   async function paint(keys, ctl) {
@@ -490,7 +525,7 @@ VIEWS.map = async () => {
     applyControl(r.changed); e.before = r.before; MAPV.undo.push(e);
     toast(`Redone: ${e.label}`); redraw(); drawSide(); drawRail(); drawActive();
   }
-  const reloadAll = async () => { await loadWorld(); redraw(); drawSide(); drawActive(); };
+  const reloadAll = async () => { await loadWorld(); w = W_(); redraw(); drawSide(); drawActive(); drawRail(); };
   async function onPick(ev) {
     try {
       if (ev.hover !== undefined) { if (MAPV.hover !== ev.hover) { MAPV.hover = ev.hover; drawStatus(); } return; }
@@ -509,6 +544,17 @@ VIEWS.map = async () => {
       if (ev.landmark) return editLandmark(w.map.landmarks.find((l) => l.id === ev.landmark), reloadAll);
       if (MAPV.tool === 'landmark') return editLandmark({ name: '', hanzi: '', type: 'sect_site', xy: ev.xy, region: ev.key || '', factionId: '', notes: '' }, reloadAll);
       if (MAPV.tool === 'frontier') { MAPV.frontier = [...(MAPV.frontier || []), ev.xy]; redraw(); drawActive(); return; }
+      if (MAPV.tool === 'alliance' && ev.key) {
+        const al = w.alliances.find((a) => a.id === MAPV.allianceId);
+        if (!al) { toast('Pick or create an alliance first (top left).', true); return; }
+        const fid = ctlOf(ev.key);
+        if (!fid) { toast(`${rfull(ev.key)} has no ruler — paint it first.`, true); return; }
+        const inIt = al.members.includes(fid);
+        const members = inIt ? al.members.filter((m) => m !== fid) : [...al.members, fid];
+        await api(`/world/alliances/${al.id}`, { method: 'PUT', body: { members } });
+        toast(`${fac(fid)?.name} ${inIt ? 'left' : 'joined'} the ${al.name}.`);
+        await reloadAll(); return;
+      }
       if (ev.key) { WSEL = ev.key; MAPV.side = 'region'; MAPV.sideOpen = true; redraw(); drawSide(); }
     } catch (e) { toast(e.message, true); redraw(); }
   }
@@ -521,6 +567,7 @@ VIEWS.map = async () => {
       railBtn('paint', 'Paint  (B)', 'Click or drag land to give it to the active faction', () => setTool('paint'), { on: MAPV.tool === 'paint' }),
       railBtn('erase', 'Eraser  (E)', 'Click or drag to unclaim land', () => setTool('erase'), { on: MAPV.tool === 'erase' }),
       railBtn('inspect', 'Inspect  (I)', 'Click a region to see and edit it', () => setTool('inspect'), { on: MAPV.tool === 'inspect' }),
+      railBtn('alliance', 'Alliance  (A)', 'Click a region to add or remove its ruler from the active alliance', () => setTool('alliance'), { on: MAPV.tool === 'alliance' }),
       railBtn('landmark', 'Landmark  (L)', 'Click the map to place a sect site, pass or city', () => setTool('landmark'), { on: MAPV.tool === 'landmark' }),
       railBtn('frontier', 'Frontier line  (F)', 'Click points to draw walls, truce lines and fronts', () => setTool('frontier'), { on: MAPV.tool === 'frontier' }),
       h('div', { class: 'wm-sep' }),
@@ -548,6 +595,17 @@ VIEWS.map = async () => {
           w.map.frontiers.length ? h('button', { class: 'btn small danger', onclick: run(async () => { if (!confirm('Delete every frontier line?')) return; await api('/world/map', { method: 'PUT', body: { frontiers: [] } }); await reloadAll(); }) }, 'Delete all') : null));
       return;
     }
+    if (MAPV.tool === 'alliance') {
+      const al = w.alliances.find((a) => a.id === MAPV.allianceId);
+      const asel = select([['', '— choose an alliance —'], ...w.alliances.map((a) => [a.id, a.name])], MAPV.allianceId, { class: 'wm-select' });
+      asel.onchange = () => { MAPV.allianceId = asel.value; saveMapPrefs(); drawActive(); };
+      active.replaceChildren(
+        h('div', { class: 'wm-active-row' }, h('span', { class: 'muted' }, 'Active alliance'), h('button', { class: 'linkbtn', onclick: () => editAlliance(null) }, '+ New')),
+        asel,
+        al ? h('div', { class: 'wm-chip' }, h('span', { class: 'dot', style: `background:${al.color}` }), h('span', { class: 'grow' }, al.name), h('span', { class: 'muted small' }, `${al.members.length} members`)) : '',
+        h('div', { class: 'muted small' }, 'Click a region: its ruler joins or leaves.'));
+      return;
+    }
     const sel = select([['', '— choose a faction to paint —'], ...w.factions.filter((x) => x.active).map((x) => [x.id, `${x.name}${x.hanzi ? ` (${x.hanzi})` : ''}`])], MAPV.paintF, { class: 'wm-select' });
     sel.onchange = () => { MAPV.paintF = sel.value; if (MAPV.tool !== 'paint') MAPV.tool = 'paint'; saveMapPrefs(); drawActive(); drawRail(); drawSide(); drawStatus(); };
     active.replaceChildren(
@@ -557,7 +615,7 @@ VIEWS.map = async () => {
     );
   }
   // ----- right panel -----
-  const SIDE_TABS = [['factions', 'Factions'], ['region', 'Region'], ['takeovers', 'Takeovers'], ['map', 'Map']];
+  const SIDE_TABS = [['factions', 'Factions'], ['alliances', 'Alliances'], ['region', 'Region'], ['takeovers', 'Claims'], ['map', 'Map']];
   function drawSide() {
     const pending = (w.takeovers || []).filter((t) => t.status === 'pending').length;
     const tabs = h('div', { class: 'wm-tabs' }, SIDE_TABS.map(([id, label]) => h('button', { class: MAPV.side === id ? 'on' : '', onclick: () => { MAPV.side = id; saveMapPrefs(); drawSide(); } }, label, id === 'takeovers' && pending ? h('span', { class: 'wm-badge' }, pending) : null)));
@@ -565,6 +623,7 @@ VIEWS.map = async () => {
     if (MAPV.side === 'factions') body.append(...factionsPanel());
     else if (MAPV.side === 'region') body.append(...(WSEL ? regionDrawer(WSEL, reloadAll) : [h('p', { class: 'muted' }, 'Pick the Inspect tool (or press I) and click a region to see who rules it, its market, Discord channels and more.')]));
     else if (MAPV.side === 'takeovers') body.append(...takeoversPanel(reloadAll));
+    else if (MAPV.side === 'alliances') body.append(...alliancesPanel());
     else body.append(...mapPanel(reloadAll, redraw));
     side.replaceChildren(tabs, body);
   }
@@ -594,6 +653,17 @@ VIEWS.map = async () => {
       h('p', { class: 'muted small' }, 'Click a faction, then click or drag over the map to paint its land. Every sect has a faction of its own; add others (a court, a guild, bandits) with + New. Nothing is preset: no land, relations or treaties until you decide them.'),
     ];
   }
+  function alliancesPanel() {
+    return [
+      h('div', { class: 'toolbar' }, h('span', { class: 'grow muted small' }, 'A bloc drawn on the map, with terms shared by all its members.'), h('button', { class: 'btn small primary', onclick: () => editAlliance(null) }, '+ New')),
+      h('div', { class: 'wm-flist' }, w.alliances.map((a) => h('div', { class: `wm-frow${MAPV.allianceId === a.id ? ' on' : ''}`, onclick: (e) => { if (e.target.closest('button')) return; MAPV.allianceId = a.id; MAPV.tool = 'alliance'; saveMapPrefs(); drawRail(); drawActive(); drawSide(); redraw(); } },
+        h('span', { class: 'dot', style: `background:${a.color};width:22px;height:22px;flex:none` }),
+        h('div', { class: 'grow' }, h('div', { class: 'wm-fname' }, a.name, a.hanzi ? h('span', { class: 'muted' }, ` ${a.hanzi}`) : ''), h('div', { class: 'muted small' }, a.members.map((m) => fac(m)?.name).join(', ') || 'no members')),
+        h('button', { class: 'btn small ghost', onclick: () => editAlliance(a) }, 'Edit')))),
+      w.alliances.length ? null : h('p', { class: 'muted small' }, 'No alliances yet.'),
+      h('p', { class: 'muted small' }, 'Pick an alliance, then use the Alliance tool (A) and click regions: their rulers join or leave. Terms, colour and border are set with Edit.'),
+    ].filter(Boolean);
+  }
   // ----- keyboard -----
   if (window.__mapKeys) { document.removeEventListener('keydown', window.__mapKeys); document.removeEventListener('keyup', window.__mapKeysUp); }
   window.__mapKeys = (e) => {
@@ -604,7 +674,7 @@ VIEWS.map = async () => {
     if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); run(redo)(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (k === ' ') { SPACE_DOWN = true; svgEl?.classList.add('space'); e.preventDefault(); return; }
-    const map = { b: 'paint', p: 'paint', e: 'erase', i: 'inspect', l: 'landmark', f: 'frontier' };
+    const map = { b: 'paint', p: 'paint', e: 'erase', i: 'inspect', a: 'alliance', l: 'landmark', f: 'frontier' };
     if (map[k]) setTool(map[k]);
     if (k === 'escape') { WSEL = null; redraw(); drawSide(); }
   };
@@ -633,12 +703,12 @@ function newFaction(done) {
     { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字 (optional)' },
     { k: 'color', label: 'Colour', t: 'color' },
     { k: 'kind', label: 'Kind', t: 'select', opts: [['other', 'Other'], ['court', 'Imperial court'], ['guild', 'Merchant guild'], ['bandits', 'Bandits'], ['sect', 'Sect (without a sect entry)'], ['clan', 'Clan'], ['palace', 'Palace'], ['cult', 'Cult']] },
-    { k: 'npc', label: 'Run by staff (not a player sect)', t: 'bool' },
+    { k: 'npc', label: 'Run by staff (not a player sect)', t: 'check' },
     { k: 'description', label: 'Description', t: 'textarea', wide: true },
   ], { name: '', hanzi: '', color: `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')}`, kind: 'other', npc: true, description: '' });
   openModal('New faction', h('div', {}, f.el, h('p', { class: 'muted small' }, 'Sects already have their own faction (it follows the sect\'s name and members). Use this for powers that are not sects. It starts with no land, no relations and no treaties.')), [
     h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
-    h('button', { class: 'btn primary', onclick: run(async () => { const v = f.read(); if (!v.name) throw new Error('Name it first.'); const r = await api('/world/factions', { method: 'POST', body: { ...v, treasury: 0, influence: 0 } }); MAPV.paintF = r.faction.id; MAPV.tool = 'paint'; saveMapPrefs(); closeModal(); toast(`${v.name} created — paint its land.`); done(); }) }, 'Create'),
+    h('button', { class: 'btn primary', onclick: run(async () => { const v = f.read(); if (!v.name) throw new Error('Name it first.'); const r = await api('/world/factions', { method: 'POST', body: { ...v, treasury: 0 } }); MAPV.paintF = r.faction.id; MAPV.tool = 'paint'; saveMapPrefs(); closeModal(); toast(`${v.name} created — paint its land.`); done(); }) }, 'Create'),
   ]);
 }
 
@@ -673,7 +743,7 @@ function takeoversPanel(reload) {
 
 function mapPanel(reload, redraw) {
   const w = W_();
-  const overlaySel = select([['political', 'Political (who rules)'], ['prosperity', 'Prosperity'], ['food', 'Food supply'], ['security', 'Security'], ['unrest', 'Unrest'], ['corruption', 'Corruption'], ['price', 'Price of…'], ['relations', 'Relations of…'], ['events', 'Events'], ['terrain', 'Terrain']], MAPV.overlay);
+  const overlaySel = select([['political', 'Political (who rules)'], ['prosperity', 'Prosperity'], ['food', 'Food supply'], ['security', 'Security'], ['price', 'Price of…'], ['relations', 'Alliances & wars of…'], ['events', 'Events'], ['terrain', 'Terrain']], MAPV.overlay);
   const goodSel = select(w.goods.map((g) => [g.id, g.name]), MAPV.good);
   const relSel = select(factionOpts('— faction —'), MAPV.relF);
   const sub = h('div');
@@ -686,7 +756,7 @@ function mapPanel(reload, redraw) {
   langSel.onchange = run(async () => { await api('/world/map', { method: 'PUT', body: { lang: langSel.value } }); w.map.lang = langSel.value; redraw(); });
   const toneSel = select([['washed', 'Washed colours'], ['vivid', 'Vivid colours']], w.map.colorStyle || 'washed');
   toneSel.onchange = run(async () => { await api('/world/map', { method: 'PUT', body: { colorStyle: toneSel.value } }); w.map.colorStyle = toneSel.value; redraw(); });
-  const layers = h('div', { class: 'wm-checks' }, Object.entries({ labels: 'Region names', factionNames: 'Faction names', rivers: 'Rivers', mountains: 'Peaks & passes', borders: 'Prefecture borders', landmarks: 'Landmarks', armies: 'Armies & battles', caravans: 'Caravans', events: 'Events', routes: 'Trade routes', title: 'Map title' }).map(([k, label]) => {
+  const layers = h('div', { class: 'wm-checks' }, Object.entries({ labels: 'Region names', factionNames: 'Faction names', alliances: 'Alliances', rivers: 'Rivers', mountains: 'Peaks & passes', borders: 'Prefecture borders', landmarks: 'Landmarks', armies: 'Armies & battles', caravans: 'Caravans', events: 'Events', routes: 'Trade routes', title: 'Map title' }).map(([k, label]) => {
     const c = h('input', { type: 'checkbox' }); c.checked = !!MAPV.layers[k]; c.onchange = () => { MAPV.layers[k] = c.checked; saveMapPrefs(); redraw(); };
     return h('label', {}, c, ' ', label);
   }));
@@ -710,7 +780,7 @@ function mapPanel(reload, redraw) {
     h('details', {}, h('summary', {}, h('b', {}, 'Start over')),
       h('div', { class: 'toolbar', style: 'margin-top:6px' },
         h('button', { class: 'btn small danger', onclick: run(async () => { const c = prompt('Unclaim every region on the map? Type CLEAR to confirm.'); if (c !== 'CLEAR') return; const r = await api('/world/clear-territory', { method: 'POST', body: { confirm: 'CLEAR' } }); MAPV.undo.push({ before: r.before, label: 'clear all territory' }); toast('The map is blank again (Undo brings it back).'); reload(); }) }, 'Clear all territory'),
-        h('button', { class: 'btn small danger', onclick: run(async () => { if (!confirm('Set every relation between factions back to 0 (neutral)? Wars stay.')) return; const r = await api('/world/reset-relations', { method: 'POST', body: {} }); toast(`${r.reset} relation(s) reset.`); reload(); }) }, 'Reset relations to 0'))),
+        )),
   ];
 }
 
@@ -743,7 +813,7 @@ function mapSettings() {
         h('button', { class: 'btn', onclick: run(async () => { if (!confirm(`Create a Discord category for each of the ${MAPDATA.provinces.length - linked} unlinked provinces?`)) return; const r = await api('/world/discord/create-categories', { method: 'POST', body: {} }); toast(`Created ${r.created} categories.`); await loadWorld(); }) }, '➕ Create missing categories')),
       h('p', { class: 'muted small' }, 'Auto-link matches a category whose name contains the province\'s English name or 漢字 (e.g. "Henan 河南", "🏯 HENAN"). You can also set each one by clicking the province.')),
     h('div', { class: 'card' }, h('h3', {}, 'Import from Murim Map Studio'),
-      h('p', { class: 'muted' }, 'Load a project you exported from the Murim Map Studio (myumyu). Factions are matched by name (new ones are created), provinces are painted, landmarks, frontier lines and the title come along, and alliances become Defensive Alliances.'),
+      h('p', { class: 'muted' }, 'Load a project you exported from the Murim Map Studio (myumyu). Factions are matched by name (new ones are created), provinces are painted, landmarks, frontier lines and the title come along, and its alliances are created with their colours and members.'),
       h('div', { class: 'toolbar' }, file, h('button', { class: 'btn', onclick: run(async () => {
         if (!file.files[0]) throw new Error('Pick the exported .json first.');
         const project = JSON.parse(await file.files[0].text());
@@ -787,8 +857,8 @@ function regionDrawer(key, reload) {
       h('span', { class: 'muted' }, 'Ruler'), h('span', {}, facName(ctlOf(key)), key.includes('/') && !r.ownController ? h('span', { class: 'muted' }, ' (follows the province)') : '', mr.occupiedBy ? ` · occupied by ${facName(mr.occupiedBy)}` : ''),
       h('span', { class: 'muted' }, 'Prosperity'), h('span', {}, h('b', {}, fmt(mr.prosperity)), ` (${mr.last?.dP >= 0 ? '+' : ''}${fmt(mr.last?.dP)}/turn) `, sparkSvg((mr.history || []).map((x) => x.p), 90, 18)),
       h('span', { class: 'muted' }, 'Food · staples'), h('span', {}, `${Math.round((mr.last?.food ?? 1) * 100)}% · ${Math.round((mr.last?.staple ?? 1) * 100)}%`),
-      h('span', { class: 'muted' }, 'Security · unrest'), h('span', {}, `${fmt(mr.security)} · ${fmt(mr.unrest)}`),
-      h('span', { class: 'muted' }, 'Corruption'), h('span', {}, fmt(mr.corruption)),
+      h('span', { class: 'muted' }, 'Security'), h('span', {}, fmt(mr.security)),
+      h('span', { class: 'muted' }, 'Buildings'), h('span', {}, (mr.buildings || []).map((b) => `${w.buildingTypes.find((x) => x.id === b.typeId)?.name || b.typeId}${b.status === 'building' ? ' (building)' : b.hp < 100 ? ` (${Math.round(b.hp)}%)` : ''}`).join(', ') || '—'),
       h('span', { class: 'muted' }, 'People'), h('span', {}, `${fmt(mr.population)}k households (base ${fmt(mr.basePop)})`),
       h('span', { class: 'muted' }, 'Coffers'), h('span', {}, `${fmtN(mr.coffers)} · taxes ${fmt(mr.last?.taxes)}/turn to ${f?.name || 'no one'}`),
       h('span', { class: 'muted' }, 'Effects'), h('span', {}, (mr.last?.sources || []).join(', ') || '—'),
@@ -818,8 +888,6 @@ function regionDrawer(key, reload) {
         isM ? { k: 'taxRate', label: 'Tax rate %', t: 'number' } : null,
         isM ? { k: 'prosperity', label: 'Prosperity', t: 'number' } : null,
         isM ? { k: 'security', label: 'Security', t: 'number' } : null,
-        isM ? { k: 'unrest', label: 'Unrest', t: 'number' } : null,
-        isM ? { k: 'corruption', label: 'Corruption', t: 'number' } : null,
         isM ? { k: 'coffers', label: 'Coffers', t: 'number' } : null,
       ].filter(Boolean);
       const f = buildForm(fields, { ...r, ruler: key.includes('/') && !r.ownController ? '__follow' : ctlOf(key) || '' });
@@ -908,13 +976,13 @@ VIEWS.economy = async () => {
     worldStatusCard(),
     h('div', { class: 'card' }, h('h3', {}, 'Markets'), table([
       ['Market', (x) => h('b', {}, rfull(x.k))], ['Ruler', (x) => facName(x.r.controller)], ['Prosperity', (x) => h('span', {}, fmt(x.r.prosperity), ' ', sparkSvg((x.r.history || []).map((y) => y.p), 60, 14))],
-      ['Δ/turn', (x) => fmt(x.r.last?.dP)], ['Food', (x) => `${Math.round((x.r.last?.food ?? 1) * 100)}%`], ['People', (x) => fmt(x.r.population)], ['Unrest', (x) => fmt(x.r.unrest)], ['Corruption', (x) => fmt(x.r.corruption)],
+      ['Δ/turn', (x) => fmt(x.r.last?.dP)], ['Food', (x) => `${Math.round((x.r.last?.food ?? 1) * 100)}%`], ['People', (x) => fmt(x.r.population)], ['Security', (x) => fmt(x.r.security)], ['Buildings', (x) => (x.r.buildings || []).length || ''],
       ['Coffers', (x) => fmtN(x.r.coffers)], ['Scarcest', (x) => { const s = shortage(x.r); return s ? `${s.g.emoji} ${s.g.name} (${Math.round(s.ratio * 100)}%)` : '—'; }], ['Glut', (x) => { const s = surplus(x.r); return s ? `${s.g.emoji} ${s.g.name} (${Math.round(s.ratio * 100)}%)` : '—'; }],
     ], markets.sort((a, b) => b.r.prosperity - a.r.prosperity), (x) => { WSEL = x.k; location.hash = 'map'; })),
     h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, 'Prices across the realm'), goodSel), h('div', { style: 'margin-top:8px' }, matrix)),
     h('div', { class: 'card' }, h('h3', {}, `Caravans on the road (${caravans.length})`), table([
-      ['Owner', (c) => (c.npc ? '💰 Merchant Guild' : `👤 ${charName(c.owner.id)}`)], ['Cargo', (c) => `${fmt(c.qty)} ${goodOf(c.good)?.emoji || ''} ${goodOf(c.good)?.name || c.good}`],
-      ['From → to', (c) => `${rname(c.from)} → ${rname(c.to)}`], ['Arrives', (c) => (c.npc ? `turn ${c.arriveTurn}` : new Date(c.arriveAt).toLocaleString())],
+      ['Owner', (c) => (c.npc ? 'Merchants' : c.owner?.type === 'faction' ? facName(c.owner.id) : charName(c.owner.id))], ['Cargo', (c) => `${fmt(c.qty)} ${goodOf(c.good)?.name || c.good}`],
+      ['From → to', (c) => `${rname(c.from)} → ${rname(c.to)}`], ['Arrives', (c) => (c.arriveTurn ? `turn ${c.arriveTurn}` : new Date(c.arriveAt).toLocaleString())],
     ], caravans.slice(0, 80))),
     listEditorCard('Trade goods', 'goods', [
       { k: 'id', label: 'Id', help: 'Never change after players own it' }, { k: 'name', label: 'Name' }, { k: 'emoji', label: 'Emoji' },
@@ -941,14 +1009,14 @@ function economyFormulas() {
       h('p', {}, 'Producers answer prices: production × (price ÷ base)^', W_().settings.supplyResponse, ' (between ×0.55 and ×1.3). Gluts above 3× the target rot 5% a turn.')),
     h('details', {}, h('summary', {}, 'Trade: peddlers, caravans, players'),
       h('p', {}, 'Every turn peddlers move goods along each road from where a good is plentiful to where it is scarce, if the price gap pays for the trip (5% per road). The Merchant Guild sends up to ', W_().settings.npcCaravansPerTurn, ' big caravans to markets 2–4 roads away; it keeps ', Math.round(W_().settings.guildShare * 100), '% of the margin.'),
-      h('p', {}, `Players buy and sell at the market where their character stands (each unit moves the price), pay a ${W_().settings.spread}% spread and a tariff (${W_().settings.baseTariff}% base, 0 in their own faction's land or with a Trade Agreement). The market can only pay out what is in its coffers.`)),
+      h('p', {}, `Trade factions (guilds, or any faction staff allow) send caravans from /world → Realm: they buy with the treasury where they have trade rights — unclaimed land, their own, or a ruler they have free trade with — and sell at the destination. ${W_().settings.playerMarketBuy ? 'Players may also buy at their market.' : 'Players don\'t buy from province markets'}${W_().settings.playerMarketSell !== false ? '; they can sell trade goods they own (each unit lowers the price, the market only pays what is in its coffers).' : '.'}`)),
     h('details', {}, h('summary', {}, 'Coffers and taxes'),
       h('p', {}, h('code', {}, 'coffers += (household spending × 0.9 + people × household income × prosperity factor) × income modifiers − taxes')),
-      h('p', {}, h('code', {}, 'taxes = that income × tax rate × tax modifiers × (1 − corruption ÷ 200)'), ' — paid to the ruling (or occupying) faction. Factions pay ', W_().settings.adminCost, '% of their treasury each turn in retainers, so nobody hoards forever.')),
-    h('details', {}, h('summary', {}, 'Prosperity (and why it never lasts)'),
+      h('p', {}, h('code', {}, 'taxes = that income × tax rate × tax modifiers'), ' — paid to the ruling (or occupying) faction. Factions pay ', W_().settings.adminCost, '% of their treasury each turn in retainers, so nobody hoards forever.')),
+    h('details', {}, h('summary', {}, 'Prosperity'),
       h('p', {}, h('code', {}, 'growth = 3×(food − 0.85) + 1.5×(staples − 0.8) + 0.8×luxuries + trade + (security − 50) ÷ 25')),
-      h('p', {}, h('code', {}, 'drag = 3×(prosperity ÷ 100)² + corruption ÷ 25 + unrest ÷ 25')),
-      h('p', {}, 'Δ prosperity = growth − drag + events + policies (± a little luck). Corruption grows while a region is rich (+0.35 per turn at prosperity 100) and fades slowly, so golden ages rot from within; famine, war and revolts knock regions down, and the cycle starts again.'),
+      h('p', {}, h('code', {}, 'drag = 5×(prosperity ÷ 100)²')),
+      h('p', {}, 'Δ prosperity = growth − drag + events + policies + buildings (± a little luck). A region settles where its food and trade can carry it; famine, war and disasters knock it down. Security (bandits on the roads) rises with walls and garrisons and falls with hunger.'),
       h('p', {}, 'Production and workshop output scale with prosperity (×0.75 at 0, ×1 at 50, ×1.25 at 100). Population grows with food and prosperity but the land only feeds so many (its base population).')),
     h('details', {}, h('summary', {}, 'Workshops'),
       h('p', {}, 'A workshop buys its inputs from its market and sells its output back every turn; profit goes to its owner (player, faction or the town). It cuts back to 25% when the output is worth less than the inputs plus wages. Players can own up to ', W_().settings.maxWorkshopsPerCharacter, '.')),
@@ -988,13 +1056,22 @@ function worldSettings() {
     { k: 'kmPerPx', label: 'Km per map unit', t: 'number', step: 0.1, help: 'Used for the RP travel info (Beijing→Luoyang ≈ 860 km)' },
     { k: 'travelHoursPer100', label: 'Timed travel: hours per 100 map px', t: 'number', step: 0.1, help: 'Only in Timed mode' },
     { k: 'maxTradePerTurn', label: 'Max market trade per character per turn', t: 'number', help: 'Stops arbitrage farming. 0 = no limit' },
+    { k: 'playerMarketBuy', label: 'Players may buy trade goods at province markets', t: 'check', help: 'Off by default: markets sell to merchants and caravans' },
+    { k: 'playerMarketSell', label: 'Players may sell trade goods they own', t: 'check' },
+    { k: 'playerCaravans', label: 'Players may send their own caravans', t: 'check', help: 'Off by default: caravans are run by trade factions' },
+    { k: 'factionCaravans', label: 'Which factions run trade caravans', t: 'select', opts: [['guilds', 'Guilds (and factions with a trade charter)'], ['all', 'Every faction'], ['none', 'None']] },
+    { k: 'factionCaravanTurns', label: 'Faction caravan travel (turns, 0 = by distance)', t: 'number' },
     { k: 'caravanHoursPer100', label: 'Caravan hours per 100 px', t: 'number', step: 0.1 }, { k: 'maxPlayerCaravans', label: 'Caravans per character', t: 'number' }, { k: 'caravanCapacity', label: 'Caravan capacity', t: 'number' },
     { k: 'escortCost', label: 'Escort cost (share of cargo)', t: 'number', step: 0.01 }, { k: 'maxWorkshopsPerCharacter', label: 'Workshops per character', t: 'number' }, { k: 'workshopSlotsBase', label: 'Workshop plots (base)', t: 'number' },
-    { k: 'shopTiers.member', label: 'Sect shop: members %', t: 'number' }, { k: 'shopTiers.ally', label: 'Sect shop: allies %', t: 'number' }, { k: 'shopTiers.neutral', label: 'Sect shop: outsiders %', t: 'number' }, { k: 'shopTiers.rival', label: 'Sect shop: rivals %', t: 'number' }, { k: 'rivalBelow', label: 'Rival below relation', t: 'number' },
+    { k: 'shopTiers.member', label: 'Sect shop: members %', t: 'number' }, { k: 'shopTiers.ally', label: 'Sect shop: allies (shared shops) %', t: 'number' }, { k: 'shopTiers.neutral', label: 'Sect shop: everyone else %', t: 'number' },
     { k: 'underdogBonus', label: 'Join bonus for recommended sects', t: 'number', help: 'Extra Nyang for new characters joining a sect the Balance tab recommends' },
+    { section: 'Buildings' },
+    { k: 'buildingRazeChance', label: 'Chance each building is razed when a region is taken (0–1)', t: 'number', step: 0.05 },
+    { k: 'battleBuildingDamage', label: 'Battle damage to buildings ×', t: 'number', step: 0.1 },
+    { k: 'buildingRepairShare', label: 'Repairs cost (share of the price for full repair)', t: 'number', step: 0.05 },
     { section: 'Representatives & stipends' },
     { k: 'representativeRoleIds', label: 'Representative roles (any sect)', t: 'roles', help: 'Members with these roles count as their sect\'s representatives; /office gives the first one' },
-    { k: 'maxRepresentatives', label: 'Representatives per faction', t: 'number', help: '0 = no limit' }, { k: 'representativesFight', label: 'Representatives may fight in battles', t: 'check' },
+    { k: 'maxRepresentatives', label: 'Representatives per faction', t: 'number', help: '0 = no limit. Their ranks are edited in Politics → Rules' }, { k: 'representativesFight', label: 'Representatives may fight in battles', t: 'check' },
     { k: 'baseIncome', label: 'Faction income / turn (donations)', t: 'number' }, { k: 'memberIncome', label: 'Faction income / member / turn', t: 'number' },
     { k: 'stipendEveryTurns', label: 'Pay stipends every … turns', t: 'number' }, { k: 'maxStipendRate', label: 'Max stipend rate %', t: 'number' },
     { k: 'stipendSoftCap', label: 'Stipend soft cap per weight', t: 'number', help: 'Nobody gets more than cap × weight per payday, however rich the faction' },
@@ -1050,7 +1127,7 @@ VIEWS.events = async () => {
   const evSel = select(w.events.map((e) => [e.id, `${e.emoji} ${e.name}`]));
   const regSel = select(marketOpts());
   const dur = h('input', { type: 'number', placeholder: 'turns (default)', style: 'width:130px' });
-  const effHelp = 'Per-turn effects. Keys: prosperity, security, unrest, corruption, population (%), production / demand / price / stockLoss ({ goodId | category | "*": multiplier }), caravanRisk, income, tax, tariff, coffers, supply, attrition, recruitCost.';
+  const effHelp = 'Per-turn effects. Keys: prosperity, security, population (%), production / demand / price / stockLoss ({ goodId | category | "*": multiplier }), caravanRisk, income, tax, tariff, coffers, supply, attrition, recruitCost.';
   return [
     worldStatusCard(),
     h('div', { class: 'card' }, h('h3', {}, 'Force an event'), h('div', { class: 'toolbar' }, evSel, regSel, dur, h('button', { class: 'btn primary', onclick: run(async () => { const r = await api('/world/events/force', { method: 'POST', body: { eventId: evSel.value, region: regSel.value, duration: dur.value ? Number(dur.value) : undefined } }); toast(r.event.text.replace(/\*/g, '')); render(); }) }, '⚡ Start now')),
@@ -1081,57 +1158,309 @@ function worldLogCard(kinds) {
 }
 
 // ════════════════════════════════════════ POLITICS ════════════════════════════════════════
+// Kept simple, like the realm screens of Crusader Kings or Europa Universalis: who rules, who leads, who stands
+// with whom, who is at war. Feelings between factions are role-played — the bot records only what was agreed.
+const perkNames = (perks) => (WD.perks || []).filter((p) => perks?.[p.id]).map((p) => p.name);
+const chip = (text, color, title = '') => h('span', { class: 'chip', title, style: color ? `border-color:${color};color:${color}` : '' }, text);
+function tabsEl(defs, start) {
+  const bar = h('div', { class: 'wm-tabs inline' });
+  const body = h('div', { style: 'display:grid;gap:10px;margin-top:10px' });
+  const show = (id) => { [...bar.children].forEach((b) => b.classList.toggle('on', b.dataset.t === id)); body.replaceChildren(...[defs.find((d) => d[0] === id)[2]()].flat().filter(Boolean)); };
+  for (const [id, label] of defs) bar.append(h('button', { 'data-t': id, onclick: () => show(id) }, label));
+  setTimeout(() => show(start || defs[0][0]), 0);
+  return h('div', {}, bar, body);
+}
+const allianceOfF = (fid) => W_().alliances.find((a) => a.members.includes(fid));
+const warsOfF = (fid) => W_().wars.filter((x) => x.attackers.includes(fid) || x.defenders.includes(fid));
+const landsOf = (fid) => Object.values(W_().regions).filter((r) => r.controller === fid && r.population !== undefined);
+
 VIEWS.politics = async () => {
   await loadWorld();
   const w = W_();
-  const fs = w.factions;
   const members = (f) => WD.characters.filter((c) => f.sect && c.sect === f.sect).length;
-  const land = (f) => Object.values(w.regions).filter((r) => r.controller === f.id && r.population !== undefined).length;
-  const pending = w.proposals.filter((p) => p.status.startsWith('awaiting'));
+  const inbox = [
+    ...w.requests.filter((q) => q.status === 'pending').map((q) => ({ what: `${fac(q.factionId)?.name}: ${q.byName ? `${q.byName} wants to ` : ''}${q.summary}`, why: q.why, approve: () => api(`/world/requests/${q.id}/approve`, { method: 'POST', body: {} }), reject: () => api(`/world/requests/${q.id}/reject`, { method: 'POST', body: {} }) })),
+    ...w.proposals.filter((p) => p.status === 'awaiting-staff').map((p) => ({ what: `${WD.proposalKinds?.[p.kind]?.name || p.kind}: ${facName(p.from)} → ${facName(p.to)}`, why: p.note || 'accepted by both sides, waiting for staff', approve: () => api(`/world/proposals/${p.id}/approve`, { method: 'POST', body: {} }), reject: () => api(`/world/proposals/${p.id}/reject`, { method: 'POST', body: {} }) })),
+    ...(w.takeovers || []).filter((t) => t.status === 'pending').map((t) => ({ what: `Takeover: ${t.regions.map(rfull).join(', ')} → ${fac(t.to)?.name || 'unclaimed'}`, why: t.reason || (t.source === 'conquest' ? 'long occupation' : ''), approve: () => api(`/world/takeovers/${t.id}/approve`, { method: 'POST', body: {} }), reject: () => api(`/world/takeovers/${t.id}/reject`, { method: 'POST', body: {} }) })),
+  ];
+  const offers = w.proposals.filter((p) => p.status === 'awaiting-target' || p.status === 'awaiting-character');
+  const card = (f) => {
+    const al = allianceOfF(f.id); const wars = warsOfF(f.id);
+    const lead = f.leaderCharId ? charName(f.leaderCharId) : '—';
+    return h('button', { class: `realm-card${f.active ? '' : ' off'}`, style: `--fc:${f.color}`, onclick: () => openRealm(f) },
+      h('div', { class: 'realm-name' }, f.name, f.hanzi ? h('span', { class: 'muted' }, ` ${f.hanzi}`) : ''),
+      h('div', { class: 'realm-line muted small' }, `${f.kind}${f.npc ? ' · staff-run' : ''} · ${members(f)} member${members(f) === 1 ? '' : 's'}`),
+      h('div', { class: 'realm-line' }, h('span', { class: 'muted' }, 'Leader '), lead, f.representatives.length ? h('span', { class: 'muted' }, ` · council ${f.representatives.length}`) : ''),
+      h('div', { class: 'realm-line' }, h('span', { class: 'muted' }, 'Treasury '), fmtN(f.treasury), h('span', { class: 'muted' }, ' · lands '), String(landsOf(f.id).length)),
+      h('div', { class: 'realm-chips' }, al ? chip(al.name, al.color) : null, ...wars.map((x) => chip(`War: ${x.name}`, '#d0453a'))));
+  };
   return [
-    h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, 'Factions'), h('button', { class: 'btn', onclick: () => newFaction(render) }, '+ New faction')),
-      h('p', { class: 'muted small' }, 'Factions start empty: no land, relations or treaties. Paint land on the Map, set relations below, and let players\' representatives make agreements in /world → Politics.'),
-      table([
-        ['Faction', (f) => h('span', {}, h('span', { class: 'dot', style: `background:${f.color}` }), ' ', h('b', {}, f.name), f.active ? '' : h('span', { class: 'muted' }, ' (inactive)'))],
-        ['Kind', (f) => `${f.kind}${f.npc ? ' · NPC' : ''}`], ['Lands', land], ['Members', members], ['Treasury', (f) => fmtN(f.treasury)], ['Influence', (f) => fmt(f.influence)], ['Rep.', (f) => fmt(f.reputation)],
-        ['Leader · representatives', (f) => [f.leaderCharId ? `${charName(f.leaderCharId)} (leader)` : '', ...f.representatives.map(charName)].filter(Boolean).join(', ') || h('span', { class: 'muted' }, 'none')],
-        ['Stipends', (f) => (f.stipendRate ? `${fmt(f.stipendRate)}% · fund ${fmtN(f.stipendFund)}` : '—')],
-        ['Policies', (f) => f.policies.map((p) => w.policies.find((x) => x.id === p.policyId)?.emoji || '').join(' ')],
-        ['Shop', (f) => (f.shop.items.length ? `${f.shop.items.length} item(s) · ${f.shop.access}` : '—')],
-      ], fs, (f) => editFaction(f))),
+    inbox.length ? h('div', { class: 'card warn' }, h('h3', {}, `Waiting for staff (${inbox.length})`),
+      h('div', { class: 'list' }, inbox.map((x) => h('div', { class: 'toolbar' }, h('div', { class: 'grow' }, h('b', {}, x.what), x.why ? h('div', { class: 'muted small' }, x.why) : null),
+        h('button', { class: 'btn small primary', onclick: run(async () => { await x.approve(); toast('Approved.'); render(); }) }, 'Approve'),
+        h('button', { class: 'btn small danger', onclick: run(async () => { await x.reject(); toast('Rejected.'); render(); }) }, 'Reject'))))) : null,
+    h('div', { class: 'card' },
+      h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, 'Realms'), h('button', { class: 'btn', onclick: () => newFaction(render) }, '+ New faction')),
+      h('p', { class: 'muted small' }, 'Click a realm to see its council, lands, buildings, policies and shop. Land is painted on the Map. Factions start empty; how they feel about each other is role-played — only wars, alliances and agreements are recorded.'),
+      h('div', { class: 'realm-grid' }, w.factions.map(card))),
+    alliancesCard(),
+    warsCard(),
+    agreementsCard(),
+    offers.length ? h('div', { class: 'card' }, h('h3', {}, `Offers waiting for the other side (${offers.length})`), table([
+      ['Offer', (p) => WD.proposalKinds?.[p.kind]?.name || p.kind], ['From → to', (p) => `${facName(p.from)} → ${facName(p.to)}`], ['Note', (p) => p.note], ['Waiting for', (p) => p.status.replace('awaiting-', '')],
+      ['', (p) => h('div', { class: 'toolbar' }, h('button', { class: 'btn small primary', title: 'Push it through as staff', onclick: run(async () => { await api(`/world/proposals/${p.id}/approve`, { method: 'POST', body: {} }); toast('Done.'); render(); }) }, 'Force'), h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/proposals/${p.id}/reject`, { method: 'POST', body: {} }); render(); }) }, 'Cancel'))],
+    ], offers)) : null,
+    h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, `Marriages (${w.marriages.length})`), h('button', { class: 'btn small', onclick: recordMarriage }, '+ Record a marriage')),
+      table([['Couple', (m) => `${charName(m.a)} & ${charName(m.b)}`], ['Houses', (m) => m.factions.map(facName).join(' & ')], ['Since', (m) => `turn ${m.turn}`], ['', (m) => h('button', { class: 'btn small ghost', onclick: run(async () => { if (!confirm('Dissolve this marriage?')) return; await api(`/world/marriages/${m.a}`, { method: 'DELETE' }); render(); }) }, 'Dissolve')]], w.marriages)),
     officesCard(),
-    pending.length ? h('div', { class: 'card' }, h('h3', {}, `Waiting proposals (${pending.length})`), table([
-      ['Action', (p) => { const a = w.actions.find((x) => x.id === p.actionId); return `${a?.emoji || ''} ${a?.name || p.actionId}`; }], ['From → to', (p) => `${facName(p.from)} → ${facName(p.to)}`],
-      ['Characters', (p) => (p.subjectCharId ? `${charName(p.subjectCharId)} ⇄ ${charName(p.targetCharId)}` : '')], ['Note', (p) => p.note], ['Waiting for', (p) => p.status.replace('awaiting-', '')],
-      ['', (p) => h('div', { class: 'toolbar' }, h('button', { class: 'btn small primary', onclick: run(async () => { await api(`/world/proposals/${p.id}/approve`, { method: 'POST', body: {} }); toast('Approved.'); render(); }) }, 'Approve'), h('button', { class: 'btn small danger', onclick: run(async () => { await api(`/world/proposals/${p.id}/reject`, { method: 'POST', body: {} }); render(); }) }, 'Reject'))],
-    ], pending)) : null,
-    relationsCard(),
-    treatiesCard(),
-    diplomacyMapCard(),
-    h('div', { class: 'card' }, h('h3', {}, `Marriages (${w.marriages.length})`), table([['Couple', (m) => `${charName(m.a)} 💍 ${charName(m.b)}`], ['Houses', (m) => m.factions.map(facName).join(' & ')], ['Since', (m) => `turn ${m.turn}`]], w.marriages)),
-    listEditorCard('Policies', 'policies', [
-      { k: 'id', label: 'Id' }, { k: 'name', label: 'Name' }, { k: 'emoji', label: 'Emoji' }, { k: 'enabled', label: 'Available', t: 'check' },
-      { k: 'scope', label: 'Applies to', t: 'select', opts: [['faction', 'All the faction\'s land'], ['region', 'One region']] },
-      { k: 'cost.influence', label: 'Cost: influence', t: 'number' }, { k: 'cost.treasury', label: 'Cost: treasury', t: 'number' }, { k: 'upkeep.treasury', label: 'Upkeep / turn', t: 'number' }, { k: 'upkeep.influence', label: 'Influence upkeep / turn', t: 'number' },
-      { k: 'fatigue', label: 'Fatigue / turn (0–1)', t: 'number', step: 0.01, help: 'Weakens every turn after the grace period' }, { k: 'grace', label: 'Grace (turns)', t: 'number' }, { k: 'floor', label: 'Never below', t: 'number', step: 0.05 }, { k: 'minTurns', label: 'Minimum turns', t: 'number' },
-      { k: 'shopAccess', label: 'Sect shop access while active', t: 'select', opts: [['', '— unchanged —'], ['members', 'Members only'], ['allies', 'Members & allies'], ['everyone', 'Everyone']] },
-      { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (regionTick)', t: 'select', opts: scriptOpts },
-    ], (p) => `${p.emoji} ${p.name} — ${p.scope} · ${p.cost?.influence || 0} infl${p.upkeep?.treasury ? ` · ${p.upkeep.treasury}/turn` : ''}`, { json: [['effects', 'Effects per turn (treasury & influence go to the faction once; the rest to each region)', 6], ['kinds', 'Faction kinds allowed (empty = all)', 2], ['exclusive', 'Can\'t combine with (policy ids)', 2]] }),
-    listEditorCard('Diplomacy actions', 'actions', [
-      { k: 'id', label: 'Id' }, { k: 'name', label: 'Name' }, { k: 'emoji', label: 'Emoji' }, { k: 'enabled', label: 'Available', t: 'check' },
-      { k: 'category', label: 'Group', t: 'select', opts: ['courtesy', 'trade', 'alliance', 'marriage', 'murim', 'court', 'hostile'] },
-      { k: 'costInfluence', label: 'Influence cost', t: 'number' }, { k: 'costTreasury', label: 'Treasury cost', t: 'number' }, { k: 'cooldown', label: 'Cooldown (turns)', t: 'number' },
-      { k: 'unilateral', label: 'One-sided (no acceptance)', t: 'check' }, { k: 'needsCharacters', label: 'Needs a character from each side', t: 'check' }, { k: 'staffApproval', label: 'Staff must approve', t: 'check' },
-      { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (diplomacy hook)', t: 'select', opts: scriptOpts },
-    ], (a) => `${a.emoji} ${a.name} — ${a.category}${a.staffApproval ? ' · staff' : ''}`, { json: [['requires', 'Requires { minRelation, maxRelation, atWar: true/false/null, treaties: [...], noTreaties: [...] }', 4], ['onAccept', 'On accept { relation, treaty: { type, duration }, transfer, influence, reputation, war, endsWar, breaks: [...], breaksAny, marry, unmarry, bond, joinWar, reparations }', 5], ['onReject', 'On reject { relation }', 2], ['unlocks', 'Unlocks (arrows on the diplomacy map)', 2]] }),
-    listEditorCard('Treaty types', 'treatyTypes', [
-      { k: 'id', label: 'Id' }, { k: 'name', label: 'Name' }, { k: 'emoji', label: 'Emoji' }, { k: 'drift', label: 'Relation drift / turn', t: 'number', step: 0.05 },
-      { k: 'tribute', label: 'Tribute % of taxes', t: 'number' }, { k: 'shopTier', label: 'Sect shops treat as', t: 'select', opts: [['', '—'], ['ally', 'ally']] }, { k: 'tariffFree', label: 'No tariffs between them', t: 'check' },
-      { k: 'description', label: 'Description', t: 'textarea', wide: true },
-    ], (t) => `${t.emoji} ${t.name}`, { json: [['effects', 'Effects on both parties\' regions every turn', 4]] }),
-    worldLogCard(['diplomacy', 'treaty', 'policy']),
+    h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Rules: representative ranks, policies, buildings')),
+      h('div', { style: 'display:grid;gap:12px;margin-top:10px' },
+        ranksCard(),
+        listEditorCard('Policies', 'policies', [
+          { k: 'id', label: 'Id' }, { k: 'name', label: 'Name' }, { k: 'enabled', label: 'Available', t: 'check' },
+          { k: 'scope', label: 'Applies to', t: 'select', opts: [['faction', 'All the faction\'s land'], ['region', 'One region']] },
+          { k: 'cost.treasury', label: 'Cost to adopt', t: 'number' }, { k: 'upkeep.treasury', label: 'Upkeep / turn', t: 'number' },
+          { k: 'fatigue', label: 'Fatigue / turn (0–1)', t: 'number', step: 0.01, help: 'Weakens every turn after the grace period' }, { k: 'grace', label: 'Grace (turns)', t: 'number' }, { k: 'floor', label: 'Never below', t: 'number', step: 0.05 }, { k: 'minTurns', label: 'Minimum turns', t: 'number' },
+          { k: 'shopAccess', label: 'Sect shop access while active', t: 'select', opts: [['', '— unchanged —'], ['members', 'Members only'], ['allies', 'Members & allies'], ['everyone', 'Everyone']] },
+          { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (regionTick)', t: 'select', opts: scriptOpts },
+        ], (p) => `${p.name} — ${p.scope} · ${p.cost?.treasury || 0}${p.upkeep?.treasury ? ` · ${p.upkeep.treasury}/turn` : ''}`, { json: [['effects', 'Effects per turn (treasury goes to the faction once; the rest to each region)', 6], ['kinds', 'Faction kinds allowed (empty = all)', 2], ['exclusive', 'Can\'t combine with (policy ids)', 2]] }),
+        listEditorCard('Buildings', 'buildingTypes', [
+          { k: 'id', label: 'Id' }, { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字' },
+          { k: 'cost', label: 'Cost', t: 'number' }, { k: 'turns', label: 'Turns to build', t: 'number' }, { k: 'upkeep', label: 'Upkeep / turn', t: 'number' }, { k: 'fort', label: '+ Walls in battle', t: 'number' },
+          { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (regionTick)', t: 'select', opts: scriptOpts },
+        ], (b) => `${b.name} ${b.hanzi || ''} — ${b.cost}, ${b.turns} turns, ${b.upkeep}/turn${b.fort ? ` · +${b.fort} walls` : ''}`, { json: [['effects', 'Effects on the region every turn (same keys as policies)', 5], ['requires', 'Requires { terrains: [...] }', 2]] }))),
+    worldLogCard(['diplomacy', 'alliance', 'war', 'request', 'policy', 'build', 'takeover', 'trade']),
   ].filter(Boolean);
 };
+
+function alliancesCard() {
+  const w = W_();
+  return h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, `Alliances (${w.alliances.length})`), h('button', { class: 'btn', onclick: () => editAlliance(null) }, '+ New alliance')),
+    h('p', { class: 'muted small' }, 'One alliance instead of many one-on-one deals: its terms hold between every pair of members, and it is drawn on the map. A faction can be in one alliance at a time.'),
+    h('div', { class: 'realm-grid' }, w.alliances.map((a) => h('button', { class: 'realm-card', style: `--fc:${a.color}`, onclick: () => editAlliance(a) },
+      h('div', { class: 'realm-name' }, a.name, a.hanzi ? h('span', { class: 'muted' }, ` ${a.hanzi}`) : ''),
+      h('div', { class: 'realm-line' }, h('span', { class: 'muted' }, 'Leader '), facName(a.leader)),
+      h('div', { class: 'realm-chips' }, a.members.map((m) => chip(fac(m)?.name || m, fac(m)?.color))),
+      h('div', { class: 'realm-line muted small' }, perkNames(a.terms).join(' · ') || 'no shared terms', a.tribute ? ` · tribute ${a.tribute}%` : '')))));
+}
+function editAlliance(a) {
+  const w = W_();
+  const v = a ? clone(a) : { name: '', hanzi: '', color: '#b3261e', members: [], leader: '', terms: Object.fromEntries((WD.perks || []).map((p) => [p.id, ['militaryAccess', 'freeTrade', 'sharedShops', 'nonAggression', 'defensive'].includes(p.id)])), tribute: 0, note: '', style: { width: 5, fill: 'hatched' }, showOnMap: true, scriptId: '' };
+  const f = buildForm([
+    { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字' }, { k: 'color', label: 'Colour', t: 'color' },
+    { k: 'leader', label: 'Leader', t: 'select', opts: () => factionOpts('— none —') },
+    { k: 'style.width', label: 'Border width on the map', t: 'number' }, { k: 'style.fill', label: 'Fill on the map', t: 'select', opts: [['hatched', 'Hatched'], ['dots', 'Dots'], ['none', 'Border only']] },
+    { k: 'showOnMap', label: 'Show on the map', t: 'check' },
+    { k: 'tribute', label: 'Members pay the leader (% of taxes)', t: 'number' },
+    { section: 'Terms between every pair of members' },
+    ...(WD.perks || []).map((p) => ({ k: `terms.${p.id}`, label: p.name, t: 'check', help: p.description })),
+    { k: 'note', label: 'What the alliance stands for (shown to players)', t: 'textarea', wide: true },
+    { k: 'scriptId', label: 'Custom code (regionTick for members\' lands)', t: 'select', opts: scriptOpts },
+  ], v);
+  const boxes = h('div', { class: 'wm-checks' }, w.factions.map((x) => { const c = h('input', { type: 'checkbox', value: x.id }); c.checked = v.members.includes(x.id); return h('label', {}, c, ' ', x.name); }));
+  const eff = jsonField('Effects on every member\'s regions each turn (same keys as policies)', v.effects || {}, 3);
+  openModal(a ? a.name : 'New alliance', h('div', { style: 'display:grid;gap:10px' }, f.el, h('div', {}, h('b', {}, 'Members'), boxes), eff), [
+    a ? h('button', { class: 'btn danger left', onclick: run(async () => { if (!confirm(`Dissolve the ${a.name}?`)) return; await api(`/world/alliances/${a.id}`, { method: 'DELETE' }); closeModal(); render(); }) }, 'Dissolve') : null,
+    h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
+    h('button', { class: 'btn primary', onclick: run(async () => {
+      const body = { ...f.read(), members: [...boxes.querySelectorAll('input:checked')].map((x) => x.value), effects: eff.read() };
+      if (!body.name) throw new Error('Name it first.');
+      if (a) await api(`/world/alliances/${a.id}`, { method: 'PUT', body }); else await api('/world/alliances', { method: 'POST', body });
+      toast('Saved.'); closeModal(); render();
+    }) }, 'Save'),
+  ].filter(Boolean));
+}
+
+function warsCard() {
+  const w = W_();
+  return h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, `Wars (${w.wars.length})`), h('button', { class: 'btn', onclick: () => editWar(null) }, '+ Declare a war')),
+    w.wars.length ? h('div', { class: 'list' }, w.wars.map((x) => h('div', { class: 'toolbar' },
+      h('div', { class: 'grow' }, h('b', {}, x.name), h('div', { class: 'small' }, x.attackers.map(facName).join(', '), h('span', { class: 'muted' }, ' vs '), x.defenders.map(facName).join(', ')), h('div', { class: 'muted small' }, `since turn ${x.startTurn}${x.reason ? ` · ${x.reason}` : ''}`)),
+      h('button', { class: 'btn small', onclick: () => editWar(x) }, 'Edit'),
+      h('button', { class: 'btn small primary', onclick: run(async () => { const note = prompt('Peace terms agreed in role-play (optional):', ''); if (note === null) return; await api(`/world/wars/${x.id}/peace`, { method: 'POST', body: { note } }); toast('Peace.'); render(); }) }, 'Make peace')))) : h('p', { class: 'muted' }, 'All is quiet.'));
+}
+function editWar(x) {
+  const w = W_();
+  const sideBoxes = (list) => h('div', { class: 'wm-checks' }, w.factions.map((f) => { const c = h('input', { type: 'checkbox', value: f.id }); c.checked = list.includes(f.id); return h('label', {}, c, ' ', f.name); }));
+  const att = sideBoxes(x?.attackers || []); const def = sideBoxes(x?.defenders || []);
+  const name = h('input', { value: x?.name || '', placeholder: 'e.g. The Plum Blossom War (blank = automatic)' });
+  const reason = h('input', { value: x?.reason || '', placeholder: 'Why (shown in the announcement)' });
+  openModal(x ? x.name : 'Declare a war', h('div', { style: 'display:grid;gap:10px' }, h('label', { class: 'field' }, h('span', {}, 'Name'), name), h('label', { class: 'field' }, h('span', {}, 'Reason'), reason),
+    h('div', {}, h('b', {}, 'Attackers'), att), h('div', {}, h('b', {}, 'Defenders'), def),
+    x ? null : h('p', { class: 'muted small' }, 'The first ticked faction on each side is the main one. Allies with a defensive pact or call to arms (alliances or agreements) join automatically.')), [
+    h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
+    h('button', { class: 'btn primary', onclick: run(async () => {
+      const A = [...att.querySelectorAll('input:checked')].map((i) => i.value); const D = [...def.querySelectorAll('input:checked')].map((i) => i.value);
+      if (!A.length || !D.length) throw new Error('Tick at least one faction on each side.');
+      if (x) await api(`/world/wars/${x.id}`, { method: 'PUT', body: { name: name.value, reason: reason.value, attackers: A, defenders: D } });
+      else await api('/world/wars', { method: 'POST', body: { attacker: A[0], defender: D[0], attackers: A, defenders: D, name: name.value, reason: reason.value } });
+      closeModal(); render();
+    }) }, x ? 'Save' : 'Declare'),
+  ]);
+}
+
+function agreementsCard() {
+  const w = W_();
+  return h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, `One-on-one agreements (${w.agreements.length})`), h('button', { class: 'btn', onclick: () => editAgreement(null) }, '+ New agreement')),
+    table([
+      ['Agreement', (t) => h('b', {}, t.name)], ['Between', (t) => t.parties.map(facName).join(' & ')],
+      ['Includes', (t) => [...perkNames(t.perks), t.tribute ? `${facName(t.tribute.payer)} pays ${facName(t.tribute.receiver)}${t.tribute.percent ? ` ${t.tribute.percent}%` : ''}${t.tribute.fixed ? ` +${t.tribute.fixed}/turn` : ''}` : ''].filter(Boolean).join(' · ') || '—'],
+      ['Ends', (t) => (t.endTurn ? `turn ${t.endTurn}` : '—')], ['Note', (t) => t.note],
+    ], w.agreements, editAgreement));
+}
+function editAgreement(t) {
+  const w = W_();
+  const v = t ? clone(t) : { name: '', parties: [w.factions[0]?.id, w.factions[1]?.id], perks: {}, tribute: null, note: '', endTurn: null, scriptId: '' };
+  v.tribute = v.tribute || { payer: '', receiver: '', percent: 0, fixed: 0 };
+  const f = buildForm([
+    { k: 'name', label: 'Name' },
+    { k: 'parties.0', label: 'Faction A', t: 'select', opts: factionOpts }, { k: 'parties.1', label: 'Faction B', t: 'select', opts: factionOpts },
+    ...(WD.perks || []).map((p) => ({ k: `perks.${p.id}`, label: p.name, t: 'check', help: p.description })),
+    { section: 'Tribute (optional)' },
+    { k: 'tribute.payer', label: 'Payer', t: 'select', opts: () => factionOpts('— none —') }, { k: 'tribute.receiver', label: 'Receiver', t: 'select', opts: () => factionOpts('— none —') },
+    { k: 'tribute.percent', label: '% of the payer\'s taxes', t: 'number' }, { k: 'tribute.fixed', label: 'Fixed per turn', t: 'number' },
+    t ? { k: 'endTurn', label: 'Ends on turn (empty = never)', t: 'number', nullable: true } : { k: 'duration', label: 'Lasts (turns, 0 = until ended)', t: 'number' },
+    { k: 'note', label: 'What was agreed in role-play', t: 'textarea', wide: true },
+    { k: 'scriptId', label: 'Custom code (treatyTick) for very specific terms', t: 'select', opts: scriptOpts },
+  ], v);
+  openModal(t ? t.name : 'New agreement', f.el, [
+    t ? h('button', { class: 'btn danger left', onclick: run(async () => { if (!confirm('End this agreement?')) return; await api(`/world/agreements/${t.id}`, { method: 'DELETE' }); closeModal(); render(); }) }, 'End') : null,
+    h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
+    h('button', { class: 'btn primary', onclick: run(async () => {
+      const x = f.read();
+      const body = { ...x, parties: [x.parties[0], x.parties[1]], tribute: x.tribute?.payer && x.tribute?.receiver ? x.tribute : null };
+      if (t) await api(`/world/agreements/${t.id}`, { method: 'PUT', body }); else await api('/world/agreements', { method: 'POST', body });
+      closeModal(); render();
+    }) }, 'Save'),
+  ].filter(Boolean));
+}
+function recordMarriage() {
+  const opts = () => [['', '—'], ...WD.characters.map((c) => [c.id, `${c.name} (${c.sect || 'Rogue'})`])];
+  const f = buildForm([{ k: 'a', label: 'Character', t: 'select', opts }, { k: 'b', label: 'Character', t: 'select', opts }], {});
+  openModal('Record a marriage', f.el, [h('button', { class: 'btn', onclick: closeModal }, 'Cancel'), h('button', { class: 'btn primary', onclick: run(async () => { await api('/world/marriages', { method: 'POST', body: f.read() }); closeModal(); render(); }) }, 'Record')]);
+}
+
+function ranksCard() {
+  const w = W_();
+  const s = w.settings;
+  const ranks = clone(WD.ranks || s.repRanks || []);
+  const wrap = h('div');
+  const lvl = (r, p) => { const sl = select([['free', 'On their own'], ['staff', 'Staff approve'], ['none', 'No']], r.powers?.[p] || 'none'); sl.onchange = () => { (r.powers ||= {})[p] = sl.value; }; return sl; };
+  const inp = (r, k, type = 'text', width = 120) => { const i = h('input', { type, value: r[k] ?? '', style: `width:${width}px` }); i.onchange = () => (r[k] = type === 'number' ? Number(i.value) : i.value); return i; };
+  const draw = () => wrap.replaceChildren(h('div', { class: 'table-wrap' }, h('table', {},
+    h('thead', {}, h('tr', {}, h('th', {}, 'Rank'), h('th', {}, '漢字'), h('th', {}, 'Spend alone up to'), ...(WD.powers || []).map((p) => h('th', { title: p.description }, p.name)), h('th', {}, ''))),
+    h('tbody', {}, ranks.map((r, i) => h('tr', {}, h('td', {}, inp(r, 'name')), h('td', {}, inp(r, 'hanzi', 'text', 70)), h('td', {}, inp(r, 'spendLimit', 'number', 90)), ...(WD.powers || []).map((p) => h('td', {}, lvl(r, p.id))),
+      h('td', {}, h('button', { class: 'btn small ghost', onclick: () => { ranks.splice(i, 1); draw(); } }, '✕'))))))));
+  draw();
+  const defSel = h('select');
+  const refreshSel = () => { for (const [sel, val] of [[defSel, s.defaultRepRank], [leadSel, s.leaderRank]]) { sel.replaceChildren(...ranks.map((r) => h('option', { value: r.id || r.name }, r.name))); sel.value = val; } };
+  const leadSel = h('select');
+  refreshSel();
+  return h('div', { class: 'card' }, h('h3', {}, 'Representative ranks'),
+    h('p', { class: 'muted small' }, 'What each rank may do on its own, only with staff approval, or not at all — and how much it may spend without approval. Anything above the limit goes to staff too. Staff can always act directly. Give each representative a rank in their faction\'s Council (or with /office).'),
+    wrap,
+    h('div', { class: 'toolbar', style: 'margin-top:8px' },
+      h('button', { class: 'btn small', onclick: () => { ranks.push({ id: `rank-${ranks.length + 1}`, name: 'New rank', hanzi: '', spendLimit: 0, powers: {} }); draw(); refreshSel(); } }, '+ Rank'),
+      h('span', {}, 'New representatives get'), defSel, h('span', {}, 'Leaders use'), leadSel,
+      h('span', {}, 'Max representatives per faction'), (() => { const i = h('input', { type: 'number', value: s.maxRepresentatives, style: 'width:70px', id: 'maxReps' }); return i; })(),
+      h('span', { class: 'grow' }),
+      h('button', { class: 'btn primary', onclick: run(async () => {
+        for (const r of ranks) if (!r.id || r.id.startsWith('rank-')) r.id = (r.name || 'rank').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || `rank-${Math.random().toString(36).slice(2, 6)}`;
+        await api('/world/settings', { method: 'PUT', body: { ...s, repRanks: ranks, defaultRepRank: defSel.value, leaderRank: leadSel.value, maxRepresentatives: Number($('#maxReps').value) } });
+        toast('Ranks saved.'); render();
+      }) }, 'Save ranks')));
+}
+
+/** One realm, CK3-style: overview, council, buildings, policies, shop. */
+function openRealm(f, start = 'overview') {
+  const w = W_();
+  const v = clone(f);
+  const done = () => { closeModal(); render(); };
+  const lands = landsOf(f.id);
+  const overview = () => {
+    const form = buildForm([
+      { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字' }, { k: 'color', label: 'Colour', t: 'color' },
+      { k: 'colorStyle', label: 'On the map', t: 'select', opts: [['', 'Map default'], ['washed', 'Washed'], ['vivid', 'Vivid']] },
+      { k: 'kind', label: 'Kind', t: 'select', opts: ['sect', 'clan', 'palace', 'cult', 'court', 'guild', 'bandits', 'other'] }, { k: 'alignment', label: 'Alignment', t: 'select', opts: ['Orthodox', 'Unorthodox', 'Neutral', 'Imperial', 'Demonic'] },
+      { k: 'sect', label: 'Linked sect (members)', t: 'select', opts: () => [['', '— none —'], ...WD.sects.map((x) => [x.name, x.name])] }, { k: 'hq', label: 'Seat', t: 'select', opts: () => [['', '—'], ...marketOpts()] },
+      { k: 'active', label: 'Active', t: 'check' }, { k: 'npc', label: 'Run by staff (not a player sect)', t: 'check' }, { k: 'tradeCharter', label: 'May run trade caravans', t: 'check', help: 'Guilds always may (World settings)' },
+      { k: 'treasury', label: 'Treasury', t: 'number' },
+      { k: 'icon', label: 'Icon in Discord menus (optional)' },
+      { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (factionTick, regionTick, diplomacy, battleRound, shopPrice)', t: 'select', opts: scriptOpts, wide: true },
+    ], v);
+    const al = allianceOfF(f.id);
+    return [
+      h('div', { class: 'kv small' },
+        h('span', { class: 'muted' }, 'Lands'), h('span', {}, lands.map((r) => rname(r.key)).join(', ') || '—'),
+        h('span', { class: 'muted' }, 'Alliance'), h('span', {}, al ? al.name : '—'),
+        h('span', { class: 'muted' }, 'Wars'), h('span', {}, warsOfF(f.id).map((x) => x.name).join(', ') || 'at peace'),
+        h('span', { class: 'muted' }, 'Agreements'), h('span', {}, w.agreements.filter((t) => t.parties.includes(f.id)).map((t) => t.name).join(', ') || '—'),
+        h('span', { class: 'muted' }, 'Last turn'), h('span', {}, Object.entries(f.lastIncome || {}).filter(([, x]) => x).map(([k, x]) => `${k} ${x > 0 ? '+' : ''}${fmt(x)}`).join(' · ') || '—')),
+      form.el,
+      h('div', { class: 'toolbar' }, f.sect ? null : h('button', { class: 'btn danger', onclick: run(async () => { if (!confirm(`Delete ${f.name}?`)) return; await api(`/world/factions/${f.id}`, { method: 'DELETE' }); done(); }) }, 'Delete faction'), h('span', { class: 'grow' }),
+        h('button', { class: 'btn primary', onclick: run(async () => { await api(`/world/factions/${f.id}`, { method: 'PUT', body: form.read() }); toast('Saved.'); done(); }) }, 'Save')),
+    ];
+  };
+  const council = () => {
+    const mem = WD.characters.filter((c) => f.sect && c.sect === f.sect);
+    const rankSel = (c) => { const sl = select([['member', 'Member'], ...((WD.ranks || []).map((r) => [`rep:${r.id}`, r.name])), ['leader', 'Leader']], c.office === 'leader' ? 'leader' : c.office === 'representative' ? `rep:${f.repRanks?.[c.id] || w.settings.defaultRepRank}` : 'member');
+      sl.onchange = run(async () => { const [o, rk] = sl.value.split(':'); await api('/world/office', { method: 'PUT', body: { charId: c.id, office: o === 'rep' ? 'representative' : o, rank: rk } }); toast(`${c.name}: ${sl.selectedOptions[0].text}.`); await loadWorld(); }); return sl; };
+    const stip = buildForm([{ k: 'stipendRate', label: `Stipends: % of net income (max ${w.settings.maxStipendRate})`, t: 'number' }, { k: 'stipendFund', label: 'Stipend fund now', t: 'number' }, { k: 'repRoleId', label: 'Representative Discord role (optional)', t: 'role' }], v);
+    return [
+      h('p', { class: 'muted small' }, 'The leader and representatives act for the realm in /world → Realm. Their rank decides what they may do alone, with staff approval, or not at all (ranks are edited under Politics → Rules).'),
+      mem.length ? table([['Character', (c) => h('b', {}, c.name)], ['Player', (c) => c.ownerTag || ''], ['Office', rankSel], ['Purse', (c) => fmtN(c.nyang)]], mem) : h('p', { class: 'muted' }, 'No members (link a sect in Overview).'),
+      stip.el, h('div', { class: 'toolbar' }, h('span', { class: 'grow' }), h('button', { class: 'btn primary', onclick: run(async () => { await api(`/world/factions/${f.id}`, { method: 'PUT', body: stip.read() }); toast('Saved.'); }) }, 'Save stipends')),
+    ];
+  };
+  const buildings = () => {
+    if (!lands.length) return [h('p', { class: 'muted' }, 'This faction rules no market region (paint it on the Map).')];
+    const typeSel = select(w.buildingTypes.map((b) => [b.id, `${b.name} — ${b.cost}`]));
+    const regSel = select(lands.map((r) => [r.key, rname(r.key)]));
+    const ready = h('input', { type: 'checkbox' });
+    return [
+      ...lands.map((r) => h('div', { class: 'card' }, h('b', {}, rname(r.key)), (r.buildings || []).length ? h('div', { class: 'list' }, r.buildings.map((b) => {
+        const t = w.buildingTypes.find((x) => x.id === b.typeId);
+        const hp = h('input', { type: 'number', min: 0, max: 100, value: Math.round(b.hp), style: 'width:64px' });
+        return h('div', { class: 'toolbar small' }, h('span', { class: 'grow' }, `${t?.name || b.typeId} — ${b.status === 'building' ? `under construction (ready turn ${b.readyTurn})` : 'ready'}`), h('span', {}, 'strength'), hp,
+          h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(r.key)}/buildings/${b.id}`, { method: 'PUT', body: { hp: Number(hp.value), status: 'ready' } }); toast('Saved.'); await loadWorld(); }) }, b.status === 'building' ? 'Finish now' : 'Save'),
+          h('button', { class: 'btn small danger', onclick: run(async () => { if (!confirm('Remove this building?')) return; await api(`/world/regions/${encodeURIComponent(r.key)}/buildings/${b.id}`, { method: 'DELETE' }); await loadWorld(); openRealm(fac(f.id), 'buildings'); }) }, 'Remove'));
+      })) : h('p', { class: 'muted small' }, 'Nothing built.'))),
+      h('div', { class: 'toolbar' }, typeSel, h('span', {}, 'in'), regSel, h('label', { class: 'field check' }, ready, h('span', {}, 'already finished')),
+        h('button', { class: 'btn', onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(regSel.value)}/buildings`, { method: 'POST', body: { typeId: typeSel.value, factionId: f.id, free: true, ready: ready.checked } }); toast('Added (free, by staff).'); await loadWorld(); openRealm(fac(f.id), 'buildings'); }) }, '+ Add (free)')),
+    ];
+  };
+  const policies = () => {
+    const adopted = [...f.policies.map((p) => ({ ...p, region: '' })), ...Object.entries(w.regions).flatMap(([k, r]) => (r.policies || []).filter((p) => p.factionId === f.id).map((p) => ({ ...p, region: k })))];
+    const polSel = select(w.policies.map((p) => [p.id, `${p.name} (${p.scope})`]));
+    const regSel = select([['', '— (faction-wide) —'], ...lands.map((r) => [r.key, rfull(r.key)])]);
+    const free = h('input', { type: 'checkbox' });
+    return [
+      h('div', { class: 'list' }, adopted.map((p) => { const d = w.policies.find((x) => x.id === p.policyId); return h('div', { class: 'toolbar small' }, h('span', { class: 'grow' }, `${d?.name || p.policyId}${p.region ? ` — ${rname(p.region)}` : ''} · since turn ${p.since}`), h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/factions/${f.id}/policies/${p.policyId}?region=${encodeURIComponent(p.region)}`, { method: 'DELETE' }); done(); }) }, 'Revoke')); })),
+      adopted.length ? null : h('p', { class: 'muted small' }, 'No policies.'),
+      h('div', { class: 'toolbar' }, polSel, regSel, h('label', { class: 'field check' }, free, h('span', {}, 'free')), h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/factions/${f.id}/policies`, { method: 'POST', body: { policyId: polSel.value, region: regSel.value, free: free.checked } }); toast('Adopted.'); done(); }) }, 'Adopt')),
+    ];
+  };
+  const shopTab = () => {
+    const shop = clone(v.shop);
+    const wrap = h('div');
+    const access = select([['everyone', 'Open to everyone (except enemies)'], ['allies', 'Members & allies only'], ['members', 'Members only (closed gates)']], shop.access);
+    access.onchange = () => (shop.access = access.value);
+    const draw = () => wrap.replaceChildren(table([
+      ['Item', (e) => { const s = select(WD.items.filter((i) => !i.tradeGood).map((i) => [i.id, `${i.name} (${i.type})`]), e.itemId); s.onchange = () => (e.itemId = s.value); return s; }],
+      ['Price', (e) => { const i = h('input', { type: 'number', value: e.price ?? '', placeholder: `shop ${WD.items.find((x) => x.id === e.itemId)?.price || ''}`, style: 'width:80px' }); i.onchange = () => (e.price = i.value === '' ? null : Number(i.value)); return i; }],
+      ['Stock', (e) => { const i = h('input', { type: 'number', value: e.stock, style: 'width:70px', title: '-1 = unlimited' }); i.onchange = () => (e.stock = Number(i.value)); return i; }],
+      ['+ / turn', (e) => { const i = h('input', { type: 'number', value: e.restock || 0, style: 'width:60px' }); i.onchange = () => (e.restock = Number(i.value)); return i; }],
+      ['Who', (e) => { const s = select([['inherit', 'shop rule'], ['everyone', 'everyone'], ['allies', 'allies'], ['members', 'members']], e.access); s.onchange = () => (e.access = s.value); return s; }],
+      ['', (e) => h('button', { class: 'btn small danger', onclick: () => { shop.items.splice(shop.items.indexOf(e), 1); draw(); } }, '✕')],
+    ], shop.items));
+    draw();
+    return [h('div', { class: 'toolbar' }, access, h('button', { class: 'btn small', onclick: () => { shop.items.push({ itemId: WD.items[0]?.id, price: null, stock: -1, restock: 0, access: 'inherit' }); draw(); } }, '+ Item')),
+      h('p', { class: 'muted small' }, `Prices: members ${w.settings.shopTiers.member}% · allies (shared shops) ${w.settings.shopTiers.ally}% · everyone else +${w.settings.shopTiers.neutral}% · enemies at war can't buy.`), wrap,
+      h('div', { class: 'toolbar' }, h('span', { class: 'grow' }), h('button', { class: 'btn primary', onclick: run(async () => { await api(`/world/factions/${f.id}`, { method: 'PUT', body: { shop } }); toast('Saved.'); }) }, 'Save shop'))];
+  };
+  openModal(`${f.name}${f.hanzi ? ` ${f.hanzi}` : ''}`, tabsEl([['overview', 'Overview', overview], ['council', 'Council', council], ['buildings', 'Buildings', buildings], ['policies', 'Policies', policies], ['shop', 'Sect shop', shopTab]], start), [h('button', { class: 'btn', onclick: done }, 'Close')]);
+}
+const editFaction = (f) => (f ? openRealm(f) : newFaction(render));
 
 function officesCard() {
   const w = W_();
@@ -1149,11 +1478,11 @@ function officesCard() {
   });
   fSel.onchange = showPlan;
   setTimeout(showPlan, 0);
-  return h('div', { class: 'card' }, h('h3', {}, 'Representatives, leaders & stipends'),
+  return h('div', { class: 'card' }, h('h3', {}, 'Council members & stipends (all realms)'),
     h('p', { class: 'muted small' }, `Representatives (up to ${s.maxRepresentatives || '∞'} per faction) are the players whose characters lead their sect's politics, diplomacy and trade. ${s.representativesFight ? 'They may fight in battles.' : 'They do not fight in battles (World settings → "Representatives may fight").'} Staff can also use /office in Discord, which gives the Representative role.`),
     h('div', { class: 'table-wrap', style: 'max-height:320px' }, table([
       ['Character', (c) => h('b', {}, c.name)], ['Sect', (c) => c.sect], ['Player', (c) => c.ownerTag || ''],
-      ['Office', (c) => { const sl = select([['member', 'Member'], ['representative', 'Representative'], ['leader', 'Leader']], c.office || 'member'); sl.onchange = run(async () => { await api('/world/office', { method: 'PUT', body: { charId: c.id, office: sl.value } }); toast(`${c.name}: ${sl.value}.`); render(); }); return sl; }],
+      ['Office', (c) => { const f = W_().factions.find((x) => x.sect === c.sect); const sl = select([['member', 'Member'], ...((WD.ranks || []).map((r) => [`rep:${r.id}`, r.name])), ['leader', 'Leader']], c.office === 'leader' ? 'leader' : c.office === 'representative' ? `rep:${f?.repRanks?.[c.id] || s.defaultRepRank}` : 'member'); sl.onchange = run(async () => { const [o, rk] = sl.value.split(':'); await api('/world/office', { method: 'PUT', body: { charId: c.id, office: o === 'rep' ? 'representative' : o, rank: rk } }); toast(`${c.name}: ${sl.selectedOptions[0].text}.`); render(); }); return sl; }],
       ['Purse', (c) => fmtN(c.nyang)],
     ], rows)),
     h('div', { class: 'ref', style: 'margin-top:10px' },
@@ -1161,167 +1490,6 @@ function officesCard() {
       h('p', {}, h('code', {}, `fund += stipendRate% × net income each turn · every ${s.stipendEveryTurns} turns: raw = fund × weight ÷ Σweights · cap = ${s.stipendSoftCap} × weight × (1 + ln(members) ÷ 4) · paid = cap × (1 − e^(−raw ÷ cap))`)),
       h('p', { class: 'muted small' }, `Weights: member 1 · representative ${s.repWeight} · leader ${s.leaderWeight}. The soft cap is the brake on small rich factions: however big the fund, nobody gets more than their cap per season, and the rest goes back to the treasury. A separate cap stops anyone moving more than ${fmtN(s.maxTradePerTurn)} through the markets per turn (0 = no cap).`),
       h('div', { class: 'toolbar' }, h('span', {}, 'Preview:'), fSel)), preview);
-}
-
-function relationsCard() {
-  const w = W_();
-  const fs = w.factions.filter((f) => f.active);
-  const cell = (a, b) => {
-    if (a.id === b.id) return h('td', { style: 'background:#2a241e' }, '');
-    const r = relOf(a.id, b.id);
-    const t = (r.value + 100) / 200;
-    return h('td', { title: `${a.name} ↔ ${b.name}: ${Math.round(r.value)}${r.war ? ' (WAR)' : ''}`, style: `background:${r.war ? '#5a0d0d' : ramp(t)};color:#111;text-align:center;cursor:pointer;font-size:11px;padding:4px`, onclick: () => editRelation(a, b) }, r.war ? '⚔' : Math.round(r.value));
-  };
-  return h('div', { class: 'card' }, h('h3', {}, 'Relations'), h('p', { class: 'muted small' }, 'Click a cell to change it. Relations drift back toward 0 slowly; treaties push them up, wars down.'),
-    h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), fs.map((f) => h('th', { title: f.name, style: 'writing-mode:vertical-rl;transform:rotate(180deg);font-size:11px' }, f.name)))),
-      h('tbody', {}, fs.map((a) => h('tr', {}, h('th', { style: 'font-size:11px' }, `${a.icon || ''} ${a.name}`), fs.map((b) => cell(a, b))))))));
-}
-function editRelation(a, b) {
-  const r = relOf(a.id, b.id);
-  const v = h('input', { type: 'number', min: -100, max: 100, value: Math.round(r.value) });
-  const war = h('input', { type: 'checkbox' }); war.checked = !!r.war;
-  openModal(`${a.name} ↔ ${b.name}`, h('div', { class: 'form' }, h('label', { class: 'field' }, h('span', {}, 'Relation (−100 to 100)'), v), h('label', { class: 'field check' }, war, h('span', {}, 'At war'))),
-    [h('button', { class: 'btn', onclick: closeModal }, 'Cancel'), h('button', { class: 'btn primary', onclick: run(async () => { await api('/world/relations', { method: 'PUT', body: { a: a.id, b: b.id, value: Number(v.value), war: war.checked } }); closeModal(); render(); }) }, 'Save')]);
-}
-
-function treatiesCard() {
-  const w = W_();
-  return h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, `Treaties & agreements (${w.treaties.length})`), h('button', { class: 'btn', onclick: () => editTreaty(null) }, '+ Custom agreement')),
-    table([
-      ['Treaty', (t) => `${w.treatyTypes.find((x) => x.id === t.type)?.emoji || '📜'} ${t.name}`], ['Between', (t) => t.parties.map(facName).join(' & ')],
-      ['Ends', (t) => (t.endTurn ? `turn ${t.endTurn}` : 'never')], ['Terms', (t) => [t.payer ? `${facName(t.payer)} pays ${facName(t.receiver)}` : '', t.couple ? t.couple.map(charName).join(' 💍 ') : '', t.scriptId ? '⚙ custom code' : '', t.note].filter(Boolean).join(' · ')],
-    ], w.treaties, editTreaty));
-}
-function editTreaty(t) {
-  const w = W_();
-  const v = t ? clone(t) : { type: 'custom', name: '', parties: [w.factions[0]?.id, w.factions[1]?.id], duration: 0, terms: {}, effects: {}, scriptId: '', note: '' };
-  const f = buildForm([
-    { k: 'type', label: 'Type', t: 'select', opts: w.treatyTypes.map((x) => [x.id, `${x.emoji} ${x.name}`]) }, { k: 'name', label: 'Name' },
-    { k: 'parties.0', label: 'Party A', t: 'select', opts: factionOpts() }, { k: 'parties.1', label: 'Party B', t: 'select', opts: factionOpts() },
-    { k: 'payer', label: 'Payer (tribute)', t: 'select', opts: factionOpts() }, { k: 'receiver', label: 'Receiver', t: 'select', opts: factionOpts() },
-    t ? { k: 'endTurn', label: 'Ends on turn (empty = never)', t: 'number', nullable: true } : { k: 'duration', label: 'Duration (turns, 0 = forever)', t: 'number' },
-    { k: 'scriptId', label: 'Custom code (treatyTick)', t: 'select', opts: scriptOpts, help: 'For very specific agreements: move Nyang, change relations or end it by its terms' },
-    { k: 'note', label: 'What was agreed (shown to staff)', t: 'textarea', wide: true },
-  ], v);
-  const terms = jsonField('Terms (free data your custom code can read, e.g. { "tribute": 10, "fixed": 50 })', v.terms, 3);
-  const eff = jsonField('Effects on both parties\' regions every turn (same keys as events/policies)', v.effects, 4);
-  openModal(t ? t.name : 'New agreement', h('div', { style: 'display:grid;gap:10px' }, f.el, terms, eff), [
-    t ? h('button', { class: 'btn danger left', onclick: run(async () => { if (!confirm('End this treaty?')) return; await api(`/world/treaties/${t.id}`, { method: 'DELETE' }); closeModal(); render(); }) }, 'End treaty') : null,
-    h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
-    h('button', { class: 'btn primary', onclick: run(async () => {
-      const x = f.read(); const body = { ...x, parties: [x.parties[0], x.parties[1]], terms: terms.read(), effects: eff.read() };
-      if (t) await api(`/world/treaties/${t.id}`, { method: 'PUT', body }); else await api('/world/treaties', { method: 'POST', body });
-      closeModal(); render();
-    }) }, 'Save'),
-  ].filter(Boolean));
-}
-
-function diplomacyMapCard() {
-  const w = W_();
-  const fromSel = select(factionOpts('— from —'), w.factions[0]?.id);
-  const toSel = select(factionOpts('— to —'), w.factions[1]?.id);
-  const box = h('div', { class: 'table-wrap', style: 'background:#17130f' });
-  const info = h('p', { class: 'muted small' }, 'Hover an action to see what it needs. Arrows: grey = opens the way to, gold = needs the treaty made by.');
-  const draw = run(async () => {
-    const g = await api(`/world/diplomacy-graph?from=${encodeURIComponent(fromSel.value)}&to=${encodeURIComponent(toSel.value)}`);
-    const cats = ['courtesy', 'trade', 'murim', 'alliance', 'marriage', 'court', 'hostile'];
-    const colW = 170; const rowH = 54;
-    const pos = {}; const counts = {};
-    for (const n of g.nodes) { const c = Math.max(0, cats.indexOf(n.category)); const i = (counts[c] = (counts[c] || 0) + 1) - 1; pos[n.id] = [30 + c * colW, 50 + i * rowH]; }
-    const H = 60 + Math.max(...Object.values(counts)) * rowH;
-    const svg = sv('svg', { width: 30 + cats.length * colW, height: H, viewBox: `0 0 ${30 + cats.length * colW} ${H}` },
-      sv('defs', {}, sv('marker', { id: 'darr', viewBox: '0 0 10 10', refX: 9, refY: 5, markerWidth: 6, markerHeight: 6, orient: 'auto' }, sv('path', { d: 'M0 0 L10 5 L0 10z', fill: '#8a7a62' }))));
-    cats.forEach((c, i) => svg.append(sv('text', { x: 30 + i * colW + 70, y: 24, fill: '#d9a441', 'font-size': 13, 'text-anchor': 'middle', 'font-family': 'Cormorant Garamond, serif', 'font-weight': 700 }, c[0].toUpperCase() + c.slice(1))));
-    for (const e of g.edges) { const a = pos[e.from]; const b = pos[e.to]; if (!a || !b) continue; svg.append(sv('path', { d: `M${a[0] + 140} ${a[1] + 16} C ${a[0] + 160} ${a[1] + 16}, ${b[0] - 20} ${b[1] + 16}, ${b[0]} ${b[1] + 16}`, fill: 'none', stroke: e.kind === 'requires' ? '#d9a441' : '#8a7a62', 'stroke-width': 1.2, opacity: 0.7, 'marker-end': 'url(#darr)' })); }
-    for (const n of g.nodes) {
-      const [x, y] = pos[n.id];
-      const fill = n.available === null ? '#2b251f' : n.available ? '#1f3d26' : '#3a1d1a';
-      const stroke = n.available === null ? '#5a4f42' : n.available ? '#4f9d5d' : '#8a3a30';
-      const node = sv('g', {}, sv('rect', { x, y, width: 140, height: 32, rx: 6, fill, stroke }), sv('text', { x: x + 8, y: y + 20, fill: '#ece4d6', 'font-size': 12, 'font-family': 'IBM Plex Sans, sans-serif' }, `${n.emoji} ${n.name.length > 19 ? `${n.name.slice(0, 18)}…` : n.name}`), sv('title', {}, `${n.name}${n.staffApproval ? ' (staff approve)' : ''}${n.unilateral ? ' (one-sided)' : ''}\n${n.description}${n.reasons?.length ? `\n\n🔒 ${n.reasons.join('\n🔒 ')}` : n.available ? '\n\n✅ Available now' : ''}`));
-      node.addEventListener('mouseenter', () => { info.textContent = `${n.emoji} ${n.name}: ${n.description} ${n.reasons?.length ? `— 🔒 ${n.reasons.join(' · ')}` : n.available ? '— ✅ available now' : ''}`; });
-      svg.append(node);
-    }
-    box.replaceChildren(svg);
-  });
-  fromSel.onchange = draw; toSel.onchange = draw;
-  setTimeout(draw, 0);
-  const proposeBtn = h('button', { class: 'btn', onclick: () => staffPropose(fromSel.value, toSel.value) }, '📜 Make a proposal as staff');
-  return h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, 'Diplomacy map'), fromSel, h('span', {}, '→'), toSel, proposeBtn),
-    h('p', { class: 'muted small' }, 'Every decision a faction can take toward another, and what each opens up. Green = possible right now for the pair you picked, red = locked (hover for why).'), info, box);
-}
-function staffPropose(from, to) {
-  const w = W_();
-  const f = buildForm([
-    { k: 'actionId', label: 'Action', t: 'select', opts: w.actions.map((a) => [a.id, `${a.emoji} ${a.name}`]) },
-    { k: 'from', label: 'From', t: 'select', opts: factionOpts() }, { k: 'to', label: 'To', t: 'select', opts: factionOpts() },
-    { k: 'subjectCharId', label: 'Their character (from side)', t: 'select', opts: () => [['', '—'], ...WD.characters.map((c) => [c.id, `${c.name} (${c.sect || 'Rogue'})`])] },
-    { k: 'targetCharId', label: 'Character (to side)', t: 'select', opts: () => [['', '—'], ...WD.characters.map((c) => [c.id, `${c.name} (${c.sect || 'Rogue'})`])] },
-    { k: 'autoAccept', label: 'Skip acceptance (apply now)', t: 'check' }, { k: 'note', label: 'Note', t: 'textarea', wide: true },
-  ], { actionId: w.actions[0].id, from, to });
-  openModal('Staff proposal', f.el, [h('button', { class: 'btn', onclick: closeModal }, 'Cancel'), h('button', { class: 'btn primary', onclick: run(async () => { const r = await api('/world/proposals', { method: 'POST', body: f.read() }); toast(`Proposal ${r.proposal.status}.`); closeModal(); render(); }) }, 'Send')]);
-}
-
-function editFaction(f, done = render) {
-  const w = W_();
-  const v = f ? clone(f) : { name: '', kind: 'other', alignment: 'Neutral', color: '#888888', treasury: 2000, influence: 60, reputation: 50, active: true, representatives: [], shop: { access: 'everyone', items: [] }, policies: [] };
-  const chars = () => [['', '—'], ...WD.characters.map((c) => [c.id, `${c.name} (${c.sect || 'Rogue'})`])];
-  const form = buildForm([
-    { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字' }, { k: 'color', label: 'Colour', t: 'color' },
-    { k: 'colorStyle', label: 'On the map', t: 'select', opts: [['', 'Map default'], ['washed', 'Washed'], ['vivid', 'Vivid']] },
-    { k: 'icon', label: 'Icon in Discord (optional)', help: 'Only used in Discord menus; never drawn on the map' },
-    { k: 'kind', label: 'Kind', t: 'select', opts: ['sect', 'clan', 'palace', 'cult', 'court', 'guild', 'bandits', 'other'] }, { k: 'alignment', label: 'Alignment', t: 'select', opts: ['Orthodox', 'Unorthodox', 'Neutral', 'Imperial', 'Demonic'] },
-    { k: 'sect', label: 'Linked sect (members)', t: 'select', opts: () => [['', '— none —'], ...WD.sects.map((s) => [s.name, s.name])] }, { k: 'hq', label: 'Headquarters', t: 'select', opts: () => [['', '—'], ...marketOpts()] },
-    { k: 'active', label: 'Active', t: 'check' }, { k: 'npc', label: 'NPC (not for players)', t: 'check' },
-    { k: 'treasury', label: 'Treasury', t: 'number' }, { k: 'influence', label: 'Influence', t: 'number' }, { k: 'reputation', label: 'Reputation (0–100)', t: 'number' },
-    { section: 'Leader, representatives & stipends' },
-    { k: 'leaderCharId', label: 'Leader', t: 'select', opts: chars },
-    { k: 'repRoleId', label: 'Representative role', t: 'role', help: 'Given to its representatives by /office; members with it count as representatives' },
-    { k: 'stipendRate', label: `Stipend: % of net income (max ${W_().settings.maxStipendRate})`, t: 'number', help: 'Set aside each turn, paid to members every season (soft-capped per person)' },
-    { k: 'stipendFund', label: 'Stipend fund now', t: 'number' },
-    { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (factionTick, regionTick, diplomacy, battleRound, shopPrice)', t: 'select', opts: scriptOpts, wide: true },
-  ], v);
-  const repSel = h('select', { multiple: true }, WD.characters.map((c) => h('option', { value: c.id }, `${c.name} (${c.sect || 'Rogue'})`)));
-  [...repSel.options].forEach((o) => (o.selected = v.representatives.includes(o.value)));
-  // shop
-  const shop = clone(v.shop);
-  const shopWrap = h('div');
-  const access = select([['everyone', 'Open to everyone (except enemies)'], ['allies', 'Members & allies only'], ['members', 'Members only (closed gates)']], shop.access);
-  access.onchange = () => (shop.access = access.value);
-  const drawShop = () => shopWrap.replaceChildren(table([
-    ['Item', (e) => { const s = select(WD.items.filter((i) => !i.tradeGood).map((i) => [i.id, `${i.name} (${i.type})`]), e.itemId); s.onchange = () => (e.itemId = s.value); return s; }],
-    ['Price', (e) => { const i = h('input', { type: 'number', value: e.price ?? '', placeholder: `shop ${WD.items.find((x) => x.id === e.itemId)?.price || ''}`, style: 'width:80px' }); i.onchange = () => (e.price = i.value === '' ? null : Number(i.value)); return i; }],
-    ['Stock', (e) => { const i = h('input', { type: 'number', value: e.stock, style: 'width:70px', title: '-1 = unlimited' }); i.onchange = () => (e.stock = Number(i.value)); return i; }],
-    ['+ / turn', (e) => { const i = h('input', { type: 'number', value: e.restock || 0, style: 'width:60px' }); i.onchange = () => (e.restock = Number(i.value)); return i; }],
-    ['Who', (e) => { const s = select([['inherit', 'shop rule'], ['everyone', 'everyone'], ['allies', 'allies'], ['members', 'members']], e.access); s.onchange = () => (e.access = s.value); return s; }],
-    ['', (e) => h('button', { class: 'btn small danger', onclick: () => { shop.items.splice(shop.items.indexOf(e), 1); drawShop(); } }, '✕')],
-  ], shop.items));
-  drawShop();
-  // policies
-  const polWrap = h('div');
-  if (f) {
-    const adopted = [...f.policies.map((p) => ({ ...p, region: '' })), ...Object.entries(w.regions).flatMap(([k, r]) => (r.policies || []).filter((p) => p.factionId === f.id).map((p) => ({ ...p, region: k })))];
-    const polSel = select(w.policies.map((p) => [p.id, `${p.emoji} ${p.name} (${p.scope})`]));
-    const regSel = select([['', '— (faction-wide) —'], ...Object.entries(w.regions).filter(([, r]) => r.controller === f.id && r.population !== undefined).map(([k]) => [k, rfull(k)])]);
-    const free = h('input', { type: 'checkbox' });
-    polWrap.append(
-      h('div', { class: 'list' }, adopted.map((p) => { const d = w.policies.find((x) => x.id === p.policyId); return h('div', { class: 'toolbar small' }, h('span', { class: 'grow' }, `${d?.emoji || ''} ${d?.name || p.policyId}${p.region ? ` — ${rname(p.region)}` : ''} · since turn ${p.since}`), h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/factions/${f.id}/policies/${p.policyId}?region=${encodeURIComponent(p.region)}`, { method: 'DELETE' }); closeModal(); render(); }) }, 'Revoke')); })),
-      h('div', { class: 'toolbar', style: 'margin-top:6px' }, polSel, regSel, h('label', { class: 'field check' }, free, h('span', {}, 'free')), h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/factions/${f.id}/policies`, { method: 'POST', body: { policyId: polSel.value, region: regSel.value, free: free.checked } }); toast('Adopted.'); closeModal(); render(); }) }, 'Adopt')),
-    );
-  }
-  openModal(f ? f.name : 'New faction', h('div', { style: 'display:grid;gap:12px' }, form.el,
-    h('label', { class: 'field wide' }, h('span', {}, `Representatives (max ${W_().settings.maxRepresentatives || '∞'}) — they lead the faction's diplomacy, trade and politics and usually don't fight`), repSel),
-    h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, '🏯 Sect shop'), access, h('button', { class: 'btn small', onclick: () => { shop.items.push({ itemId: WD.items[0]?.id, price: null, stock: -1, restock: 0, access: 'inherit' }); drawShop(); } }, '+ Item')),
-      h('p', { class: 'muted small' }, `Prices: members ${W_().settings.shopTiers.member}% · allies ${W_().settings.shopTiers.ally}% · outsiders +${W_().settings.shopTiers.neutral}% · rivals +${W_().settings.shopTiers.rival}% · enemies at war can't buy. Items linked to a good (item editor → World economy) also follow its local price.`), shopWrap),
-    f ? h('div', { class: 'card' }, h('h3', {}, '🏛️ Policies'), polWrap) : null,
-  ), [
-    f && !f.sect ? h('button', { class: 'btn danger left', onclick: run(async () => { if (!confirm(`Delete ${f.name}?`)) return; await api(`/world/factions/${f.id}`, { method: 'DELETE' }); closeModal(); done(); }) }, 'Delete') : null,
-    h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
-    h('button', { class: 'btn primary', onclick: run(async () => {
-      const body = { ...form.read(), representatives: [...repSel.selectedOptions].map((o) => o.value), shop };
-      if (f) await api(`/world/factions/${f.id}`, { method: 'PUT', body }); else await api('/world/factions', { method: 'POST', body });
-      toast('Saved.'); closeModal(); done();
-    }) }, 'Save'),
-  ].filter(Boolean));
 }
 
 // ════════════════════════════════════════ WAR ════════════════════════════════════════
@@ -1504,7 +1672,7 @@ VIEWS.balance = async () => {
       ], r.rows)),
       h('div', { class: 'card ref' }, h('h3', {}, 'The three formulas'),
         h('p', {}, h('b', {}, '① Power Index'), ` = ${r.weights.military} × military share + ${r.weights.economy} × economy share + ${r.weights.politics} × politics share + ${r.weights.cultivation} × cultivation share (weights in World settings).`),
-        h('p', { class: 'muted small' }, 'Military = army strength (men × average attack & defence × morale) + champion power of members. Economy = Σ ruled regions (people × prosperity ÷ 100) + treasury ÷ 50 + workshop profits × 10. Politics = influence + 20 per treaty + positive relations ÷ 5 + reputation. Cultivation = Σ members (stat total × realm multiplier). Each pillar is a share of the server total, so the Power Index of all factions adds up to 100%.'),
+        h('p', { class: 'muted small' }, 'Military = army strength (men × average attack & defence × morale) + champion power of members. Economy = Σ ruled regions (people × prosperity ÷ 100) + treasury ÷ 50 + workshop profits × 10. Politics = 10 per region ruled + 20 per agreement + 30 per fellow alliance member + 50. Cultivation = Σ members (stat total × realm multiplier). Each pillar is a share of the server total, so the Power Index of all factions adds up to 100%.'),
         h('p', {}, h('b', {}, '② vs fair share'), ` = Power Index − ${r.fair}% (100% ÷ number of factions). HHI = Σ (Power Index)²: ${r.hhiFair} when perfectly even; above 0.25 a single faction dominates.`),
         h('p', {}, h('b', {}, '③ Recruitment need'), ' = 60 × power deficit + 40 × member deficit (0–100). Power deficit = how far below the fair share the faction is; member deficit = how far below the average member count. The top three playable sects are recommended to new players (shown in /help and in /world → Politics for characters without a sect), and World settings → "join bonus" can pay extra Nyang for joining them.')),
     );

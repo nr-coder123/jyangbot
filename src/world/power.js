@@ -5,7 +5,7 @@
  * ① Power Index (PI) — each faction's share of the server's total power, from four pillars:
  *      Military    = Σ army strength (men × average of attack & defence × morale) + Σ champion power of members
  *      Economy     = Σ controlled regions (population × prosperity ÷ 100) + treasury ÷ 50 + workshop profits × 10
- *      Politics    = influence + 20 per treaty + Σ positive relations ÷ 5 + reputation
+ *      Politics    = 10 per region ruled + 20 per agreement + 30 per other member of its alliance + 50
  *      Cultivation = Σ members (stat total × realm multiplier)
  *    PI = 0.35·Military share + 0.30·Economy share + 0.20·Politics share + 0.15·Cultivation share   (weights editable)
  * ② Balance — fair share = 1 ÷ number of factions.  Each faction's gap = PI − fair share.
@@ -29,10 +29,9 @@ function pillars(state, f) {
   let wsProfit = 0;
   for (const r of Object.values(w.regions)) for (const ws of r.workshops || []) if (ws.owner.type === 'faction' && ws.owner.id === f.id) wsProfit += Math.max(0, num(ws.lastProfit));
   const economy = regions.reduce((s, r) => s + num(r.population) * num(r.prosperity) / 100, 0) + num(f.treasury) / 50 + wsProfit * 10;
-  const treaties = w.treaties.filter((t) => t.parties.includes(f.id)).length;
-  let goodRel = 0;
-  for (const [k, rel] of Object.entries(w.relations)) if (k.split('|').includes(f.id) && rel.value > 0) goodRel += rel.value;
-  const politics = num(f.influence) + treaties * 20 + goodRel / 5 + num(f.reputation, 50);
+  const agreements = (w.agreements || []).filter((t) => t.parties.includes(f.id)).length;
+  const al = C.allianceOf(state, f.id);
+  const politics = regions.length * 10 + agreements * 20 + (al ? (al.members.length - 1) * 30 : 0) + 50;
   const mult = w.settings.championRealmMult || [];
   const cultivation = mem.reduce((s, c) => s + (num(c.stats?.strength) + num(c.stats?.endurance) + num(c.stats?.mobility)) * num(mult[c.realm], 1), 0);
   return { military: r2(military), economy: r2(economy), politics: r2(politics), cultivation: r2(cultivation), members: mem.length, regions: regions.length, armies: armies.length, men: armies.reduce((s, a) => s + M.men(a), 0) };

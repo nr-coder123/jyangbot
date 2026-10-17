@@ -231,7 +231,7 @@ const E = (id, name, emoji, category, o) => ({
   spread: o.spread || null, // { chance per turn, maxRegions }
   scriptId: '',
 });
-const EVENTS = [
+const EVENTS_RAW = [
   // Disasters
   E('drought', 'Drought', '☀️', 'disaster', { description: 'No rain for weeks. Fields crack and wells run dry.', weight: 1.2, conditions: { seasons: [1, 2], terrains: ['plains', 'hills', 'steppe', 'desert', 'highland'] }, duration: [6, 12], effects: { production: { grain: 0.45, meat: 0.8, tea: 0.7 }, prosperity: -0.6, unrest: 0.6 }, chain: [{ eventId: 'famine', chance: 0.35, delay: 4 }, { eventId: 'wildfire', chance: 0.15, delay: 2 }] }),
   E('flood', 'Great Flood', '🌊', 'disaster', { description: 'The river breaks its dykes. Villages and granaries are swept away.', weight: 1, conditions: { seasons: [1], terrains: ['river', 'plains', 'coast'] }, duration: [3, 6], onStart: { stock: { grain: -0.35, salt: -0.2 }, population: -1.5, prosperity: -4 }, effects: { production: { food: 0.6, '*': 0.85 }, prosperity: -0.8, unrest: 0.8, security: -1, caravanRisk: 0.05 }, chain: [{ eventId: 'epidemic', chance: 0.3, delay: 2 }, { eventId: 'refugees', chance: 0.4, delay: 1 }] }),
@@ -282,86 +282,98 @@ const PO = (id, name, emoji, scope, o) => ({
   minTurns: o.minTurns ?? 4,
   scriptId: '',
 });
-const POLICIES = [
+const POLICIES_RAW = [
   PO('grain-reserves', 'Ever-Normal Granaries', '🏛️', 'region', { description: 'Buy grain cheap in good years and release it in bad ones. Steadies grain prices and blunts famines.', upkeep: 25, effects: { price: { grain: 0.85 }, demand: { grain: 0.95 }, unrest: -0.2 }, influence: 15 }),
   PO('salt-monopoly', 'Salt Monopoly', '🧂', 'faction', { description: 'Only licensed merchants may sell salt. A fortune for the treasury, misery for the poor.', effects: { price: { salt: 1.4 }, treasury: 8, unrest: 0.35, corruption: 0.3 }, exclusive: ['open-markets'], influence: 25 }),
   PO('open-markets', 'Open Markets', '🏪', 'faction', { description: 'Low tariffs and free passage for merchants. Trade flourishes; the treasury earns less.', effects: { tariff: -4, income: 1.08, tax: 0.85, prosperity: 0.15 }, exclusive: ['salt-monopoly', 'tariffs'], influence: 20 }),
   PO('tariffs', 'Protective Tariffs', '🧱', 'faction', { description: 'Heavy duties on outside goods and traders.', effects: { tariff: 6, tax: 1.15, income: 0.95 }, exclusive: ['open-markets'], influence: 15 }),
-  PO('martial-law', 'Martial Law', '🪖', 'region', { description: 'Curfews, checkpoints and soldiers on every corner. Crushes unrest — for a while.', upkeep: 35, effects: { security: 3, unrest: -1.5, prosperity: -0.4, income: 0.9 }, fatigue: 0.04, grace: 6, floor: 0.2, influence: 20 }),
+  PO('martial-law', 'Martial Law', '🪖', 'region', { description: 'Curfews, checkpoints and soldiers on every corner. The roads are safe; trade suffers — and the effect fades.', upkeep: 35, effects: { security: 3, unrest: -1.5, prosperity: -0.4, income: 0.9 }, fatigue: 0.04, grace: 6, floor: 0.2, influence: 20 }),
   PO('bandit-suppression', 'Bandit Suppression Campaign', '🏹', 'region', { description: 'Hunt the bandits in the hills. Expensive, and it works less once the easy camps are burned.', upkeep: 40, effects: { security: 2.5, caravanRisk: -0.12 }, fatigue: 0.03, grace: 8, floor: 0.35, influence: 10 }),
   PO('conscription', 'Conscription', '📯', 'faction', { description: 'Every household sends a son. Cheaper troops, emptier fields.', effects: { recruitCost: 0.7, production: { '*': 0.92 }, unrest: 0.4 }, influence: 25 }),
   PO('tax-relief', 'Tax Relief', '🤲', 'region', { description: 'Forgive the year\'s taxes. The people bless your name.', effects: { tax: 0.5, unrest: -0.8, prosperity: 0.35 }, influence: 10 }),
   PO('heavy-taxes', 'Heavy Taxation', '⚖️', 'faction', { description: 'Squeeze every coin from the people.', effects: { tax: 1.35, prosperity: -0.25, unrest: 0.5 }, exclusive: ['tax-relief'], influence: 10 }),
   PO('alchemy-patronage', 'Patronage of Alchemists', '⚗️', 'faction', { description: 'Fund furnaces and herb gardens. More elixir stock, hungrier herb markets.', upkeep: 30, effects: { production: { elixirs: 1.35, medicine: 1.15 }, demand: { herbs: 1.2, spiritherbs: 1.2 } }, influence: 20 }),
   PO('escort-charter', 'Escort Agency Charter', '🚩', 'faction', { description: 'License escort agencies to guard the roads.', upkeep: 20, effects: { caravanRisk: -0.08, security: 1, income: 1.03 }, influence: 15 }),
-  PO('closed-gates', 'Closed Gates', '🚪', 'faction', { kinds: ['sect', 'clan', 'palace', 'cult'], description: 'Seal the sect from the outside world. The shop serves members only, the mountain is safe — and every other faction slowly forgets you.', effects: { security: 1.5, relation: -0.25, influence: -0.5 }, shopAccess: 'members', influence: 10 }),
-  PO('open-recruitment', 'Open Recruitment', '📣', 'faction', { kinds: ['sect', 'clan', 'palace', 'cult'], description: 'Welcome wanderers and commoners. Influence grows with the hall.', upkeep: 15, effects: { influence: 1.2, unrest: -0.2 }, influence: 5 }),
+  PO('closed-gates', 'Closed Gates', '🚪', 'faction', { kinds: ['sect', 'clan', 'palace', 'cult'], description: 'Seal the sect from the outside world. The shop serves members only and the mountain is safe.', effects: { security: 1.5, relation: -0.25, influence: -0.5 }, shopAccess: 'members', influence: 10 }),
+  PO('open-recruitment', 'Open Recruitment', '📣', 'faction', { kinds: ['sect', 'clan', 'palace', 'cult'], description: 'Welcome wanderers and commoners into the outer halls: troops are cheaper to raise.', upkeep: 15, effects: { recruitCost: 0.9 }, influence: 5 }),
   PO('temple-charity', 'Temple Charity', '🪷', 'region', { description: 'Soup kitchens and free physicians at the temples.', upkeep: 25, effects: { unrest: -0.6, population: 0.05, demand: { grain: 1.03, medicine: 1.1 }, prosperity: 0.15 }, influence: 10 }),
   PO('censors', 'Imperial Censors', '🔍', 'faction', { kinds: ['court'], description: 'Send censors to audit the provinces.', upkeep: 60, effects: { corruption: -1.2, tax: 1.05 }, influence: 20 }),
-  PO('corvee', 'Corvée Labour', '🧱', 'region', { description: 'Draft peasants to rebuild walls and dykes. Fortifications rise; so does anger.', effects: { fortGrowth: 0.08, unrest: 0.6, production: { food: 0.92 } }, fatigue: 0.02, influence: 15 }),
+  PO('corvee', 'Corvée Labour', '🧱', 'region', { description: 'Draft peasants to rebuild walls and dykes. Fortifications rise slowly; fields suffer.', effects: { fortGrowth: 0.08, unrest: 0.6, production: { food: 0.92 } }, fatigue: 0.02, influence: 15 }),
 ];
 
 // ─────────────────────────── Diplomacy ───────────────────────────
 // Each action is a node in the Diplomacy map. `requires` lists what must be true; `unlocks` are the
 // arrows to the actions it opens up. Effects apply when the other side accepts.
-const TREATY_TYPES = [
-  { id: 'nap', name: 'Non-Aggression Pact', emoji: '🕊️', drift: 0.15, effects: {}, description: 'Neither side may declare war while it lasts.' },
-  { id: 'trade', name: 'Trade Agreement', emoji: '🤝', drift: 0.1, effects: {}, tariffFree: true, shopTier: 'ally', caravanRisk: -0.03, description: 'No tariffs between the parties; their sect shops treat each other as allies; their caravans travel safer.' },
-  { id: 'access', name: 'Military Access', emoji: '🚩', drift: 0.05, effects: {}, description: 'Armies may cross each other\'s territory without supply penalties.' },
-  { id: 'defensive', name: 'Defensive Alliance', emoji: '🛡️', drift: 0.2, effects: {}, shopTier: 'ally', description: 'An attack on one is an attack on both.' },
-  { id: 'alliance', name: 'Full Alliance', emoji: '⚜️', drift: 0.3, effects: {}, shopTier: 'ally', description: 'Joint wars, shared enemies, allied prices in every shop.' },
-  { id: 'marriage', name: 'Marriage Bond', emoji: '💍', drift: 0.35, effects: {}, description: 'Two houses joined by a political marriage. Relations improve while both spouses live and stay married.' },
-  { id: 'vassal', name: 'Vassalage', emoji: '🙇', drift: 0.05, effects: {}, tribute: 10, description: 'The vassal pays a share of its income to its overlord and follows it to war.' },
-  { id: 'tribute', name: 'Tribute', emoji: '🎁', drift: -0.05, effects: {}, tribute: 6, description: 'A one-way payment every turn, for peace.' },
-  { id: 'truce', name: 'Truce', emoji: '🏳️', drift: 0.05, effects: {}, description: 'A fragile peace after war. No war can be declared until it ends.' },
-  { id: 'embargo', name: 'Embargo', emoji: '⛔', drift: -0.2, effects: {}, description: 'One side refuses all trade with the other: no caravans, no shop access, double tariffs.' },
-  { id: 'exchange', name: 'Disciple Exchange', emoji: '🎓', drift: 0.2, effects: {}, description: 'Disciples train at each other\'s halls. Members may buy from each other\'s shops at ally prices.', shopTier: 'ally' },
-  { id: 'custom', name: 'Custom Agreement', emoji: '📝', drift: 0, effects: {}, description: 'Anything else. Give it effects or custom code in the dashboard.' },
+// ─────────── realm: agreements, alliances, buildings, representatives ───────────
+// What a one-on-one agreement (or an alliance) can include. Everything else is agreed in role-play and written in its note.
+const PERKS = [
+  { id: 'militaryAccess', name: 'Military access', description: 'Their armies may cross and stay on your land without losing supply.' },
+  { id: 'freeTrade', name: 'Free trade', description: 'No tariffs for each other\'s members; caravans may trade in each other\'s markets.' },
+  { id: 'sharedShops', name: 'Shared sect shops', description: 'Members buy in each other\'s sect shops at the ally price.' },
+  { id: 'nonAggression', name: 'Non-aggression', description: 'Neither may declare war on the other while it lasts (staff can still end it).' },
+  { id: 'defensive', name: 'Defensive pact', description: 'If one is attacked, the others join the war as defenders.' },
+  { id: 'callToArms', name: 'Call to arms', description: 'When one declares war, the others join as attackers.' },
 ];
-const A = (id, name, emoji, category, o) => ({
-  id, name, emoji, category, enabled: true,
-  description: o.description || '',
-  requires: { minRelation: -100, maxRelation: 100, atWar: null, treaties: [], noTreaties: [], ...(o.requires || {}) },
-  costInfluence: o.costInfluence ?? 0,
-  costTreasury: o.costTreasury ?? 0,
-  needsCharacters: o.needsCharacters || false,
-  staffApproval: o.staffApproval ?? false,
-  unilateral: o.unilateral ?? false,
-  onAccept: o.onAccept || {},
-  onReject: o.onReject || { relation: -3 },
-  unlocks: o.unlocks || [],
-  cooldown: o.cooldown ?? 8,
-  scriptId: '',
-});
-const DIPLOMACY_ACTIONS = [
-  A('gift', 'Send Gifts', '🎁', 'courtesy', { description: 'Send rare goods and silver to win favour. The other side always accepts.', unilateral: true, costTreasury: 300, onAccept: { relation: 8, transfer: 300 }, unlocks: ['trade', 'exchange', 'nap'], cooldown: 4 }),
-  A('envoy', 'Send an Envoy', '🧑‍💼', 'courtesy', { description: 'A formal visit by a representative. Cheap and slow, but it opens doors.', unilateral: true, costInfluence: 5, onAccept: { relation: 4 }, unlocks: ['gift', 'trade', 'nap', 'mediate'], cooldown: 6 }),
-  A('trade', 'Propose Trade Agreement', '🤝', 'trade', { description: 'No tariffs, safer caravans, ally prices in each other\'s shops.', requires: { minRelation: 0, atWar: false, noTreaties: ['trade', 'embargo'] }, costInfluence: 10, onAccept: { relation: 5, treaty: { type: 'trade', duration: 120 } }, unlocks: ['joint-venture', 'defensive'] }),
-  A('joint-venture', 'Joint Venture', '🏗️', 'trade', { description: 'Co-own a new workshop in one side\'s territory. Profits are split.', requires: { minRelation: 20, treaties: ['trade'] }, costInfluence: 15, costTreasury: 800, staffApproval: true, onAccept: { relation: 5, treaty: { type: 'custom', name: 'Joint Venture', duration: 0 } } }),
-  A('embargo', 'Impose Embargo', '⛔', 'trade', { description: 'Stop all trade with them.', unilateral: true, requires: { noTreaties: ['embargo', 'alliance', 'defensive'] }, costInfluence: 15, onAccept: { relation: -15, treaty: { type: 'embargo', duration: 60 }, breaks: ['trade'] }, unlocks: ['lift-embargo'] }),
-  A('lift-embargo', 'Lift Embargo', '✅', 'trade', { description: 'End the embargo.', unilateral: true, requires: { treaties: ['embargo'] }, onAccept: { relation: 5, breaks: ['embargo'] } }),
-  A('exchange', 'Disciple Exchange', '🎓', 'murim', { description: 'Send disciples to train at each other\'s halls.', requires: { minRelation: 15, atWar: false }, costInfluence: 15, onAccept: { relation: 6, treaty: { type: 'exchange', duration: 80 } }, unlocks: ['marriage', 'brotherhood'] }),
-  A('nap', 'Non-Aggression Pact', '🕊️', 'alliance', { description: 'Promise not to attack each other.', requires: { minRelation: -10, atWar: false, noTreaties: ['nap'] }, costInfluence: 10, onAccept: { relation: 6, treaty: { type: 'nap', duration: 100 } }, unlocks: ['defensive', 'access'] }),
-  A('access', 'Military Access', '🚩', 'alliance', { description: 'Let each other\'s armies pass.', requires: { minRelation: 20, atWar: false }, costInfluence: 10, onAccept: { relation: 2, treaty: { type: 'access', duration: 60 } } }),
-  A('defensive', 'Defensive Alliance', '🛡️', 'alliance', { description: 'Come to each other\'s defence.', requires: { minRelation: 35, atWar: false, treaties: ['nap'] }, costInfluence: 25, onAccept: { relation: 8, treaty: { type: 'defensive', duration: 160 } }, unlocks: ['alliance'] }),
-  A('alliance', 'Full Alliance', '⚜️', 'alliance', { description: 'Fight as one.', requires: { minRelation: 60, atWar: false, treaties: ['defensive'] }, costInfluence: 40, staffApproval: true, onAccept: { relation: 10, treaty: { type: 'alliance', duration: 0 } }, unlocks: ['call-to-arms', 'vassal'] }),
-  A('call-to-arms', 'Call to Arms', '📯', 'alliance', { description: 'Ask an ally to join your war.', requires: { treaties: ['alliance'] }, costInfluence: 10, onAccept: { relation: 3, joinWar: true }, onReject: { relation: -12 } }),
-  A('marriage', 'Political Marriage', '💍', 'marriage', { description: 'Marry a character of your house to one of theirs. Both players must agree, and staff approve.', requires: { minRelation: 10, atWar: false }, needsCharacters: true, staffApproval: true, costInfluence: 20, onAccept: { relation: 15, treaty: { type: 'marriage', duration: 0 }, marry: true }, unlocks: ['defensive', 'vassal'], cooldown: 20 }),
-  A('annul', 'Annul a Marriage', '💔', 'marriage', { description: 'Dissolve a marriage bond. Insulting.', unilateral: true, requires: { treaties: ['marriage'] }, onAccept: { relation: -20, breaks: ['marriage'], unmarry: true } }),
-  A('brotherhood', 'Sworn Brotherhood', '🍶', 'murim', { description: 'Two characters swear brotherhood under the peach trees. Both players must agree.', requires: { minRelation: 0 }, needsCharacters: true, costInfluence: 5, onAccept: { relation: 6, bond: 'sworn' } }),
-  A('vassal', 'Offer Vassalage', '🙇', 'court', { description: 'Become their vassal (or demand they become yours).', requires: { minRelation: 30 }, staffApproval: true, costInfluence: 10, onAccept: { relation: 5, treaty: { type: 'vassal', duration: 0 } } }),
-  A('tribute', 'Offer Tribute', '💰', 'court', { description: 'Pay them every turn for peace.', requires: {}, onAccept: { relation: 10, treaty: { type: 'tribute', duration: 40 }, endsWar: true } }),
-  A('demand-tribute', 'Demand Tribute', '🫴', 'court', { description: 'Demand they pay you. If they refuse, relations sour.', requires: { maxRelation: 40 }, costInfluence: 15, onAccept: { relation: -10, treaty: { type: 'tribute', duration: 40, reverse: true } }, onReject: { relation: -10 } }),
-  A('denounce', 'Denounce', '📢', 'hostile', { description: 'Publicly condemn them before the Murim.', unilateral: true, costInfluence: 5, onAccept: { relation: -12, influence: 4 }, unlocks: ['war', 'embargo'], cooldown: 6 }),
-  A('war', 'Declare War', '⚔️', 'hostile', { description: 'Open war. Breaks pacts (and your reputation, if you had any).', unilateral: true, requires: { atWar: false, noTreaties: ['truce', 'alliance', 'defensive', 'marriage'] }, costInfluence: 30, staffApproval: true, onAccept: { relation: -40, war: true, breaks: ['trade', 'exchange', 'access', 'nap'] }, unlocks: ['ceasefire', 'peace'] }),
-  A('ceasefire', 'Propose Truce', '🏳️', 'hostile', { description: 'Stop the fighting for a while.', requires: { atWar: true }, costInfluence: 5, onAccept: { relation: 8, endsWar: true, treaty: { type: 'truce', duration: 40 } }, unlocks: ['peace', 'nap'] }),
-  A('peace', 'Peace with Reparations', '📜', 'hostile', { description: 'End the war; the loser pays.', requires: { atWar: true }, costInfluence: 10, staffApproval: true, onAccept: { relation: 12, endsWar: true, treaty: { type: 'truce', duration: 60 }, reparations: 1500 } }),
-  A('mediate', 'Mediate a Dispute', '⚖️', 'murim', { description: 'Your representative mediates between two other factions (choose the second in the dashboard or RP). Improves your standing with both.', unilateral: true, requires: { minRelation: 0 }, costInfluence: 10, onAccept: { relation: 5, influence: 6 } }),
-  A('break', 'Break a Treaty', '✂️', 'hostile', { description: 'Tear up a treaty. Everyone sees you as untrustworthy.', unilateral: true, requires: {}, costInfluence: 10, onAccept: { relation: -15, breaksAny: true, reputation: -8 } }),
+// An alliance is a bloc shown on the map. Its terms apply between every pair of members at once.
+const ALLIANCE_TERMS = { militaryAccess: true, freeTrade: true, sharedShops: true, nonAggression: true, defensive: true, callToArms: false };
+
+// What a representative may do. Each rank gives each power one of: 'free' (on the spot), 'staff' (needs staff approval), 'none'.
+const POWERS = [
+  { id: 'diplomacy', name: 'Diplomacy', description: 'Offer and accept agreements, marriages and pacts with other factions.' },
+  { id: 'alliance', name: 'Alliances', description: 'Found, join, invite to and leave alliances.' },
+  { id: 'war', name: 'War & peace', description: 'Declare war, make peace.' },
+  { id: 'army', name: 'Armies', description: 'Recruit troops, march armies, set battle plans.' },
+  { id: 'policies', name: 'Policies', description: 'Adopt and revoke policies.' },
+  { id: 'build', name: 'Buildings', description: 'Construct, repair and pull down buildings with the treasury.' },
+  { id: 'trade', name: 'Trade', description: 'Send the faction\'s caravans (needs trade rights).' },
+  { id: 'treasury', name: 'Treasury', description: 'Stipends and gifts of money to other factions.' },
+  { id: 'land', name: 'Land claims', description: 'Ask staff for a region (always reviewed by staff).' },
+];
+const RANK = (id, name, hanzi, spendLimit, powers, description) => ({ id, name, hanzi, spendLimit, powers, description });
+const REP_RANKS = [
+  RANK('leader', 'Sect Leader', '掌門', 5000, { diplomacy: 'free', alliance: 'free', war: 'staff', army: 'free', policies: 'free', build: 'free', trade: 'free', treasury: 'free', land: 'staff' }, 'Speaks for the whole sect. Wars still go past staff.'),
+  RANK('elder', 'Grand Elder', '太上長老', 2500, { diplomacy: 'free', alliance: 'staff', war: 'staff', army: 'free', policies: 'staff', build: 'free', trade: 'free', treasury: 'staff', land: 'staff' }, 'Runs daily affairs; big decisions go to staff.'),
+  RANK('envoy', 'Envoy', '使節', 0, { diplomacy: 'free', alliance: 'staff', war: 'none', army: 'none', policies: 'none', build: 'none', trade: 'none', treasury: 'none', land: 'staff' }, 'Talks to other factions. Cannot spend.'),
+  RANK('steward', 'Steward', '總管', 1500, { diplomacy: 'none', alliance: 'none', war: 'none', army: 'none', policies: 'staff', build: 'free', trade: 'free', treasury: 'staff', land: 'none' }, 'Keeps the books: buildings and trade.'),
+  RANK('marshal', 'War Elder', '武堂主', 1500, { diplomacy: 'none', alliance: 'none', war: 'staff', army: 'free', policies: 'none', build: 'staff', trade: 'none', treasury: 'none', land: 'staff' }, 'Leads the armies.'),
 ];
 
-// ─────────────────────────── Armies ───────────────────────────
-// Stats per soldier. counters: × attack against armies made of that role. needs: goods per 100 men.
+// Buildings a faction can raise in regions it rules. effects use the same keys as events and policies, per turn.
+// fort: + walls in battle. Taking a region can raze its buildings; battles fought there damage them.
+const B = (id, name, hanzi, cost, turns, upkeep, o = {}) => ({ id, name, hanzi, emoji: '', cost, turns, upkeep, fort: 0, effects: {}, description: '', scriptId: '', ...o });
+const BUILDING_TYPES = [
+  B('granary', 'Granary', '常平倉', 1200, 4, 6, { effects: { stockLoss: { grain: -0.02 }, prosperity: 0.1, price: { grain: 0.92 } }, description: 'Stores grain against bad years: food keeps longer and prices stay calmer.' }),
+  B('market-hall', 'Market Hall', '市廛', 1800, 5, 8, { effects: { tax: 1.15, income: 1.05, prosperity: 0.1 }, description: 'A covered market: more trade and more taxes.' }),
+  B('walls', 'City Walls', '城牆', 2500, 8, 10, { fort: 1, effects: { security: 0.4 }, description: '+1 walls when defending here, and safer streets.' }),
+  B('post-stations', 'Post Stations', '驛站', 1000, 3, 5, { effects: { caravanRisk: -0.05, security: 0.3, supply: 2 }, description: 'Relay stations on the roads: safer caravans, better army supply.' }),
+  B('training-grounds', 'Training Grounds', '演武場', 1500, 4, 8, { effects: { recruitCost: 0.85 }, description: 'Troops raised here cost less.' }),
+  B('alchemy-hall', 'Alchemy Hall', '丹房', 2200, 6, 10, { effects: { production: { medicine: 1.3, elixirs: 1.25 } }, description: 'More medicine and elixir stock from the region.' }),
+  B('herb-gardens', 'Herb Gardens', '藥圃', 900, 3, 4, { effects: { production: { herbs: 1.3, spiritherbs: 1.15 } }, description: 'Cultivated herb terraces.' }),
+  B('smithies', 'Smithy Quarter', '鐵坊', 1600, 4, 7, { effects: { production: { iron: 1.15, arms: 1.3 } }, description: 'More iron worked and more arms forged.' }),
+  B('branch-hall', 'Branch Hall', '分舵', 1400, 4, 6, { effects: { security: 0.5, prosperity: 0.05 }, description: 'A branch of the sect keeps order and watches the roads.' }),
+  B('inns', 'Inns & Teahouses', '客棧', 800, 2, 3, { effects: { income: 1.05, prosperity: 0.05 }, description: 'Travellers stop and spend.' }),
+];
+
+// Unrest, corruption, influence and relations were removed (the people of the Murim are no match for cultivators,
+// and relations are role-played, not counted). These clean old definitions and saves.
+const LEGACY_KEYS = ['unrest', 'corruption', 'influence', 'relation', 'reputation'];
+const DROPPED_EVENTS = ['inspector', 'corrupt-magistrate', 'revolt'];
+const DROPPED_POLICIES = ['censors'];
+function cleanBlock(o) {
+  if (!o || typeof o !== 'object') return o || {};
+  const out = { ...o };
+  for (const k of LEGACY_KEYS) delete out[k];
+  for (const k of ['minUnrest', 'minCorruption', 'maxUnrest', 'maxCorruption']) delete out[k];
+  return out;
+}
+const cleanEvent = (e) => ({ ...e, effects: cleanBlock(e.effects), onStart: cleanBlock(e.onStart), conditions: cleanBlock(e.conditions), chain: (e.chain || []).filter((c) => !DROPPED_EVENTS.includes(c.eventId)) });
+function cleanPolicy(p) {
+  const infl = Number(p.cost?.influence) || 0;
+  return { ...p, effects: cleanBlock(p.effects), cost: { treasury: (Number(p.cost?.treasury) || 0) + infl * 20 }, upkeep: { treasury: Number(p.upkeep?.treasury) || 0 } };
+}
+const EVENTS = EVENTS_RAW.filter((e) => !DROPPED_EVENTS.includes(e.id)).map(cleanEvent);
+const POLICIES = POLICIES_RAW.filter((p) => !DROPPED_POLICIES.includes(p.id)).map(cleanPolicy);
+
 const UNIT_TYPES = [
   // EU4-style pips: fire = ranged phase, shock = melee phase; off = damage dealt, def = damage resisted (0–5).
   // morale: × the army's morale; counters: × damage against armies made of that role.
@@ -437,8 +449,7 @@ const DEFAULT_WORLD_SETTINGS = {
   spendingToCoffers: 0.9,
   maxCoffersPerPop: 60,
   shopSwingMax: 25,
-  shopTiers: { member: -15, ally: -5, neutral: 10, rival: 30, war: null },
-  rivalBelow: -30,
+  shopTiers: { member: -15, ally: -5, neutral: 10, war: null },
   battlePrepHours: 24,
   battleDays: 30,
   pipStat: 30,
@@ -465,8 +476,19 @@ const DEFAULT_WORLD_SETTINGS = {
   kmPerPx: 5,
   travelSpeeds: [{ id: 'foot', label: 'On foot', kmPerDay: 30 }, { id: 'horse', label: 'By horse', kmPerDay: 60 }, { id: 'qinggong', label: 'Qinggong', kmPerDay: 150 }],
   maxTradePerTurn: 3000,
-  maxRepresentatives: 2,
+  maxRepresentatives: 5,
   representativesFight: false,
+  repRanks: REP_RANKS,
+  defaultRepRank: 'elder',
+  leaderRank: 'leader',
+  playerMarketBuy: false,
+  playerMarketSell: true,
+  playerCaravans: false,
+  factionCaravans: 'guilds', // 'guilds' (factions of kind guild), 'all', 'none'
+  factionCaravanTurns: 0, // 0 = by distance
+  buildingRazeChance: 0.5,
+  battleBuildingDamage: 1,
+  buildingRepairShare: 0.6,
   baseIncome: 5,
   memberIncome: 3,
   stipendEveryTurns: 28,
@@ -478,6 +500,6 @@ const DEFAULT_WORLD_SETTINGS = {
 
 module.exports = {
   GOODS, GOOD_CATEGORIES, WORKSHOP_TYPES, TERRAINS, PROVINCES, START_WORKSHOPS, SPECIAL, ROUTES,
-  FACTION_SEEDS, EXTRA_FACTIONS, EVENTS, POLICIES, TREATY_TYPES, DIPLOMACY_ACTIONS, UNIT_TYPES, FORMATIONS, TACTICS,
+  FACTION_SEEDS, EXTRA_FACTIONS, EVENTS, POLICIES, PERKS, ALLIANCE_TERMS, POWERS, REP_RANKS, BUILDING_TYPES, cleanEvent, cleanPolicy, DROPPED_EVENTS, DROPPED_POLICIES, LEGACY_KEYS, UNIT_TYPES, FORMATIONS, TACTICS,
   SEASONS, SEASON_EMOJI, DEFAULT_WORLD_SETTINGS,
 };

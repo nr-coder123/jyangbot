@@ -259,9 +259,9 @@ const DEFS = {
   worldRegion: {
     group: 'World', label: 'Region (/world → Region)',
     buttons: [['wRegion', 'wMarket', 'wCaravans', 'wWorkshops', 'wPolitics', 'wWar'], ['wTravel']],
-    placeholders: ['region', 'province', 'hanzi', 'controller', 'terrain', 'population', 'prosperity', 'prosperityBar', 'security', 'unrest', 'corruption', 'fort', 'coffers', 'calendar', 'events', 'policies', 'you', 'notes', 'armies', 'currency', 'trend'],
+    placeholders: ['region', 'province', 'hanzi', 'controller', 'terrain', 'population', 'prosperity', 'prosperityBar', 'security', 'fort', 'buildings', 'coffers', 'calendar', 'events', 'policies', 'you', 'notes', 'armies', 'currency', 'trend'],
     help: '{prosperityBar} is a ten-block bar. {you} says where your character is and whether they are travelling.',
-    sample: { region: 'Luoyang', province: 'Henan', hanzi: '洛阳', controller: '🪷 Shaolin Sect', terrain: '🌾 Plains', population: '21', prosperity: '64', prosperityBar: '🟩🟩🟩🟩🟩🟩⬛⬛⬛⬛', security: '61', unrest: '4', corruption: '18', fort: '4', coffers: '1,240', calendar: '🌸 Spring, day 3 · Year 428', events: '🎪 Great Trade Fair (3 turns left)', policies: '🏛️ Ever-Normal Granaries', you: '📍 You are here.', notes: 'Ancient capital: sword manors and the great market.', armies: '', currency: 'Nyang', trend: '📈 +0.4 / turn' },
+    sample: { region: 'Luoyang', province: 'Henan', hanzi: '洛阳', controller: '🪷 Shaolin Sect', terrain: '🌾 Plains', population: '21', prosperity: '64', prosperityBar: '🟩🟩🟩🟩🟩🟩⬛⬛⬛⬛', security: '61', fort: '4', buildings: 'Granary · City Walls (damaged)', coffers: '1,240', calendar: '🌸 Spring, day 3 · Year 428', events: '🎪 Great Trade Fair (3 turns left)', policies: '🏛️ Ever-Normal Granaries', you: '📍 You are here.', notes: 'Ancient capital: sword manors and the great market.', armies: '', currency: 'Nyang', trend: '📈 +0.4 / turn' },
     default: E({
       title: '{region} · {hanzi}',
       description: '-# {province} · {calendar}\n{notes}',
@@ -272,7 +272,7 @@ const DEFS = {
         { name: 'People', value: '{population}k households', inline: true },
         { name: 'Prosperity', value: '{prosperityBar} **{prosperity}**\n-# {trend}', inline: false },
         { name: 'Security', value: '{security}', inline: true },
-        { name: 'Unrest', value: '{unrest}', inline: true },
+        { name: 'Buildings', value: '{buildings}', inline: true },
         { name: 'Merchants\' purse', value: '{e.nyang} {coffers}', inline: true },
         { name: 'Happening now', value: '{events}', inline: false },
         { name: 'Policies', value: '{policies}', inline: false },

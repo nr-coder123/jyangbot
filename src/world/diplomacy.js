@@ -1,230 +1,267 @@
 'use strict';
 /**
- * Diplomacy: actions (the "Diplomacy map"), proposals between Sect Representatives, and their effects.
- *
- * A proposal goes:  proposed → (other side's representative accepts) → (the target character's player
- * consents, for marriages and sworn brotherhood) → (staff approve, if the action needs it) → done.
- * Unilateral actions (gifts, denouncing, declaring war…) skip the acceptance step.
+ * Diplomacy, kept simple for text role-play. The bot does not count how factions feel about each other — that is
+ * role-played. It only records what was agreed:
+ *   · wars (sides, allies called in by their pacts) and peace
+ *   · alliances: one bloc with shared terms, shown on the map (members, colour, leader)
+ *   · one-on-one agreements: a few perks (military access, free trade, shared shops, non-aggression, defensive pact,
+ *     call to arms, tribute) plus a note of whatever else was agreed in RP
+ *   · political marriages
+ * Offers between factions are proposals: the other side's representative accepts (and, for a marriage, the other
+ * character's player). Whether a representative may offer or accept something is decided by their rank (realm.js).
  */
 const C = require('./common');
-const P = require('./politics');
-const { num, r2, newId, UserError, clamp } = require('../utils');
+const WS = require('./state');
+const W = require('./defaults');
+const { num, r2, newId, UserError } = require('../utils');
 
-const action = (state, id) => state.world.actions.find((a) => a.id === id) || null;
-const cdKey = (a, x, y) => `dip|${a}|${[x, y].sort().join('|')}`;
+const fname = (state, id) => C.faction(state, id)?.name || 'Unknown';
+const announce = (state, kind, text, extra = {}) => { C.wlog(state, kind, text); (state.world.announceQueue ||= []).push({ kind, text, ...extra }); };
 
-/** Every action with whether `from` can use it on `to` right now, and why not. */
-function actionsFor(state, fromId, toId) {
+// ─────────── wars ───────────
+/** Declare war. Allies with a call-to-arms join the attacker; allies with a defensive pact join the defender. */
+function declareWar(state, a, b, { reason = '', name = '', force = false, silent = false } = {}) {
   const w = state.world;
-  const from = C.faction(state, fromId); const to = C.faction(state, toId);
-  const rel = C.relation(state, fromId, toId);
-  const treaties = C.treatiesBetween(state, fromId, toId).map((t) => t.type);
-  return w.actions.filter((a) => a.enabled !== false).map((a) => {
-    const req = a.requires || {};
-    const reasons = [];
-    if (!from || !to || fromId === toId) reasons.push('Pick another faction.');
-    if (rel.value < num(req.minRelation, -100)) reasons.push(`Relations must be at least ${req.minRelation} (now ${Math.round(rel.value)}).`);
-    if (rel.value > num(req.maxRelation, 100)) reasons.push(`Relations must be at most ${req.maxRelation}.`);
-    if (req.atWar === true && !rel.war) reasons.push('Only during a war.');
-    if (req.atWar === false && rel.war) reasons.push('Not while at war.');
-    for (const t of req.treaties || []) if (!treaties.includes(t)) reasons.push(`Needs a ${w.treatyTypes.find((x) => x.id === t)?.name || t} first.`);
-    for (const t of req.noTreaties || []) if (treaties.includes(t)) reasons.push(`Not possible with a ${w.treatyTypes.find((x) => x.id === t)?.name || t} in place.`);
-    if (from && from.influence < num(a.costInfluence)) reasons.push(`Costs ${a.costInfluence} influence (you have ${Math.floor(from.influence)}).`);
-    if (from && from.treasury < num(a.costTreasury)) reasons.push(`Costs ${a.costTreasury} from the treasury.`);
-    const cd = num(w.cooldowns[cdKey(a.id, fromId, toId)]);
-    if (cd > w.turn) reasons.push(`On cooldown for ${cd - w.turn} more turn(s).`);
-    if (a.id === 'break' && !treaties.length) reasons.push('There is no treaty to break.');
-    return { action: a, available: !reasons.length, reasons };
-  });
+  if (!C.faction(state, a) || !C.faction(state, b) || a === b) throw new UserError('Pick two different factions.');
+  if (C.atWar(state, a, b)) throw new UserError(`${fname(state, a)} and ${fname(state, b)} are already at war.`);
+  if (!force && C.hasPerk(state, a, b, 'nonAggression')) throw new UserError(`${fname(state, a)} and ${fname(state, b)} have a non-aggression pact. End it first (or staff can force the war).`);
+  const attackers = [a]; const defenders = [b];
+  for (const f of w.factions) {
+    if (!f.active || f.id === a || f.id === b) continue;
+    if (C.hasPerk(state, b, f.id, 'defensive') && !C.hasPerk(state, a, f.id, 'nonAggression')) defenders.push(f.id);
+    else if (C.hasPerk(state, a, f.id, 'callToArms') && !C.hasPerk(state, b, f.id, 'nonAggression')) attackers.push(f.id);
+  }
+  const war = WS.normalizeWar({ id: newId('wr-'), name: name || `${fname(state, a)}–${fname(state, b)} War`, attackers, defenders, startTurn: w.turn, reason });
+  w.wars.push(war);
+  const allies = (list, main) => list.filter((x) => x !== main).map((x) => fname(state, x));
+  const text = `**${fname(state, a)}** declares war on **${fname(state, b)}**${reason ? ` — “${reason}”` : ''}.${allies(attackers, a).length ? ` Joining the attack: ${allies(attackers, a).join(', ')}.` : ''}${allies(defenders, b).length ? ` Honouring their pacts, ${allies(defenders, b).join(', ')} stand${allies(defenders, b).length === 1 ? 's' : ''} with ${fname(state, b)}.` : ''}`;
+  if (silent) C.wlog(state, 'war', text); else announce(state, 'war', text, { factions: [...attackers, ...defenders] });
+  return war;
+}
+function war(state, id) { const x = state.world.wars.find((y) => y.id === id); if (!x) throw new UserError('War not found.'); return x; }
+/** End a war (the whole war, or take one faction out of it). */
+function makePeace(state, warId, { factionId = null, note = '' } = {}) {
+  const w = state.world;
+  const x = war(state, warId);
+  if (factionId && (x.attackers.length + x.defenders.length > 2)) {
+    x.attackers = x.attackers.filter((f) => f !== factionId); x.defenders = x.defenders.filter((f) => f !== factionId);
+    if (x.attackers.length && x.defenders.length) { announce(state, 'war', `**${fname(state, factionId)}** makes peace and leaves the ${x.name}.${note ? ` *${note}*` : ''}`); return x; }
+  }
+  w.wars = w.wars.filter((y) => y.id !== x.id);
+  // Armies fighting each other stand down: open battles of this war are called off.
+  for (const b of w.battles) if (b.status === 'preparing' && !C.atWar(state, b.sides.A.factionId, b.sides.D.factionId)) { b.status = 'cancelled'; for (const id of [...b.sides.A.armies, ...b.sides.D.armies]) { const a = w.armies.find((y) => y.id === id); if (a) a.status = 'garrison'; } }
+  for (const r of Object.values(w.regions)) if (r.occupiedBy && !C.atWar(state, r.occupiedBy, r.controller)) r.occupiedBy = null;
+  announce(state, 'war', `The **${x.name}** is over.${note ? ` *${note}*` : ''}`);
+  return x;
+}
+function joinWar(state, warId, factionId, side) {
+  const x = war(state, warId);
+  if (x.attackers.includes(factionId) || x.defenders.includes(factionId)) throw new UserError('Already in this war.');
+  (side === 'defenders' ? x.defenders : x.attackers).push(factionId);
+  announce(state, 'war', `**${fname(state, factionId)}** joins the ${x.name} on the ${side === 'defenders' ? 'defenders\'' : 'attackers\''} side.`);
+  return x;
 }
 
+// ─────────── alliances ───────────
+function alliance(state, id) { const a = state.world.alliances.find((x) => x.id === id); if (!a) throw new UserError('Alliance not found.'); return a; }
+function createAlliance(state, { name, hanzi = '', color, members = [], terms, note = '', leader }) {
+  const w = state.world;
+  if (!name) throw new UserError('Name the alliance.');
+  const a = WS.normalizeAlliance({ id: newId('al-'), name, hanzi, color: color || '#b3261e', members: [], terms, note, leader: leader || members[0] || '', foundedTurn: w.turn });
+  w.alliances.push(a);
+  for (const m of members) addMember(state, a.id, m, { silent: true });
+  announce(state, 'alliance', `The **${a.name}** is founded${a.members.length ? ` by ${a.members.map((m) => `**${fname(state, m)}**`).join(', ')}` : ''}.`);
+  return a;
+}
+/** A faction belongs to one alliance at most: joining another leaves the old one. */
+function addMember(state, allianceId, fid, { silent = false } = {}) {
+  const a = alliance(state, allianceId);
+  if (!C.faction(state, fid)) throw new UserError('Unknown faction.');
+  if (a.members.includes(fid)) return a;
+  const old = C.allianceOf(state, fid);
+  if (old) removeMember(state, old.id, fid, { silent: true });
+  for (const m of a.members) if (C.atWar(state, m, fid)) throw new UserError(`${fname(state, fid)} is at war with ${fname(state, m)}, a member of the ${a.name}.`);
+  a.members.push(fid);
+  if (!a.leader) a.leader = fid;
+  if (!silent) announce(state, 'alliance', `**${fname(state, fid)}** joins the **${a.name}**.`);
+  return a;
+}
+function removeMember(state, allianceId, fid, { silent = false, reason = 'leaves' } = {}) {
+  const w = state.world;
+  const a = alliance(state, allianceId);
+  a.members = a.members.filter((m) => m !== fid);
+  if (a.leader === fid) a.leader = a.members[0] || '';
+  if (!silent) announce(state, 'alliance', `**${fname(state, fid)}** ${reason} the **${a.name}**.`);
+  if (!a.members.length) { w.alliances = w.alliances.filter((x) => x.id !== a.id); C.wlog(state, 'alliance', `The ${a.name} is no more.`); }
+  return a;
+}
+function dissolveAlliance(state, allianceId) {
+  const a = alliance(state, allianceId);
+  state.world.alliances = state.world.alliances.filter((x) => x.id !== a.id);
+  announce(state, 'alliance', `The **${a.name}** is dissolved.`);
+  return a;
+}
+
+// ─────────── agreements ───────────
+function makeAgreement(state, { parties, perks = {}, tribute = null, note = '', name = '', duration = 0, effects = {}, scriptId = '' }) {
+  const w = state.world;
+  const [a, b] = parties || [];
+  if (!C.faction(state, a) || !C.faction(state, b) || a === b) throw new UserError('An agreement needs two different factions.');
+  const t = WS.normalizeAgreement({ id: newId('ag-'), name: name || `${fname(state, a)} & ${fname(state, b)} Agreement`, parties: [a, b], perks, tribute, note, startTurn: w.turn, endTurn: num(duration) ? w.turn + num(duration) : null, effects, scriptId });
+  w.agreements.push(t);
+  announce(state, 'diplomacy', `**${fname(state, a)}** and **${fname(state, b)}** sign the **${t.name}**${perkText(t) ? ` — ${perkText(t)}` : ''}.${t.note ? ` *${t.note}*` : ''}`, { factions: [a, b] });
+  return t;
+}
+function perkText(t) {
+  const list = W.PERKS.filter((p) => t.perks?.[p.id]).map((p) => p.name.toLowerCase());
+  if (t.tribute) list.push(`tribute ${t.tribute.percent ? `${t.tribute.percent}% of taxes` : ''}${t.tribute.percent && t.tribute.fixed ? ' + ' : ''}${t.tribute.fixed ? `${t.tribute.fixed}/turn` : ''}`.trim());
+  return list.join(', ');
+}
+function endAgreement(state, id, reason = 'ended') {
+  const w = state.world;
+  const t = w.agreements.find((x) => x.id === id);
+  if (!t) throw new UserError('Agreement not found.');
+  w.agreements = w.agreements.filter((x) => x.id !== id);
+  announce(state, 'diplomacy', `The **${t.name}** between ${t.parties.map((p) => `**${fname(state, p)}**`).join(' and ')} ${reason}.`, { factions: t.parties });
+  return t;
+}
+
+// ─────────── marriages ───────────
+function marry(state, aId, bId) {
+  const w = state.world;
+  const a = state.characters.find((c) => c.id === aId); const b = state.characters.find((c) => c.id === bId);
+  if (!a || !b) throw new UserError('Character not found.');
+  if (a.spouseId || b.spouseId) throw new UserError(`${a.spouseId ? a.name : b.name} is already married.`);
+  a.spouseId = b.id; b.spouseId = a.id;
+  const m = { a: a.id, b: b.id, factions: [C.factionOfChar(state, a)?.id || '', C.factionOfChar(state, b)?.id || ''], turn: w.turn, at: new Date().toISOString() };
+  w.marriages.push(m);
+  announce(state, 'diplomacy', `**${a.name}** (${C.factionOfChar(state, a)?.name || 'Rogue'}) and **${b.name}** (${C.factionOfChar(state, b)?.name || 'Rogue'}) are married.`);
+  return m;
+}
+function divorce(state, aId) {
+  const w = state.world;
+  const a = state.characters.find((c) => c.id === aId);
+  const b = a && state.characters.find((c) => c.id === a.spouseId);
+  if (!a || !b) throw new UserError('Not married.');
+  a.spouseId = ''; b.spouseId = '';
+  w.marriages = w.marriages.filter((m) => !([m.a, m.b].includes(a.id) && [m.a, m.b].includes(b.id)));
+  C.wlog(state, 'diplomacy', `The marriage of ${a.name} and ${b.name} is dissolved.`);
+}
+
+// ─────────── proposals (offers between factions) ───────────
+/**
+ * kinds:
+ *   agreement       payload { name, perks, tribute: { who: 'from'|'to', percent, fixed }, duration }
+ *   alliance-invite payload { allianceId }        — a member invites `to` into its alliance
+ *   alliance-join   payload { allianceId }        — `from` asks the alliance's leader (`to`) to let it in
+ *   alliance-found  payload { name, hanzi, color, terms } — found a new alliance together
+ *   peace           payload { warId }
+ *   marriage        payload { subjectCharId, targetCharId }
+ *   end-agreement   payload { agreementId }       (one-sided: done at once, see realm.js)
+ */
+const KINDS = {
+  agreement: { name: 'Agreement', power: 'diplomacy' },
+  'alliance-invite': { name: 'Alliance invitation', power: 'alliance' },
+  'alliance-join': { name: 'Request to join an alliance', power: 'alliance' },
+  'alliance-found': { name: 'Found an alliance together', power: 'alliance' },
+  peace: { name: 'Peace offer', power: 'war' },
+  marriage: { name: 'Political marriage', power: 'diplomacy' },
+};
 function findProposal(state, id) {
   const p = state.world.proposals.find((x) => x.id === id);
   if (!p) throw new UserError('That proposal no longer exists.');
   return p;
 }
-
-/**
- * Create a proposal. args: { actionId, from, to, proposer (character), subjectCharId (your character who marries/swears),
- * targetCharId (their character), terms, note, staff }
- */
-function propose(state, args) {
+function checkProposal(state, kind, from, to, payload = {}) {
+  if (!KINDS[kind]) throw new UserError('Unknown kind of offer.');
+  if (!C.faction(state, from) || !C.faction(state, to) || from === to) throw new UserError('Pick another faction.');
+  if (kind === 'agreement' && C.atWar(state, from, to)) throw new UserError('Make peace first.');
+  if (kind === 'peace') { const x = C.warBetween(state, from, to); if (!x) throw new UserError('You are not at war with them.'); payload.warId = x.id; }
+  if (kind === 'alliance-invite') { const a = alliance(state, payload.allianceId); if (!a.members.includes(from)) throw new UserError('You can only invite into your own alliance.'); if (a.members.includes(to)) throw new UserError('They are already members.'); }
+  if (kind === 'alliance-join') { const a = alliance(state, payload.allianceId); if (a.members.includes(from)) throw new UserError('Already a member.'); if (!a.members.includes(to)) throw new UserError('Ask a member of that alliance.'); }
+  if (kind === 'alliance-found' && !payload.name) throw new UserError('Name the alliance.');
+  if (kind === 'marriage') {
+    const s = state.characters.find((c) => c.id === payload.subjectCharId); const t = state.characters.find((c) => c.id === payload.targetCharId);
+    if (!s || !t) throw new UserError('Character not found — type the exact names.');
+    if (C.factionOfChar(state, s)?.id !== from) throw new UserError(`${s.name} is not one of yours.`);
+    if (C.factionOfChar(state, t)?.id !== to) throw new UserError(`${t.name} is not a member of ${fname(state, to)}.`);
+    if (s.spouseId || t.spouseId) throw new UserError(`${s.spouseId ? s.name : t.name} is already married.`);
+  }
+  return payload;
+}
+function propose(state, { kind, from, to, payload = {}, note = '', proposer = null, userId = '', staffApproval = false }) {
   const w = state.world;
-  const a = action(state, args.actionId);
-  if (!a) throw new UserError('Unknown action.');
-  const opt = actionsFor(state, args.from, args.to).find((x) => x.action.id === a.id);
-  if (!opt.available && !args.staff) throw new UserError(opt.reasons.join(' '));
-  if (a.needsCharacters) {
-    if (!args.subjectCharId || !args.targetCharId) throw new UserError(`${a.name} needs one character from each side.`);
-    const s = state.characters.find((c) => c.id === args.subjectCharId); const t = state.characters.find((c) => c.id === args.targetCharId);
-    if (!s || !t) throw new UserError('Character not found.');
-    if (C.factionOfChar(state, t)?.id !== args.to) throw new UserError(`${t.name} is not a member of ${C.faction(state, args.to)?.name}.`);
-    if (C.factionOfChar(state, s)?.id !== args.from) throw new UserError(`${s.name} is not a member of your faction.`);
-    if (a.onAccept?.marry && (s.spouseId || t.spouseId)) throw new UserError(`${s.spouseId ? s.name : t.name} is already married.`);
-  }
-  let p = {
-    id: newId('dp-'), actionId: a.id, from: args.from, to: args.to,
-    proposerCharId: args.proposer?.id || '', proposerUserId: args.proposer?.ownerId || args.userId || '',
-    subjectCharId: args.subjectCharId || '', targetCharId: args.targetCharId || '',
-    terms: args.terms || {}, note: String(args.note || '').slice(0, 500),
-    status: a.unilateral ? (a.staffApproval && !args.staff ? 'awaiting-staff' : 'approved') : 'awaiting-target',
-    approvals: {}, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 48 * 3600000).toISOString(), turn: w.turn, messages: [],
+  payload = checkProposal(state, kind, from, to, { ...payload });
+  const p = {
+    id: newId('dp-'), kind, from, to, payload, note: String(note || '').slice(0, 600),
+    proposerCharId: proposer?.id || '', proposerUserId: proposer?.ownerId || userId || '',
+    status: 'awaiting-target', approvals: {}, needsStaff: !!staffApproval, createdAt: new Date().toISOString(), expiresAt: new Date(Date.now() + 72 * 3600000).toISOString(), turn: w.turn, messages: [],
   };
-  const fromF = C.faction(state, args.from);
-  if (a.scriptId || fromF?.scriptId) {
-    const out = C.runHooks(state, [{ scriptId: a.scriptId, type: 'diplomacy action', name: a.name }, { scriptId: fromF?.scriptId, type: 'faction', name: fromF?.name }], 'diplomacy',
-      C.worldCtx(state, { stage: 'propose', action: { id: a.id, name: a.name }, from: C.factionSummary(state, fromF), to: C.factionSummary(state, C.faction(state, args.to)), relation: C.relation(state, args.from, args.to).value }), { ...p, blocked: '' });
+  const fromF = C.faction(state, from);
+  if (fromF?.scriptId) {
+    const out = C.runHooks(state, [{ scriptId: fromF.scriptId, type: 'faction', name: fromF.name }], 'diplomacy', C.worldCtx(state, { stage: 'propose', kind, from: C.factionSummary(state, fromF), to: C.factionSummary(state, C.faction(state, to)), payload }), { blocked: '' });
     if (out?.blocked) throw new UserError(String(out.blocked));
-    if (out?.terms) p.terms = out.terms;
   }
-  // Pay the cost up front.
-  if (!args.staff) { fromF.influence = r2(fromF.influence - num(a.costInfluence)); fromF.treasury = r2(fromF.treasury - num(a.costTreasury)); }
-  w.cooldowns[cdKey(a.id, args.from, args.to)] = w.turn + num(a.cooldown, 8);
   w.proposals.unshift(p);
   if (w.proposals.length > 200) w.proposals.length = 200;
-  C.wlog(state, 'diplomacy', `${a.emoji} **${fromF?.name}** → **${C.faction(state, args.to)?.name}**: ${a.name}${p.note ? ` — “${p.note}”` : ''}`);
-  if (p.status === 'approved') p = execute(state, p);
+  C.wlog(state, 'diplomacy', `**${fname(state, from)}** → **${fname(state, to)}**: ${KINDS[kind].name}${p.note ? ` — “${p.note}”` : ''}`);
   return p;
 }
-
-/** Who must act next on a proposal: 'target' (their representative), 'character' (their character's player), 'staff', or null. */
+/** Who must act next: 'target' (their representative), 'character' (their character's player), 'staff', or null. */
 function nextStep(state, p) {
-  if (p.status === 'awaiting-target') return 'target';
-  if (p.status === 'awaiting-character') return 'character';
-  if (p.status === 'awaiting-staff') return 'staff';
-  return null;
+  return { 'awaiting-target': 'target', 'awaiting-character': 'character', 'awaiting-staff': 'staff' }[p.status] || null;
 }
-
-/** Accept/decline. who: { kind: 'target' | 'character' | 'staff', charId, userId, name } */
+/** who: { kind: 'target' | 'character' | 'staff', name, userId, needsStaff (the accepting representative's rank needs staff) } */
 function respond(state, id, accept, who) {
   const p = findProposal(state, id);
-  const a = action(state, p.actionId);
-  if (['done', 'rejected', 'expired', 'cancelled'].includes(p.status)) throw new UserError(`This proposal is already ${p.status}.`);
-  if (Date.parse(p.expiresAt) < Date.now()) { p.status = 'expired'; throw new UserError('This proposal has expired.'); }
+  if (!p.status.startsWith('awaiting')) throw new UserError(`This offer is already ${p.status}.`);
+  if (Date.parse(p.expiresAt) < Date.now()) { p.status = 'expired'; throw new UserError('This offer has expired.'); }
   const step = nextStep(state, p);
-  if (who.kind !== step && !(who.kind === 'staff')) throw new UserError(step === 'staff' ? 'Waiting for staff approval.' : step === 'character' ? 'Waiting for the other character\'s player.' : 'Waiting for their representative.');
+  if (who.kind !== step && who.kind !== 'staff') throw new UserError(step === 'staff' ? 'Waiting for staff approval.' : step === 'character' ? 'Waiting for the other character\'s player.' : 'Waiting for their representative.');
   if (!accept) {
     p.status = 'rejected'; p.rejectedBy = who.name || who.kind;
-    if (who.kind !== 'staff') C.addRelation(state, p.from, p.to, num(a?.onReject?.relation, -3));
-    C.wlog(state, 'diplomacy', `❌ ${a?.name}: ${C.faction(state, p.from)?.name} → ${C.faction(state, p.to)?.name} declined by ${p.rejectedBy}.`);
+    C.wlog(state, 'diplomacy', `${KINDS[p.kind]?.name}: ${fname(state, p.from)} → ${fname(state, p.to)} declined by ${p.rejectedBy}.`);
     return p;
   }
   p.approvals[who.kind] = { by: who.name || '', userId: who.userId || '', at: new Date().toISOString() };
-  if (who.kind === 'staff' && step !== 'staff') {
-    // Staff can push a proposal through every step.
-    p.approvals.target ||= { by: `${who.name} (staff)` };
-    if (a.needsCharacters) p.approvals.character ||= { by: `${who.name} (staff)` };
-  }
-  if (!p.approvals.target && !a.unilateral) { p.status = 'awaiting-target'; return p; }
-  if (a.needsCharacters && !p.approvals.character) {
-    const t = state.characters.find((c) => c.id === p.targetCharId);
-    // If the representative who accepted IS the target character's player, that counts as consent.
+  if (who.needsStaff) p.needsStaff = true;
+  if (who.kind === 'staff') { p.approvals.target ||= { by: `${who.name} (staff)` }; p.approvals.character ||= { by: `${who.name} (staff)` }; p.approvals.staff = p.approvals.staff || { by: who.name }; }
+  if (!p.approvals.target) { p.status = 'awaiting-target'; return p; }
+  if (p.kind === 'marriage' && !p.approvals.character) {
+    const t = state.characters.find((c) => c.id === p.payload.targetCharId);
     if (t && p.approvals.target?.userId && p.approvals.target.userId === t.ownerId) p.approvals.character = { by: p.approvals.target.by };
     else { p.status = 'awaiting-character'; return p; }
   }
-  if (a.staffApproval && !p.approvals.staff) { p.status = 'awaiting-staff'; return p; }
-  p.status = 'approved';
+  if (p.needsStaff && !p.approvals.staff) { p.status = 'awaiting-staff'; return p; }
   return execute(state, p);
 }
-
 function execute(state, p) {
-  const w = state.world;
-  const a = action(state, p.actionId);
-  const eff = { ...(a.onAccept || {}) };
-  const from = C.faction(state, p.from); const to = C.faction(state, p.to);
-  const fs = [{ scriptId: a.scriptId, type: 'diplomacy action', name: a.name }, { scriptId: from?.scriptId, type: 'faction', name: from?.name }, { scriptId: to?.scriptId, type: 'faction', name: to?.name }];
-  if (fs.some((s) => s.scriptId)) {
-    const out = C.runHooks(state, fs, 'diplomacy', C.worldCtx(state, { stage: 'execute', action: { id: a.id, name: a.name }, from: C.factionSummary(state, from), to: C.factionSummary(state, to), terms: p.terms }), { effects: eff, blocked: '' });
-    if (out?.blocked) { p.status = 'blocked'; p.blockedReason = String(out.blocked); return p; }
-    if (out?.effects) Object.assign(eff, out.effects);
-  }
+  const { kind, from, to, payload } = p;
   const lines = [];
-  if (eff.relation) C.addRelation(state, p.from, p.to, num(eff.relation));
-  if (eff.transfer) { const amt = Math.min(num(eff.transfer), Infinity); to.treasury = r2(to.treasury + amt); lines.push(`${amt} Nyang sent`); }
-  if (eff.influence) from.influence = r2(from.influence + num(eff.influence));
-  if (eff.reputation) from.reputation = r2(clamp(num(from.reputation, 50) + num(eff.reputation), 0, 100));
-  if (eff.breaks) for (const t of C.treatiesBetween(state, p.from, p.to).filter((t) => eff.breaks.includes(t.type))) P.endTreaty(state, t.id, 'was broken');
-  if (eff.breaksAny) {
-    const t = C.treatiesBetween(state, p.from, p.to).find((x) => !p.terms?.treatyId || x.id === p.terms.treatyId);
-    if (t) { P.endTreaty(state, t.id, `was torn up by ${from.name}`); for (const o of w.factions) if (o.id !== from.id && o.active) C.addRelation(state, from.id, o.id, -2); }
-  }
-  if (eff.war) declareWar(state, p.from, p.to);
-  if (eff.endsWar) { const rel = C.relation(state, p.from, p.to); if (rel.war) { rel.war = false; lines.push('the war is over'); } }
-  if (eff.reparations) {
-    const payer = p.terms?.payer === p.to ? to : from; const recv = payer === from ? to : from;
-    const amt = r2(Math.min(payer.treasury, num(p.terms?.amount, eff.reparations)));
-    payer.treasury = r2(payer.treasury - amt); recv.treasury = r2(recv.treasury + amt); lines.push(`${payer.name} pays ${amt} in reparations`);
-  }
-  if (eff.joinWar) {
-    for (const [k, rel] of Object.entries(w.relations)) {
-      if (!rel.war || !k.split('|').includes(p.from)) continue;
-      const enemy = k.split('|').find((x) => x !== p.from);
-      if (enemy && enemy !== p.to) declareWar(state, p.to, enemy, { silent: true });
-    }
-  }
-  if (eff.treaty) {
-    const tt = eff.treaty;
-    const opts = { duration: num(p.terms?.duration, tt.duration), name: p.terms?.name || tt.name, terms: { ...(p.terms || {}) } };
-    if (['tribute', 'vassal'].includes(tt.type)) {
-      // "Offer tribute/vassalage": proposer pays. "Demand tribute": target pays.
-      opts.payer = tt.reverse ? p.to : p.from; opts.receiver = tt.reverse ? p.from : p.to;
-    }
-    if (eff.marry) opts.couple = [p.subjectCharId, p.targetCharId];
-    const t = P.makeTreaty(state, tt.type, [p.from, p.to], opts);
-    p.treatyId = t.id;
-  }
-  if (eff.marry) {
-    const s = state.characters.find((c) => c.id === p.subjectCharId); const t = state.characters.find((c) => c.id === p.targetCharId);
-    if (s && t) { s.spouseId = t.id; t.spouseId = s.id; w.marriages.push({ a: s.id, b: t.id, factions: [p.from, p.to], treatyId: p.treatyId || '', turn: w.turn, at: new Date().toISOString() }); lines.push(`${s.name} and ${t.name} are married`); }
-  }
-  if (eff.unmarry) {
-    const t = C.treatiesBetween(state, p.from, p.to, 'marriage')[0];
-    if (t) P.endTreaty(state, t.id, 'was annulled');
-  }
-  if (eff.bond) {
-    const s = state.characters.find((c) => c.id === p.subjectCharId); const t = state.characters.find((c) => c.id === p.targetCharId);
-    if (s && t) { s.bonds = [...(s.bonds || []), { kind: eff.bond, with: t.id, turn: w.turn }]; t.bonds = [...(t.bonds || []), { kind: eff.bond, with: s.id, turn: w.turn }]; lines.push(`${s.name} and ${t.name} are sworn siblings`); }
+  if (kind === 'agreement') {
+    const tribute = payload.tribute && (num(payload.tribute.percent) || num(payload.tribute.fixed)) ? { payer: payload.tribute.who === 'to' ? to : from, receiver: payload.tribute.who === 'to' ? from : to, percent: num(payload.tribute.percent), fixed: num(payload.tribute.fixed) } : null;
+    const t = makeAgreement(state, { parties: [from, to], perks: payload.perks || {}, tribute, note: p.note, name: payload.name, duration: payload.duration });
+    p.agreementId = t.id;
+  } else if (kind === 'alliance-invite' || kind === 'alliance-join') {
+    addMember(state, payload.allianceId, kind === 'alliance-invite' ? to : from);
+  } else if (kind === 'alliance-found') {
+    const a = createAlliance(state, { name: payload.name, hanzi: payload.hanzi, color: payload.color, terms: payload.terms, note: p.note, members: [from, to], leader: from });
+    p.allianceId = a.id;
+  } else if (kind === 'peace') {
+    if (state.world.wars.some((x) => x.id === payload.warId)) makePeace(state, payload.warId, { note: p.note });
+  } else if (kind === 'marriage') {
+    marry(state, payload.subjectCharId, payload.targetCharId);
   }
   p.status = 'done'; p.doneAt = new Date().toISOString(); p.result = lines;
-  const text = `${a.emoji} **${a.name}** — **${from?.name}** and **${to?.name}**${lines.length ? `: ${lines.join('; ')}` : ''}.`;
-  C.wlog(state, 'diplomacy', text);
-  (w.announceQueue ||= []).push({ kind: 'diplomacy', text, factions: [p.from, p.to] });
   return p;
 }
-
-function declareWar(state, a, b, { silent = false } = {}) {
-  const w = state.world;
-  const rel = C.relation(state, a, b);
-  if (rel.war) return;
-  rel.war = true; rel.since = w.turn;
-  for (const t of C.treatiesBetween(state, a, b).filter((t) => ['trade', 'exchange', 'access', 'nap', 'truce'].includes(t.type))) P.endTreaty(state, t.id, 'ended by war');
-  const A = C.faction(state, a); const B = C.faction(state, b);
-  C.wlog(state, 'war', `⚔️ **${A?.name}** and **${B?.name}** are at war!`);
-  if (!silent) (w.announceQueue ||= []).push({ kind: 'war', text: `⚔️ **${A?.name}** has declared war on **${B?.name}**!`, factions: [a, b] });
-  // Defensive allies of the defender join automatically.
-  if (!silent) for (const t of w.treaties.filter((t) => t.parties.includes(b) && ['defensive', 'alliance'].includes(t.type))) {
-    const ally = t.parties.find((x) => x !== b);
-    if (ally && ally !== a) { declareWar(state, ally, a, { silent: true }); C.wlog(state, 'war', `🛡️ **${C.faction(state, ally)?.name}** honours its pact and joins the war against **${A?.name}**.`); }
-  }
-}
-
 function expireProposals(state) {
-  for (const p of state.world.proposals) if (['awaiting-target', 'awaiting-character', 'awaiting-staff'].includes(p.status) && Date.parse(p.expiresAt) < Date.now()) p.status = 'expired';
+  for (const p of state.world.proposals) if (p.status.startsWith('awaiting') && Date.parse(p.expiresAt) < Date.now()) p.status = 'expired';
 }
 
-/** Data for the Diplomacy map: nodes (actions) and arrows (unlocks + treaty requirements). */
-function graph(state, fromId, toId) {
-  const avail = fromId && toId ? Object.fromEntries(actionsFor(state, fromId, toId).map((x) => [x.action.id, x])) : {};
-  const nodes = state.world.actions.map((a) => ({ id: a.id, name: a.name, emoji: a.emoji, category: a.category, description: a.description, available: avail[a.id]?.available ?? null, reasons: avail[a.id]?.reasons || [], staffApproval: a.staffApproval, unilateral: a.unilateral, needsCharacters: a.needsCharacters }));
-  const edges = [];
-  for (const a of state.world.actions) {
-    for (const u of a.unlocks || []) edges.push({ from: a.id, to: u, kind: 'unlocks' });
-    for (const t of a.requires?.treaties || []) {
-      const maker = state.world.actions.find((x) => x.onAccept?.treaty?.type === t);
-      if (maker && maker.id !== a.id) edges.push({ from: maker.id, to: a.id, kind: 'requires' });
-    }
-  }
-  return { nodes, edges };
-}
-
-module.exports = { action, actionsFor, propose, respond, execute, declareWar, nextStep, findProposal, expireProposals, graph };
+module.exports = {
+  KINDS, declareWar, war, makePeace, joinWar,
+  alliance, createAlliance, addMember, removeMember, dissolveAlliance,
+  makeAgreement, endAgreement, perkText, marry, divorce,
+  findProposal, checkProposal, propose, nextStep, respond, execute, expireProposals,
+};

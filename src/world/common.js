@@ -4,7 +4,6 @@ const geo = require('./geo');
 const W = require('./defaults');
 const scripts = require('../engine/scripts');
 const { clone, num, r2, norm } = require('../utils');
-const { pairKey } = require('./state');
 
 // ─────────── calendar ───────────
 function calendar(state, turn = state.world.turn) {
@@ -30,38 +29,37 @@ const isRepresentative = (state, f, c, member) => {
 };
 const controlled = (state, fid) => Object.values(state.world.regions).filter((r) => r.controller === fid && (r.population !== undefined));
 
-// ─────────── relations ───────────
-function relation(state, a, b) {
-  if (!a || !b || a === b) return { value: 100, war: false, since: 0 };
-  const k = pairKey(a, b);
-  if (!state.world.relations[k]) state.world.relations[k] = { value: 0, war: false, since: 0 };
-  return state.world.relations[k];
+// ─────────── wars, alliances, agreements ───────────
+// There are no relation numbers: how factions feel about each other is role-played. The bot only knows
+// who is at war, who shares an alliance and which agreements exist.
+const allianceOf = (state, fid) => (fid ? (state.world.alliances || []).find((a) => a.members.includes(fid)) || null : null);
+const sameAlliance = (state, a, b) => !!(a && b && a !== b && allianceOf(state, a) && allianceOf(state, a) === allianceOf(state, b));
+const warsOf = (state, fid) => (state.world.wars || []).filter((x) => x.attackers.includes(fid) || x.defenders.includes(fid));
+function warBetween(state, a, b) {
+  if (!a || !b || a === b) return null;
+  return (state.world.wars || []).find((x) => (x.attackers.includes(a) && x.defenders.includes(b)) || (x.attackers.includes(b) && x.defenders.includes(a))) || null;
 }
-function addRelation(state, a, b, delta) {
-  if (!a || !b || a === b) return;
-  const r = relation(state, a, b);
-  r.value = r2(Math.max(-100, Math.min(100, r.value + num(delta))));
+const atWar = (state, a, b) => !!warBetween(state, a, b);
+const agreementsBetween = (state, a, b) => (state.world.agreements || []).filter((t) => t.parties.includes(a) && t.parties.includes(b));
+/** Does a perk (militaryAccess, freeTrade, sharedShops, nonAggression, defensive, callToArms) hold between a and b? */
+function hasPerk(state, a, b, perk) {
+  if (!a || !b || a === b) return false;
+  if (sameAlliance(state, a, b) && allianceOf(state, a).terms?.[perk]) return true;
+  return agreementsBetween(state, a, b).some((t) => t.perks?.[perk]);
 }
-const treatiesBetween = (state, a, b, type) => state.world.treaties.filter((t) => t.parties.includes(a) && t.parties.includes(b) && (!type || t.type === type));
-const hasTreaty = (state, a, b, type) => treatiesBetween(state, a, b, type).length > 0;
-
-/** neutral / cordial / friendly / allied / rival / hostile / war */
+/** self / war / allied / agreement / neutral */
 function stance(state, a, b) {
   if (!a || !b) return 'neutral';
   if (a === b) return 'self';
-  const r = relation(state, a, b);
-  if (r.war) return 'war';
-  if (hasTreaty(state, a, b, 'alliance') || hasTreaty(state, a, b, 'defensive')) return 'allied';
-  if (r.value >= 50) return 'friendly';
-  if (r.value >= 15) return 'cordial';
-  if (r.value <= -50) return 'hostile';
-  if (r.value <= num(state.world.settings.rivalBelow, -30)) return 'rival';
+  if (atWar(state, a, b)) return 'war';
+  if (sameAlliance(state, a, b)) return 'allied';
+  if (agreementsBetween(state, a, b).length) return 'agreement';
   return 'neutral';
 }
-const STANCE_LABEL = { self: 'Same faction', war: '⚔️ At war', allied: '⚜️ Allied', friendly: '💚 Friendly', cordial: '🙂 Cordial', neutral: '😐 Neutral', rival: '😠 Rival', hostile: '💢 Hostile' };
+const STANCE_LABEL = { self: 'Same faction', war: 'At war', allied: 'Allied', agreement: 'Has an agreement', neutral: 'Neutral' };
 
 // ─────────── effect blocks ───────────
-const ADD_KEYS = ['prosperity', 'security', 'unrest', 'corruption', 'population', 'caravanRisk', 'tariff', 'coffers', 'supply', 'attrition', 'treasury', 'influence', 'relation', 'fortGrowth', 'noGuildCaravans'];
+const ADD_KEYS = ['prosperity', 'security', 'population', 'caravanRisk', 'tariff', 'coffers', 'supply', 'attrition', 'treasury', 'fortGrowth', 'noGuildCaravans'];
 const MUL_KEYS = ['income', 'tax', 'recruitCost'];
 const MAP_KEYS = ['production', 'demand', 'price', 'stockLoss'];
 
@@ -112,7 +110,7 @@ function regionSummary(state, key) {
   const f = faction(state, r.controller);
   return {
     key, name: geo.label(state, key), province: geo.provinceOf(key), special: !!r.special, terrain: r.terrain, population: r.population, prosperity: r.prosperity,
-    security: r.security, unrest: r.unrest, corruption: r.corruption, fort: r.fort, coffers: r.coffers, taxRate: r.taxRate,
+    security: r.security, fort: r.fort, coffers: r.coffers, taxRate: r.taxRate, buildings: (r.buildings || []).filter((b) => b.status === 'ready').map((b) => b.typeId),
     controller: f ? { id: f.id, name: f.name, kind: f.kind } : null,
     stock: clone(r.stock || {}), prices: clone(r.prices || {}), production: clone(r.production || {}),
     events: state.world.activeEvents.filter((e) => e.regions.includes(key)).map((e) => e.eventId),
@@ -121,7 +119,7 @@ function regionSummary(state, key) {
 }
 function factionSummary(state, f) {
   if (!f) return null;
-  return { id: f.id, name: f.name, kind: f.kind, alignment: f.alignment, sect: f.sect, treasury: f.treasury, influence: f.influence, reputation: f.reputation, hq: f.hq, members: members(state, f).length, regions: controlled(state, f.id).map((r) => r.key), policies: f.policies.map((p) => p.policyId) };
+  return { id: f.id, name: f.name, kind: f.kind, alignment: f.alignment, sect: f.sect, treasury: f.treasury, hq: f.hq, members: members(state, f).length, regions: controlled(state, f.id).map((r) => r.key), policies: f.policies.map((p) => p.policyId), alliance: allianceOf(state, f.id)?.name || '', wars: warsOf(state, f.id).map((x) => x.name) };
 }
 function worldCtx(state, extra = {}) {
   return { world: { ...calendar(state) }, ...extra };
@@ -176,19 +174,32 @@ function regionMods(state, key) {
     if (!def || def.enabled === false) continue;
     const strength = policyStrength(def, w.turn - num(p.since));
     const eff = { ...def.effects };
-    // Treasury/influence from faction-wide policies are counted once per faction (see factions.js), not per region.
-    delete eff.treasury; delete eff.influence; delete eff.relation;
+    // Treasury from faction-wide policies is counted once per faction (see politics.js), not per region.
+    delete eff.treasury;
     applyEffects(m, eff, strength, `${def.emoji} ${def.name}${strength < 1 ? ` (${Math.round(strength * 100)}%)` : ''}`);
     sources.push({ scriptId: def.scriptId, type: 'policy', name: def.name });
   }
   if (f) {
-    for (const t of w.treaties.filter((t) => t.parties.includes(f.id))) {
+    for (const t of (w.agreements || []).filter((t) => t.parties.includes(f.id))) {
       if (t.effects && Object.keys(t.effects).length) applyEffects(m, t.effects, 1, `${t.name}`);
-      if (t.scriptId) sources.push({ scriptId: t.scriptId, type: 'treaty', name: t.name });
+      if (t.scriptId) sources.push({ scriptId: t.scriptId, type: 'agreement', name: t.name });
+    }
+    const al = allianceOf(state, f.id);
+    if (al) {
+      if (al.effects && Object.keys(al.effects).length) applyEffects(m, al.effects, 1, al.name);
+      if (al.scriptId) sources.push({ scriptId: al.scriptId, type: 'alliance', name: al.name });
     }
     sources.push({ scriptId: f.scriptId, type: 'faction', name: f.name });
   }
-  if (r.occupiedBy) applyEffects(m, { prosperity: -0.6, unrest: 1, security: -1, tax: 0.6 }, 1, '🏴 Occupied');
+  // Buildings: damaged ones (under half strength) work at half effect; unfinished ones do nothing.
+  for (const b of r.buildings || []) {
+    if (b.status !== 'ready') continue;
+    const def = (w.buildingTypes || []).find((x) => x.id === b.typeId);
+    if (!def) continue;
+    applyEffects(m, def.effects, b.hp < 50 ? 0.5 : 1, `${def.name}${b.hp < 50 ? ' (damaged)' : ''}`);
+    if (def.scriptId) sources.push({ scriptId: def.scriptId, type: 'building', name: def.name });
+  }
+  if (r.occupiedBy) applyEffects(m, { prosperity: -0.6, security: -1, tax: 0.6 }, 1, 'Occupied');
   sources.push({ scriptId: r.scriptId, type: 'region', name: geo.label(state, key) });
   if (sources.some((s) => s.scriptId)) {
     const ctx = worldCtx(state, { region: regionSummary(state, key), faction: factionSummary(state, f) });
@@ -205,6 +216,15 @@ function regionMods(state, key) {
   return m;
 }
 
+/** Walls of a region in battle: its fort plus finished walls buildings. */
+function wallsOf(state, key) {
+  const r = state.world.regions[key];
+  if (!r) return 0;
+  let f = num(r.fort);
+  for (const b of r.buildings || []) if (b.status === 'ready' && b.hp >= 50) f += num((state.world.buildingTypes || []).find((x) => x.id === b.typeId)?.fort);
+  return f;
+}
+
 function wlog(state, kind, text, extra = {}) {
   const w = state.world;
   w.log.unshift({ at: new Date().toISOString(), turn: w.turn, kind, text, ...extra });
@@ -213,7 +233,7 @@ function wlog(state, kind, text, extra = {}) {
 
 module.exports = {
   calendar, faction, factionOfSect, factionOfChar, members, isRepresentative, controlled,
-  relation, addRelation, treatiesBetween, hasTreaty, stance, STANCE_LABEL,
+  allianceOf, sameAlliance, warsOf, warBetween, atWar, agreementsBetween, hasPerk, stance, STANCE_LABEL, wallsOf,
   emptyMods, applyEffects, mulFor, addFor, policyStrength, regionMods, activePolicyIds, regionSummary, factionSummary, worldCtx, runHooks, wlog,
   ADD_KEYS, MUL_KEYS, MAP_KEYS,
 };

@@ -30,12 +30,13 @@ function normalizeFaction(f = {}) {
     icon: f.icon || '', // optional; the map never forces one
     hq: f.hq || '',
     npc: !!f.npc,
+    tradeCharter: !!f.tradeCharter, // may run trade caravans even if not a guild
     active: f.active !== false,
     treasury: r2(num(f.treasury, 2000)),
-    influence: r2(num(f.influence, 60)),
-    reputation: num(f.reputation, 50), // 0-100 trustworthiness (falls when treaties are broken)
     leaderCharId: f.leaderCharId || '',
     representatives: arr(f.representatives).map(String),
+    // Rank of each representative (see settings.repRanks): what they may do on their own, with staff approval, or not at all.
+    repRanks: isPlainObject(f.repRanks) ? Object.fromEntries(Object.entries(f.repRanks).map(([k, v]) => [String(k), String(v)])) : {},
     repRoleId: f.repRoleId || '',
     policies: arr(f.policies).filter((p) => p && p.policyId).map((p) => ({ policyId: p.policyId, region: p.region || '', since: num(p.since) })),
     shop: {
@@ -76,8 +77,6 @@ function normalizeRegion(key, r = {}) {
       fort: Math.max(0, Math.min(5, num(r.fort, 1))),
       prosperity: r2(Math.max(0, Math.min(100, num(r.prosperity, 50)))),
       security: r2(Math.max(0, Math.min(100, num(r.security, 55)))),
-      unrest: r2(Math.max(0, Math.min(100, num(r.unrest, 10)))),
-      corruption: r2(Math.max(0, Math.min(100, num(r.corruption, 15)))),
       coffers: r2(Math.max(0, num(r.coffers, 0))),
       taxRate: Math.max(0, Math.min(60, num(r.taxRate, 10))),
       production: isPlainObject(r.production) ? Object.fromEntries(Object.entries(r.production).map(([k, v]) => [k, Math.max(0, num(v))])) : {},
@@ -88,6 +87,7 @@ function normalizeRegion(key, r = {}) {
       priceHistory: isPlainObject(r.priceHistory) ? r.priceHistory : {},
       workshops: arr(r.workshops).filter((w) => w && w.typeId).map((w) => ({ id: w.id || `ws-${Math.random().toString(36).slice(2, 8)}`, typeId: w.typeId, level: Math.max(1, Math.min(3, num(w.level, 1))), owner: w.owner && w.owner.type ? { type: w.owner.type, id: String(w.owner.id || '') } : { type: 'region', id: '' }, name: w.name || '', lastProfit: num(w.lastProfit), lastRun: num(w.lastRun, 1), totalProfit: num(w.totalProfit), idle: !!w.idle })),
       policies: arr(r.policies).filter((p) => p && p.policyId).map((p) => ({ policyId: p.policyId, factionId: p.factionId || '', since: num(p.since) })),
+      buildings: arr(r.buildings).filter((b) => b && b.typeId).map(normalizeBuilding),
       occupiedBy: r.occupiedBy || null,
       occupiedSince: num(r.occupiedSince, 0),
       last: isPlainObject(r.last) ? r.last : {},
@@ -97,7 +97,7 @@ function normalizeRegion(key, r = {}) {
   return out;
 }
 
-const WORLD_VERSION = 2;
+const WORLD_VERSION = 3;
 const DEFAULT_SPLIT = ['河南', '陕西', '四川', '湖北'];
 // What version 1 preset (removed in version 2 — staff now decide everything). Used only to clean old saves.
 const LEGACY_SEEDS = {"Wudang Sect":{"hq":"湖北/十堰","icon":"☯️","control":["湖北"]},"Shaolin Sect":{"hq":"河南/郑州","icon":"🪷","control":["河南"]},"Mount Hua Sect":{"hq":"陕西/渭南","icon":"🌸","control":["陕西"]},"Beggar Sect":{"hq":"湖南/岳阳","icon":"🥢","control":[]},"Jaegal Clan":{"hq":"山东/临沂","icon":"📜","control":["山东"]},"Tang Clan":{"hq":"四川/成都","icon":"🧪","control":["四川"]},"Peng Clan":{"hq":"河北/保定","icon":"🪓","control":["河北"]},"Namgoong Clan":{"hq":"安徽/合肥","icon":"🗡️","control":["安徽"]},"Moyong Clan":{"hq":"","icon":"🕯️","control":[]},"The 72 Strongholds":{"hq":"山西/长治","icon":"🏴","control":[]},"Ice Palace":{"hq":"黑龙江/黑河","icon":"❄️","control":["黑龙江"]},"Sun Palace":{"hq":"浙江/舟山","icon":"☀️","control":[]},"Sword Palace":{"hq":"新疆/伊犁","icon":"⚔️","control":["新疆"]},"Beast Palace":{"hq":"云南/西双版纳","icon":"🐅","control":["云南"]},"Hao Sect":{"hq":"贵州/遵义","icon":"🦂","control":["贵州"]},"Blood Cult":{"hq":"青海/海西","icon":"🩸","control":["青海"]},"Demon Cult":{"hq":"","icon":"👁️","control":[]}};
@@ -110,7 +110,7 @@ const LEGACY_WORKSHOPS = { '湖北/十堰': 'wudang-sect', '河南/郑州': 'sha
  */
 function migrateV2(state, w) {
   const legacyCourt = (f) => f && f.npc && ((f.id === 'imperial-court' && f.kind === 'court') || (f.id === 'merchant-guild' && f.kind === 'guild'));
-  const removed = new Set(w.factions.filter((f) => legacyCourt(f) && !w.armies.some((a) => a.factionId === f.id) && !w.treaties.some((t) => t.parties.includes(f.id))).map((f) => f.id));
+  const removed = new Set(w.factions.filter((f) => legacyCourt(f) && !w.armies.some((a) => a.factionId === f.id) && !arr(w.treaties).some((t) => t.parties.includes(f.id))).map((f) => f.id));
   const seededControl = {};
   for (const f of w.factions) {
     const seed = LEGACY_SEEDS[f.sect];
@@ -125,7 +125,7 @@ function migrateV2(state, w) {
     for (const ws of r.workshops || []) if (ws.owner?.type === 'faction' && (removed.has(ws.owner.id) || (ws.typeId === 'alchemy' && LEGACY_WORKSHOPS[k] === ws.owner.id))) ws.owner = { type: 'region', id: '' };
   }
   w.factions = w.factions.filter((f) => !removed.has(f.id));
-  for (const [k, rel] of Object.entries(w.relations)) {
+  for (const [k, rel] of Object.entries(w.relations || {})) {
     if (k.split('|').some((id) => removed.has(id))) { delete w.relations[k]; continue; }
     if (!rel.war) rel.value = 0;
   }
@@ -154,6 +154,67 @@ function migrateV2(state, w) {
   for (const b of w.battles) if (b.status === 'preparing') for (const k of ['A', 'D']) delete b.sides[k].plan;
 }
 
+function normalizeBuilding(b) {
+  return { id: b.id || `bd-${Math.random().toString(36).slice(2, 8)}`, typeId: String(b.typeId), factionId: b.factionId || '', hp: r2(Math.max(0, Math.min(100, num(b.hp, 100)))), status: b.status === 'building' ? 'building' : 'ready', readyTurn: num(b.readyTurn), builtTurn: num(b.builtTurn), name: b.name || '' };
+}
+function normalizeAlliance(a = {}) {
+  return {
+    id: a.id || `al-${Math.random().toString(36).slice(2, 8)}`,
+    name: String(a.name || 'Alliance').slice(0, 80), hanzi: String(a.hanzi || '').slice(0, 20),
+    color: /^#[0-9a-f]{6}$/i.test(a.color || '') ? a.color : '#b3261e',
+    members: [...new Set(arr(a.members).map(String))], leader: a.leader || '',
+    terms: { ...W.ALLIANCE_TERMS, ...(isPlainObject(a.terms) ? Object.fromEntries(Object.entries(a.terms).map(([k, v]) => [k, !!v])) : {}) },
+    tribute: num(a.tribute, 0), // % of each member's taxes paid to the leader
+    note: String(a.note || '').slice(0, 2000), effects: isPlainObject(a.effects) ? a.effects : {}, scriptId: a.scriptId || '',
+    showOnMap: a.showOnMap !== false, foundedTurn: num(a.foundedTurn),
+    // How it looks on the map (as in the Map Studio): border width and fill pattern.
+    style: { width: Math.max(1, Math.min(12, num(a.style?.width, 5))), fill: ['none', 'hatched', 'dots'].includes(a.style?.fill) ? a.style.fill : 'hatched' },
+  };
+}
+function normalizeAgreement(t = {}) {
+  const perks = {};
+  for (const p of W.PERKS) if (t.perks?.[p.id]) perks[p.id] = true;
+  return {
+    id: t.id || `ag-${Math.random().toString(36).slice(2, 8)}`, name: String(t.name || 'Agreement').slice(0, 80), parties: arr(t.parties).slice(0, 2).map(String), perks,
+    tribute: t.tribute && t.tribute.payer && t.tribute.receiver ? { payer: t.tribute.payer, receiver: t.tribute.receiver, percent: Math.max(0, Math.min(100, num(t.tribute.percent))), fixed: Math.max(0, num(t.tribute.fixed)) } : null,
+    note: String(t.note || '').slice(0, 2000), startTurn: num(t.startTurn), endTurn: t.endTurn ? num(t.endTurn) : null, effects: isPlainObject(t.effects) ? t.effects : {}, scriptId: t.scriptId || '',
+  };
+}
+function normalizeWar(x = {}) {
+  return { id: x.id || `wr-${Math.random().toString(36).slice(2, 8)}`, name: String(x.name || 'War').slice(0, 100), attackers: [...new Set(arr(x.attackers).map(String))], defenders: [...new Set(arr(x.defenders).map(String))], startTurn: num(x.startTurn), reason: String(x.reason || '').slice(0, 500) };
+}
+
+/** v2 → v3: relation numbers, treaty types, diplomacy actions, unrest and corruption are gone; wars, alliances, agreements, buildings and ranked representatives arrive. */
+function migrateV3(state, w) {
+  const wars = [];
+  for (const [k, rel] of Object.entries(isPlainObject(w.relations) ? w.relations : {})) {
+    if (!rel?.war) continue;
+    const [a, b] = k.split('|');
+    wars.push(normalizeWar({ name: `War of ${a} and ${b}`, attackers: [a], defenders: [b], startTurn: num(rel.since) }));
+  }
+  const map = { trade: ['freeTrade'], access: ['militaryAccess'], nap: ['nonAggression'], defensive: ['defensive', 'militaryAccess'], alliance: ['defensive', 'callToArms', 'militaryAccess', 'sharedShops', 'freeTrade'], brotherhood: ['nonAggression', 'sharedShops'], exchange: ['sharedShops'], venture: ['freeTrade'] };
+  const agreements = [];
+  for (const t of arr(w.treaties)) {
+    if (t.type === 'marriage' || t.type === 'embargo' || t.type === 'truce') continue;
+    const perks = Object.fromEntries((map[t.type] || []).map((x) => [x, true]));
+    const tribute = t.payer && t.receiver ? { payer: t.payer, receiver: t.receiver, percent: num(t.terms?.tribute, t.type === 'vassal' ? 25 : 10), fixed: num(t.terms?.fixed) } : null;
+    agreements.push(normalizeAgreement({ id: t.id, name: t.name, parties: t.parties, perks, tribute, note: t.note, startTurn: t.startTurn, endTurn: t.endTurn, effects: t.effects, scriptId: t.scriptId }));
+  }
+  w.wars = wars; w.agreements = agreements;
+  for (const k of ['relations', 'treaties', 'treatyTypes', 'actions']) delete w[k];
+  for (const k of Object.keys(w.cooldowns || {})) if (k.startsWith('dip|')) delete w.cooldowns[k];
+  w.proposals = [];
+  w.events = arr(w.events).filter((e) => !W.DROPPED_EVENTS.includes(e.id)).map(W.cleanEvent);
+  w.policies = arr(w.policies).filter((p) => !W.DROPPED_POLICIES.includes(p.id)).map(W.cleanPolicy);
+  w.activeEvents = arr(w.activeEvents).filter((e) => !W.DROPPED_EVENTS.includes(e.eventId));
+  for (const f of arr(w.factions)) {
+    f.policies = arr(f.policies).filter((p) => !W.DROPPED_POLICIES.includes(p.policyId));
+    for (const id of arr(f.representatives)) if (!f.repRanks?.[id]) (f.repRanks ||= {})[id] = w.settings?.defaultRepRank || 'elder';
+  }
+  for (const r of Object.values(w.regions || {})) if (r.policies) r.policies = r.policies.filter((p) => !W.DROPPED_POLICIES.includes(p.policyId));
+  if (w.settings) { w.settings.maxRepresentatives = Math.max(5, num(w.settings.maxRepresentatives, 5)); delete w.settings.rivalBelow; if (w.settings.shopTiers) delete w.settings.shopTiers.rival; }
+}
+
 const pairKey = (a, b) => [a, b].sort().join('|');
 
 
@@ -161,7 +222,7 @@ function seedRegions(state) {
   const regions = {};
   for (const p of geo.provinces()) {
     const seed = W.PROVINCES[p.key] || { terrain: 'plains', population: 10, fort: 1, production: {} };
-    regions[p.key] = normalizeRegion(p.key, { ...clone(seed), prosperity: 50, security: 55, unrest: 10, corruption: 15, controller: null, taxRate: 10 });
+    regions[p.key] = normalizeRegion(p.key, { ...clone(seed), prosperity: 50, security: 55, controller: null, taxRate: 10 });
   }
   const terrainOverride = { '湖北/十堰': 'mountains', '河南/郑州': 'mountains', '陕西/渭南': 'mountains', '湖南/岳阳': 'river', '山东/临沂': 'hills', '四川/成都': 'plains', '山西/长治': 'mountains', '黑龙江/黑河': 'forest', '浙江/舟山': 'coast', '新疆/伊犁': 'steppe', '云南/西双版纳': 'forest', '贵州/遵义': 'mountains', '青海/海西': 'desert', '河南/开封': 'river', '湖北/武汉': 'river', '江苏/扬州': 'river', '浙江/杭州': 'river', '广东/广州': 'coast', '甘肃/酒泉': 'desert', '江西/景德镇': 'hills' };
   for (const [key, share, note] of W.SPECIAL) {
@@ -171,7 +232,7 @@ function seedRegions(state) {
     for (const [g, v] of Object.entries(prov.production)) { production[g] = r2(v * share); prov.production[g] = r2(v - production[g]); }
     const pop = r2(prov.population * share);
     prov.population = r2(prov.population - pop);
-    regions[key] = normalizeRegion(key, { special: true, notes: note, terrain: terrainOverride[key] || prov.terrain, population: pop, fort: Math.min(5, prov.fort + 1), production, prosperity: 55, security: 60, unrest: 8, corruption: 15, controller: prov.controller, taxRate: 10 });
+    regions[key] = normalizeRegion(key, { special: true, notes: note, terrain: terrainOverride[key] || prov.terrain, population: pop, fort: Math.min(5, prov.fort + 1), production, prosperity: 55, security: 60, controller: prov.controller, taxRate: 10 });
   }
   return regions;
 }
@@ -183,7 +244,7 @@ function seedFactions(state) {
     out.push(normalizeFaction({
       id: factionIdForSect(s.name), name: s.name, sect: s.name, kind: kindOfSect(s.name), alignment: s.alignment || 'Neutral',
       color: seed.color, hanzi: seed.hanzi, icon: '', hq: '', active: true,
-      treasury: 2500, influence: 60, description: s.description || '',
+      treasury: 2500, description: s.description || '',
     }));
   }
   return out;
@@ -213,8 +274,6 @@ function createWorld(state) {
     if (!r || !r.workshops) continue;
     r.workshops.push({ id: `ws-${slug(key)}-${typeId}-${r.workshops.length}`, typeId, level, owner: { type: 'region', id: '' }, lastProfit: 0, lastRun: 1, totalProfit: 0, idle: false, name: '' });
   }
-  const relations = {};
-  for (let i = 0; i < factions.length; i++) for (let j = i + 1; j < factions.length; j++) relations[pairKey(factions[i].id, factions[j].id)] = { value: 0, war: false, since: 0 };
   const world = {
     version: WORLD_VERSION,
     turn: 0,
@@ -227,17 +286,18 @@ function createWorld(state) {
     terrains: clone(W.TERRAINS),
     events: clone(W.EVENTS),
     policies: clone(W.POLICIES),
-    treatyTypes: clone(W.TREATY_TYPES),
-    actions: clone(W.DIPLOMACY_ACTIONS),
+    buildingTypes: clone(W.BUILDING_TYPES),
     unitTypes: clone(W.UNIT_TYPES),
     formations: clone(W.FORMATIONS),
     factions,
     regions,
     routes: clone(W.ROUTES),
-    relations,
-    treaties: [],
-    activeEvents: [],
+    wars: [],
+    alliances: [],
+    agreements: [],
+    requests: [],
     cooldowns: {},
+    activeEvents: [],
     pendingChains: [],
     caravans: [],
     armies: [],
@@ -264,13 +324,12 @@ function normalizeWorld(state) {
   w.map = { title: '', subtitle: '', era: '', lang: 'english', layers: {}, landmarks: [], frontiers: [], ...(w.map || {}) };
   w.map.landmarks = arr(w.map.landmarks); w.map.frontiers = arr(w.map.frontiers);
   w.map.split = Array.isArray(w.map.split) ? w.map.split.filter((k) => geo.isProvince(k)) : [...DEFAULT_SPLIT];
-  for (const [k, def] of [['goods', W.GOODS], ['workshopTypes', W.WORKSHOP_TYPES], ['events', W.EVENTS], ['policies', W.POLICIES], ['treatyTypes', W.TREATY_TYPES], ['actions', W.DIPLOMACY_ACTIONS], ['unitTypes', W.UNIT_TYPES], ['formations', W.FORMATIONS], ['routes', W.ROUTES]]) {
+  for (const [k, def] of [['goods', W.GOODS], ['workshopTypes', W.WORKSHOP_TYPES], ['events', W.EVENTS], ['policies', W.POLICIES], ['buildingTypes', W.BUILDING_TYPES], ['unitTypes', W.UNIT_TYPES], ['formations', W.FORMATIONS], ['routes', W.ROUTES]]) {
     if (!Array.isArray(w[k])) w[k] = clone(def);
   }
   if (!isPlainObject(w.terrains)) w.terrains = clone(W.TERRAINS);
-  for (const k of ['treaties', 'activeEvents', 'pendingChains', 'caravans', 'armies', 'battles', 'proposals', 'takeovers', 'marriages', 'history', 'log']) if (!Array.isArray(w[k])) w[k] = [];
+  for (const k of ['activeEvents', 'pendingChains', 'caravans', 'armies', 'battles', 'proposals', 'takeovers', 'marriages', 'history', 'log', 'wars', 'alliances', 'agreements', 'requests']) if (!Array.isArray(w[k])) w[k] = [];
   if (!isPlainObject(w.cooldowns)) w.cooldowns = {};
-  if (!isPlainObject(w.relations)) w.relations = {};
   w.factions = arr(w.factions).map(normalizeFaction);
   // Every sect has a faction.
   for (const s of state.sects || []) {
@@ -284,14 +343,17 @@ function normalizeWorld(state) {
   for (const p of geo.provinces()) if (!regions[p.key]) regions[p.key] = normalizeRegion(p.key, { ...(W.PROVINCES[p.key] || {}), controller: null });
   w.regions = regions;
   if (w.version < 2) { migrateV2(state, w); w.version = 2; }
+  if (w.version < 3) { migrateV3(state, w); w.version = 3; }
+  w.factions = w.factions.map(normalizeFaction);
+  const fids = new Set(w.factions.map((f) => f.id));
+  w.alliances = w.alliances.map(normalizeAlliance).map((a) => ({ ...a, members: a.members.filter((m) => fids.has(m)) }));
+  w.agreements = w.agreements.map(normalizeAgreement).filter((t) => t.parties.length === 2 && t.parties.every((p) => fids.has(p)));
+  w.wars = w.wars.map(normalizeWar).map((x) => ({ ...x, attackers: x.attackers.filter((m) => fids.has(m)), defenders: x.defenders.filter((m) => fids.has(m)) })).filter((x) => x.attackers.length && x.defenders.length);
+  w.requests = w.requests.slice(0, 300);
   // Prefectures that follow their province always show its ruler.
   for (const r of Object.values(regions)) if (r.key.includes('/') && !r.ownController) r.controller = regions[geo.provinceOf(r.key)]?.controller || null;
   for (const r of Object.values(regions)) if (r.controller && !w.factions.some((f) => f.id === r.controller)) r.controller = null;
   w.takeovers = w.takeovers.slice(0, 200);
-  for (let i = 0; i < w.factions.length; i++) for (let j = i + 1; j < w.factions.length; j++) {
-    const k = pairKey(w.factions[i].id, w.factions[j].id);
-    if (!w.relations[k]) w.relations[k] = { value: 0, war: false, since: 0 };
-  }
   require('./economy').initMarkets(state, w, { onlyMissing: true });
   return w;
 }
@@ -308,7 +370,7 @@ function setSpecial(state, key, on, share = 0.12) {
     for (const [k, v] of Object.entries(prov.production)) { production[k] = r2(v * share); prov.production[k] = r2(v - production[k]); }
     const pop = r2(prov.population * share);
     prov.population = r2(prov.population - pop);
-    w.regions[key] = normalizeRegion(key, { ...(cur || {}), special: true, ownController: !!cur?.ownController, terrain: prov.terrain, population: pop, fort: prov.fort, production, prosperity: prov.prosperity, security: prov.security, unrest: prov.unrest, corruption: prov.corruption, controller: cur?.controller || prov.controller, coffers: 0 });
+    w.regions[key] = normalizeRegion(key, { ...(cur || {}), special: true, ownController: !!cur?.ownController, terrain: prov.terrain, population: pop, fort: prov.fort, production, prosperity: prov.prosperity, security: prov.security, controller: cur?.controller || prov.controller, coffers: 0 });
     require('./economy').initMarkets(state, w, { only: [key] });
   } else if (!on && cur && cur.special) {
     prov.population = r2(prov.population + cur.population);
@@ -323,4 +385,4 @@ function setSpecial(state, key, on, share = 0.12) {
   return w.regions[key];
 }
 
-module.exports = { WORLD_VERSION, DEFAULT_SPLIT, ensureGoodItems, normalizeFaction, normalizeRegion, createWorld, normalizeWorld, setSpecial, pairKey, factionIdForSect, kindOfSect, FACTION_KINDS, PLAYABLE_KINDS };
+module.exports = { normalizeBuilding, normalizeAlliance, normalizeAgreement, normalizeWar, WORLD_VERSION, DEFAULT_SPLIT, ensureGoodItems, normalizeFaction, normalizeRegion, createWorld, normalizeWorld, setSpecial, pairKey, factionIdForSect, kindOfSect, FACTION_KINDS, PLAYABLE_KINDS };

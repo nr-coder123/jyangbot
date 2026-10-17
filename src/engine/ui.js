@@ -65,7 +65,7 @@ const BUTTONS = {
   wMarket: ['Market', '🏪', '/world tab'],
   wCaravans: ['Caravans', '🐫', '/world tab'],
   wWorkshops: ['Workshops', '🏭', '/world tab'],
-  wPolitics: ['Politics', '📜', '/world tab'],
+  wPolitics: ['Realm', '📜', '/world tab'],
   wWar: ['War', '⚔️', '/world tab'],
   wTravel: ['Travel…', '🧭', '/world → Region'],
   wBuy: ['Buy…', '🛒', '/world → Market good'],

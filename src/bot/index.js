@@ -283,6 +283,12 @@ async function syncOffice(c) {
   return require('./commands/territory').syncOffice(client, c);
 }
 
+/** Dashboard: update a staff request post in Discord. */
+async function postRequest(q) {
+  if (!client || !status.online) return;
+  return require('./commands/world').postRequest(client, q);
+}
+
 /** Dashboard: post or update a takeover request in Discord. */
 async function postTakeover(t) {
   if (!client || !status.online) return;
@@ -295,4 +301,4 @@ async function stop() {
   } catch {}
 }
 
-module.exports = { start, stop, status, getDiscordInfo, commandJSON, catalog, registerCommands, sendTest, applySectRoles, createCategories, postProposal, syncOffice, postTakeover };
+module.exports = { start, stop, status, getDiscordInfo, commandJSON, catalog, registerCommands, sendTest, applySectRoles, createCategories, postProposal, syncOffice, postTakeover, postRequest };

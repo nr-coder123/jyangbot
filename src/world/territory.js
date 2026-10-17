@@ -175,7 +175,11 @@ function approveTakeover(state, id, by = {}) {
   t.before = paint(state, t.regions, t.to, { log: false });
   t.status = 'approved'; t.decidedBy = by.name || by.id || 'staff'; t.decidedAt = new Date().toISOString();
   for (const k of t.regions) { const r = state.world.regions[geo.marketOf(state, k)]; if (r && r.occupiedBy === t.to) r.occupiedBy = null; }
-  const text = `👑 ${t.regions.map((k) => `**${geo.label(state, k)}**`).join(', ')} ${t.regions.length > 1 ? 'now belong' : 'now belongs'} to **${C.faction(state, t.to)?.name || 'no one'}**.${t.reason ? ` *${t.reason}*` : ''}`;
+  // Buildings may not survive the change of masters (only when a whole market changes hands).
+  const razed = [];
+  for (const k of t.regions) if (geo.isMarket(state, k) && t.from[t.regions.indexOf(k)] && t.from[t.regions.indexOf(k)] !== t.to) razed.push(...require('./realm').razeOnCapture(state, k));
+  t.razed = razed;
+  const text = `👑 ${t.regions.map((k) => `**${geo.label(state, k)}**`).join(', ')} ${t.regions.length > 1 ? 'now belong' : 'now belongs'} to **${C.faction(state, t.to)?.name || 'no one'}**.${t.reason ? ` *${t.reason}*` : ''}${razed.length ? ` Razed in the change of masters: ${razed.join(', ')}.` : ''}`;
   C.wlog(state, 'takeover', text);
   (state.world.announceQueue ||= []).push({ kind: 'takeover-done', text, takeoverId: t.id, regions: t.regions });
   return t;

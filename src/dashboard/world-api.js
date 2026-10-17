@@ -9,9 +9,9 @@ const WS = require('../world/state');
 const runner = require('../world/runner');
 const { UserError, num, clone, arr, slug, norm, truncate, newId, isPlainObject, r2 } = require('../utils');
 
-const { geo, economy: E, events: EV, politics: P, diplomacy: D, military: M, power, common: C, territory: T } = W;
+const { geo, economy: E, events: EV, politics: P, diplomacy: D, military: M, power, common: C, territory: T, realm: R } = W;
 const MAPFILE = path.join(__dirname, '../world/mapdata.json');
-const LISTS = ['goods', 'workshopTypes', 'events', 'policies', 'treatyTypes', 'actions', 'unitTypes', 'formations', 'routes'];
+const LISTS = ['goods', 'workshopTypes', 'events', 'policies', 'buildingTypes', 'unitTypes', 'formations', 'routes'];
 
 const w = () => store.state.world;
 const region = (key) => { const r = w().regions[key]; if (!r) throw new UserError('Unknown region.'); return r; };
@@ -57,12 +57,12 @@ function mount(app, { wrap, bot, diff }) {
       items: s.items.map((i) => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, price: i.shop?.price, tradeGood: i.tradeGood, economy: i.economy })),
       scripts: s.scripts.map((x) => ({ id: x.id, name: x.name })),
       realms: s.realms.map((r) => r.name),
+      perks: W.defaults.PERKS, powers: W.defaults.POWERS, ranks: R.ranks(s), proposalKinds: D.KINDS,
       rev: store.revision,
     };
   }));
 
   app.get('/api/world/balance', wrap(async (req) => power.report(store.state, { includeNpc: req.query.npc === '1' ? true : req.query.npc === '0' ? false : undefined })));
-  app.get('/api/world/diplomacy-graph', wrap(async (req) => D.graph(store.state, req.query.from, req.query.to)));
 
   // ----- settings & map look -----
   app.put('/api/world/settings', wrap(async (req) => {
@@ -80,6 +80,9 @@ function mount(app, { wrap, bot, diff }) {
     next.powerWeights = Object.fromEntries(Object.entries({ ...before.powerWeights, ...(next.powerWeights || {}) }).map(([k, v]) => [k, Math.max(0, num(v))]));
     next.representativeRoleIds = arr(next.representativeRoleIds).map(String).filter(Boolean);
     next.travelMode = next.travelMode === 'timed' ? 'timed' : 'channel';
+    next.repRanks = arr(next.repRanks).filter((x) => x && x.id).map((x) => ({ id: slug(x.id), name: String(x.name || x.id).slice(0, 40), hanzi: String(x.hanzi || '').slice(0, 20), spendLimit: Math.max(0, num(x.spendLimit)), description: String(x.description || '').slice(0, 300), powers: Object.fromEntries(W.defaults.POWERS.map((p) => [p.id, ['free', 'staff', 'none'].includes(x.powers?.[p.id]) ? x.powers[p.id] : 'none'])) }));
+    if (!next.repRanks.length) next.repRanks = clone(W.defaults.REP_RANKS);
+    next.factionCaravans = ['guilds', 'all', 'none'].includes(next.factionCaravans) ? next.factionCaravans : 'guilds';
     next.travelSpeeds = arr(next.travelSpeeds).filter((x) => x && x.label).map((x) => ({ id: String(x.id || slug(x.label)), label: String(x.label).slice(0, 30), kmPerDay: Math.max(1, num(x.kmPerDay, 30)) }));
     if (!next.travelSpeeds.length) next.travelSpeeds = clone(W.defaults.DEFAULT_WORLD_SETTINGS.travelSpeeds);
     if (next.startRegion && !geo.get(next.startRegion)) throw new UserError('Unknown start region.');
@@ -158,13 +161,6 @@ function mount(app, { wrap, bot, diff }) {
     log(req, 'world.paint', `cleared all territory (${keys.length} regions)`);
     return { before };
   }));
-  app.post('/api/world/reset-relations', wrap(async (req) => {
-    let n = 0;
-    for (const rel of Object.values(w().relations)) { if (rel.value || rel.war) n++; rel.value = 0; if (req.body?.wars) rel.war = false; }
-    log(req, 'world.relation', `reset ${n} relation(s) to neutral${req.body?.wars ? ' and ended wars' : ''}`);
-    return { reset: n };
-  }));
-
   // ----- takeovers -----
   app.post('/api/world/takeovers', wrap(async (req) => {
     const b = req.body || {};
@@ -194,6 +190,7 @@ function mount(app, { wrap, bot, diff }) {
     const c = store.state.characters.find((x) => x.id === req.body?.charId);
     if (!c) throw new UserError('Character not found.');
     const f = T.setOffice(store.state, c, req.body?.office || 'member');
+    if (req.body?.rank && req.body.office === 'representative') { if (!R.rank(store.state, req.body.rank)) throw new UserError('Unknown rank.'); f.repRanks[c.id] = req.body.rank; }
     log(req, 'world.office', `${c.name} is now ${req.body?.office || 'member'} of ${f.name}`);
     if (bot.syncOffice) bot.syncOffice(c).catch(() => {});
     return { office: T.officeOf(store.state, c) };
@@ -238,7 +235,6 @@ function mount(app, { wrap, bot, diff }) {
     const f = WS.normalizeFaction({ ...(req.body || {}), id: req.body?.id || slug(req.body?.name || 'faction') });
     if (C.faction(store.state, f.id)) throw new UserError('A faction with that id exists.');
     w().factions.push(f);
-    for (const o of w().factions) if (o.id !== f.id) C.relation(store.state, f.id, o.id);
     log(req, 'world.faction', `created ${f.name}`);
     return { faction: f };
   }));
@@ -259,9 +255,10 @@ function mount(app, { wrap, bot, diff }) {
     if (f.sect && store.state.sects.some((s) => s.name === f.sect)) throw new UserError('This faction belongs to a sect. Delete the sect (Sects tab) or mark the faction inactive instead.');
     w().factions = w().factions.filter((x) => x.id !== f.id);
     for (const r of Object.values(w().regions)) { if (r.controller === f.id) r.controller = null; if (r.occupiedBy === f.id) r.occupiedBy = null; }
-    w().treaties = w().treaties.filter((t) => !t.parties.includes(f.id));
+    w().agreements = w().agreements.filter((t) => !t.parties.includes(f.id));
     w().armies = w().armies.filter((a) => a.factionId !== f.id);
-    for (const k of Object.keys(w().relations)) if (k.split('|').includes(f.id)) delete w().relations[k];
+    for (const al of [...w().alliances]) if (al.members.includes(f.id)) D.removeMember(store.state, al.id, f.id, { silent: true });
+    w().wars = w().wars.map((x) => ({ ...x, attackers: x.attackers.filter((m) => m !== f.id), defenders: x.defenders.filter((m) => m !== f.id) })).filter((x) => x.attackers.length && x.defenders.length);
     log(req, 'world.faction', `deleted ${f.name}`);
     return { ok: true };
   }));
@@ -278,59 +275,146 @@ function mount(app, { wrap, bot, diff }) {
     return { ok: true };
   }));
 
-  // ----- relations, treaties, proposals -----
-  app.put('/api/world/relations', wrap(async (req) => {
-    const { a, b, value, war } = req.body || {};
-    faction(a); faction(b);
-    const rel = C.relation(store.state, a, b);
-    const before = clone(rel);
-    if (value !== undefined) rel.value = Math.max(-100, Math.min(100, num(value)));
-    if (war !== undefined && !!war !== rel.war) { if (war) D.declareWar(store.state, a, b, { silent: !!req.body?.silent }); else rel.war = false; }
-    log(req, 'world.relation', `${C.faction(store.state, a).name} ↔ ${C.faction(store.state, b).name}: ${diff(before, rel)}`);
-    return { relation: rel };
-  }));
-  app.post('/api/world/treaties', wrap(async (req) => {
+  // ----- wars, alliances, agreements, proposals, requests -----
+  const staffBy = (req) => ({ kind: 'staff', name: `${req.user.username} (dashboard)`, userId: req.user.id });
+  app.post('/api/world/wars', wrap(async (req) => {
     const b = req.body || {};
-    const parties = arr(b.parties);
-    if (parties.length !== 2) throw new UserError('A treaty needs two factions.');
-    parties.forEach(faction);
-    if (!w().treatyTypes.some((t) => t.id === b.type)) throw new UserError('Unknown treaty type.');
-    if (b.scriptId) scriptOk(b.scriptId);
-    const t = P.makeTreaty(store.state, b.type, parties, { duration: num(b.duration), name: b.name, terms: isPlainObject(b.terms) ? b.terms : {}, payer: b.payer || null, receiver: b.receiver || null, effects: isPlainObject(b.effects) ? b.effects : {}, scriptId: b.scriptId || '', note: b.note || '' });
-    log(req, 'world.treaty', `${t.name}: ${parties.map((p) => C.faction(store.state, p).name).join(' & ')}`);
-    return { treaty: t };
+    const x = D.declareWar(store.state, b.attacker, b.defender, { reason: b.reason || '', name: b.name || '', force: true });
+    // Extra factions ticked by staff join; allies called in by their pacts stay.
+    if (Array.isArray(b.attackers)) x.attackers = [...new Set([...x.attackers, ...b.attackers.filter((id) => C.faction(store.state, id) && !x.defenders.includes(id))])];
+    if (Array.isArray(b.defenders)) x.defenders = [...new Set([...x.defenders, ...b.defenders.filter((id) => C.faction(store.state, id) && !x.attackers.includes(id))])];
+    log(req, 'world.war', `${x.name}: ${x.attackers.map((id) => C.faction(store.state, id)?.name).join(', ')} vs ${x.defenders.map((id) => C.faction(store.state, id)?.name).join(', ')}`);
+    runner.step();
+    return { war: x };
   }));
-  app.put('/api/world/treaties/:id', wrap(async (req) => {
-    const t = w().treaties.find((x) => x.id === req.params.id);
-    if (!t) throw new UserError('Treaty not found.');
+  app.put('/api/world/wars/:id', wrap(async (req) => {
+    const x = D.war(store.state, req.params.id);
     const b = req.body || {};
-    if (b.scriptId) scriptOk(b.scriptId);
-    for (const k of ['name', 'note', 'scriptId', 'payer', 'receiver']) if (b[k] !== undefined) t[k] = b[k];
-    if (b.endTurn !== undefined) t.endTurn = b.endTurn === null || b.endTurn === '' ? null : num(b.endTurn);
-    if (isPlainObject(b.terms)) t.terms = b.terms;
-    if (isPlainObject(b.effects)) t.effects = b.effects;
-    log(req, 'world.treaty', `edited ${t.name}`);
-    return { treaty: t };
+    if (b.name !== undefined) x.name = String(b.name).slice(0, 100);
+    if (b.reason !== undefined) x.reason = String(b.reason).slice(0, 500);
+    for (const k of ['attackers', 'defenders']) if (Array.isArray(b[k])) x[k] = [...new Set(b[k].filter((id) => C.faction(store.state, id)))];
+    if (!x.attackers.length || !x.defenders.length) throw new UserError('Each side needs at least one faction.');
+    log(req, 'world.war', `edited ${x.name}`);
+    return { war: x };
   }));
-  app.delete('/api/world/treaties/:id', wrap(async (req) => {
-    const t = P.endTreaty(store.state, req.params.id, 'was dissolved by staff');
-    if (!t) throw new UserError('Treaty not found.');
-    log(req, 'world.treaty', `ended ${t.name}`);
+  app.post('/api/world/wars/:id/peace', wrap(async (req) => {
+    const x = D.makePeace(store.state, req.params.id, { note: req.body?.note || '', factionId: req.body?.factionId || null });
+    log(req, 'world.war', `peace: ${x.name}`);
+    runner.step();
+    return { ok: true };
+  }));
+  const allianceBody = (b) => ({ name: b.name, hanzi: b.hanzi, color: b.color, terms: isPlainObject(b.terms) ? b.terms : undefined, note: b.note, tribute: b.tribute, effects: isPlainObject(b.effects) ? b.effects : undefined, scriptId: b.scriptId === undefined ? undefined : b.scriptId ? scriptOk(b.scriptId) : '', style: b.style, showOnMap: b.showOnMap });
+  app.post('/api/world/alliances', wrap(async (req) => {
+    const b = req.body || {};
+    const a = D.createAlliance(store.state, { ...allianceBody(b), members: arr(b.members).filter((id) => C.faction(store.state, id)), leader: b.leader });
+    Object.assign(a, WS.normalizeAlliance({ ...a, ...allianceBody(b), members: a.members, leader: b.leader || a.leader }));
+    log(req, 'world.alliance', `founded ${a.name}`);
+    runner.step();
+    return { alliance: a };
+  }));
+  app.put('/api/world/alliances/:id', wrap(async (req) => {
+    const a = D.alliance(store.state, req.params.id);
+    const b = req.body || {};
+    if (Array.isArray(b.members)) {
+      const want = new Set(b.members.filter((id) => C.faction(store.state, id)));
+      for (const m of [...a.members]) if (!want.has(m)) D.removeMember(store.state, a.id, m, { silent: true });
+      for (const m of want) if (!a.members.includes(m)) D.addMember(store.state, a.id, m, { silent: true });
+    }
+    const live = store.state.world.alliances.find((x) => x.id === a.id);
+    if (live) Object.assign(live, WS.normalizeAlliance({ ...live, ...Object.fromEntries(Object.entries(allianceBody(b)).filter(([, v]) => v !== undefined)), leader: b.leader ?? live.leader, members: live.members }));
+    log(req, 'world.alliance', `edited ${a.name}`);
+    return { alliance: live || null };
+  }));
+  app.delete('/api/world/alliances/:id', wrap(async (req) => {
+    const a = D.dissolveAlliance(store.state, req.params.id);
+    log(req, 'world.alliance', `dissolved ${a.name}`);
+    runner.step();
+    return { ok: true };
+  }));
+  const agreementBody = (b) => {
+    if (b.scriptId) scriptOk(b.scriptId);
+    const tribute = b.tribute && b.tribute.payer && b.tribute.receiver ? b.tribute : null;
+    return { name: b.name, parties: arr(b.parties), perks: isPlainObject(b.perks) ? b.perks : {}, tribute, note: b.note || '', effects: isPlainObject(b.effects) ? b.effects : {}, scriptId: b.scriptId || '' };
+  };
+  app.post('/api/world/agreements', wrap(async (req) => {
+    const b = req.body || {};
+    const t = D.makeAgreement(store.state, { ...agreementBody(b), duration: num(b.duration) });
+    log(req, 'world.agreement', `${t.name}: ${t.parties.map((p) => C.faction(store.state, p).name).join(' & ')}`);
+    runner.step();
+    return { agreement: t };
+  }));
+  app.put('/api/world/agreements/:id', wrap(async (req) => {
+    const i = w().agreements.findIndex((x) => x.id === req.params.id);
+    if (i < 0) throw new UserError('Agreement not found.');
+    const b = req.body || {};
+    const cur = w().agreements[i];
+    w().agreements[i] = WS.normalizeAgreement({ ...cur, ...agreementBody({ ...cur, ...b }), id: cur.id, startTurn: cur.startTurn, endTurn: b.endTurn === '' || b.endTurn === null ? null : b.endTurn !== undefined ? num(b.endTurn) : cur.endTurn });
+    log(req, 'world.agreement', `edited ${cur.name}`);
+    return { agreement: w().agreements[i] };
+  }));
+  app.delete('/api/world/agreements/:id', wrap(async (req) => {
+    const t = D.endAgreement(store.state, req.params.id, 'was dissolved by staff');
+    log(req, 'world.agreement', `ended ${t.name}`);
+    runner.step();
     return { ok: true };
   }));
   app.post('/api/world/proposals/:id/:answer', wrap(async (req) => {
-    const p = D.respond(store.state, req.params.id, req.params.answer === 'approve', { kind: 'staff', name: `${req.user.username} (dashboard)` });
-    log(req, 'world.diplomacy', `staff ${req.params.answer} ${p.actionId} → ${p.status}`);
+    const p = D.respond(store.state, req.params.id, req.params.answer === 'approve', staffBy(req));
+    log(req, 'world.diplomacy', `staff ${req.params.answer} ${p.kind} → ${p.status}`);
     if (bot.postProposal) bot.postProposal(p).catch(() => {});
+    runner.step();
     return { proposal: p };
   }));
-  app.post('/api/world/proposals', wrap(async (req) => {
-    const b = req.body || {};
-    const p = D.propose(store.state, { actionId: b.actionId, from: b.from, to: b.to, subjectCharId: b.subjectCharId, targetCharId: b.targetCharId, note: b.note, terms: b.terms, staff: true });
-    if (b.autoAccept && p.status.startsWith('awaiting')) D.respond(store.state, p.id, true, { kind: 'staff', name: `${req.user.username} (dashboard)` });
-    log(req, 'world.diplomacy', `staff created ${p.actionId}: ${b.from} → ${b.to} (${p.status})`);
-    if (bot.postProposal) bot.postProposal(p).catch(() => {});
-    return { proposal: p };
+  app.post('/api/world/requests/:id/:answer', wrap(async (req) => {
+    const by = { name: `${req.user.username} (dashboard)` };
+    const q = req.params.answer === 'approve' ? R.approveRequest(store.state, req.params.id, by) : R.rejectRequest(store.state, req.params.id, by, req.body?.reason || '');
+    log(req, 'world.request', `${req.params.answer}: ${C.faction(store.state, q.factionId)?.name} — ${q.summary}`);
+    if (bot.postRequest) bot.postRequest(q).catch(() => {});
+    runner.step();
+    return { request: q };
+  }));
+  app.delete('/api/world/requests/:id', wrap(async (req) => {
+    w().requests = w().requests.filter((x) => x.id !== req.params.id);
+    return { ok: true };
+  }));
+  app.post('/api/world/marriages', wrap(async (req) => {
+    const m = D.marry(store.state, req.body?.a, req.body?.b);
+    log(req, 'world.diplomacy', `marriage recorded`);
+    runner.step();
+    return { marriage: m };
+  }));
+  app.delete('/api/world/marriages/:charId', wrap(async (req) => {
+    D.divorce(store.state, req.params.charId);
+    log(req, 'world.diplomacy', 'marriage dissolved');
+    return { ok: true };
+  }));
+
+  // ----- buildings -----
+  app.post('/api/world/regions/:key/buildings', wrap(async (req) => {
+    const key = geo.marketOf(store.state, decodeURIComponent(req.params.key));
+    const r = region(key);
+    const b0 = req.body || {};
+    const f = faction(b0.factionId || r.controller);
+    const b = R.startBuilding(store.state, f, key, b0.typeId, { free: b0.free !== false });
+    if (b0.ready) { b.status = 'ready'; b.readyTurn = w().turn; }
+    log(req, 'world.build', `${R.buildingType(store.state, b.typeId)?.name} in ${geo.label(store.state, key)} (${b0.free !== false ? 'free' : 'paid'})`);
+    return { building: b };
+  }));
+  app.put('/api/world/regions/:key/buildings/:id', wrap(async (req) => {
+    const key = geo.marketOf(store.state, decodeURIComponent(req.params.key));
+    const r = region(key);
+    const b = r.buildings.find((x) => x.id === req.params.id);
+    if (!b) throw new UserError('Building not found.');
+    if (req.body?.hp !== undefined) b.hp = Math.max(0, Math.min(100, num(req.body.hp)));
+    if (req.body?.status) { b.status = req.body.status === 'building' ? 'building' : 'ready'; if (b.status === 'ready') b.readyTurn = Math.min(b.readyTurn, w().turn); }
+    log(req, 'world.build', `edited a building in ${geo.label(store.state, key)}`);
+    return { building: b };
+  }));
+  app.delete('/api/world/regions/:key/buildings/:id', wrap(async (req) => {
+    const key = geo.marketOf(store.state, decodeURIComponent(req.params.key));
+    R.demolishBuilding(store.state, null, key, req.params.id);
+    log(req, 'world.build', `removed a building in ${geo.label(store.state, key)}`);
+    return { ok: true };
   }));
 
   // ----- events -----
@@ -507,11 +591,12 @@ function mount(app, { wrap, bot, diff }) {
     if (p.title) st.world.map.title = p.title;
     if (p.subtitle) st.world.map.subtitle = p.subtitle;
     if (p.era) st.world.map.era = p.era;
-    for (const a of st.world.factions) for (const b of st.world.factions) if (a.id < b.id) C.relation(st, a.id, b.id);
-    // Alliances become Defensive Alliances between their member factions.
+    // Alliances: their members are the factions ruling the alliance's provinces (or its leader).
     for (const al of arr(p.alliances)) {
-      const members = [...new Set(arr(al.memberProvinces).map((k) => st.world.regions[k]?.controller).filter(Boolean))];
-      for (let i = 0; i < members.length; i++) for (let j = i + 1; j < members.length; j++) if (!C.hasTreaty(st, members[i], members[j], 'defensive')) P.makeTreaty(st, 'defensive', [members[i], members[j]], { name: al.name || 'Alliance' });
+      const members = [...new Set([map.get(al.leaderFactionId), ...arr(al.memberProvinces).map((k) => T.controllerOf(st, k))].filter(Boolean))];
+      if (!members.length || st.world.alliances.some((x) => x.name === al.name)) continue;
+      const a = D.createAlliance(st, { name: al.name || 'Alliance', hanzi: al.hanzi || '', color: al.color, members, leader: map.get(al.leaderFactionId) || members[0], note: al.notes || '' });
+      a.style = { width: num(al.strokeWidth, 5), fill: ['none', 'hatched', 'dots'].includes(al.fillPattern) ? al.fillPattern : 'hatched' };
     }
     log(req, 'world.import', `Murim Map Studio: ${createdF} new faction(s), ${painted} region(s) painted, ${lms} landmark(s)`);
     return { factions: createdF, painted, landmarks: lms };

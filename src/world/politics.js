@@ -1,5 +1,5 @@
 'use strict';
-/** Factions over time: policies, income, influence, treaties and relation drift. */
+/** Factions over time: policies, income, tribute. */
 const geo = require('./geo');
 const C = require('./common');
 const { num, r2, clamp, UserError, newId } = require('../utils');
@@ -26,8 +26,7 @@ function canAdopt(state, f, policyId, region) {
   } else if (active.some((x) => x.def.id === def.id)) return 'Already in force.';
   const clash = active.find((x) => (def.exclusive || []).includes(x.def.id) || (x.def.exclusive || []).includes(def.id));
   if (clash) return `${def.name} cannot be combined with ${clash.def.name}.`;
-  if (f.influence < num(def.cost?.influence)) return `Needs ${def.cost.influence} influence (${f.name} has ${Math.floor(f.influence)}).`;
-  if (f.treasury < num(def.cost?.treasury)) return `Needs ${def.cost.treasury} in the treasury.`;
+  if (f.treasury < num(def.cost?.treasury)) return `Needs ${def.cost.treasury} in the treasury (${f.name} has ${Math.floor(f.treasury)}).`;
   return null;
 }
 
@@ -35,7 +34,7 @@ function adoptPolicy(state, f, policyId, region = '', { free = false } = {}) {
   const why = canAdopt(state, f, policyId, region);
   if (why && !(free && !/Unknown|Already|control|combined|Pick/.test(why))) throw new UserError(why);
   const def = policyDef(state, policyId);
-  if (!free) { f.influence = r2(f.influence - num(def.cost?.influence)); f.treasury = r2(f.treasury - num(def.cost?.treasury)); }
+  if (!free) f.treasury = r2(f.treasury - num(def.cost?.treasury));
   if (def.scope === 'region') state.world.regions[region].policies.push({ policyId, factionId: f.id, since: state.world.turn });
   else f.policies.push({ policyId, region: '', since: state.world.turn });
   C.wlog(state, 'policy', `${def.emoji} **${f.name}** adopted **${def.name}**${def.scope === 'region' ? ` in ${geo.label(state, region)}` : ''}.`);
@@ -61,36 +60,25 @@ function revokePolicy(state, f, policyId, region = '', { force = false } = {}) {
   C.wlog(state, 'policy', `${def?.emoji || ''} **${f.name}** revoked **${def?.name || policyId}**.`);
 }
 
-/** Influence income formula (shown in the dashboard). */
-function influenceIncome(state, f) {
-  const regions = C.controlled(state, f.id);
-  const fromLand = regions.reduce((a, r) => a + num(r.prosperity) / 100 * 0.4, 0);
-  const fromMembers = Math.min(3, C.members(state, f).length * 0.15);
-  const fromRep = (num(f.reputation, 50) - 50) / 100;
-  return r2(0.5 + fromLand + fromMembers + fromRep);
-}
-
 function tickFactions(state, ledger) {
   const w = state.world;
   const notes = [];
   for (const f of w.factions) {
     if (!f.active) continue;
-    const inc = { taxes: r2(ledger.factionTax[f.id] || 0), policies: 0, upkeep: 0, armies: 0, tribute: 0, influence: 0 };
-    // Policy upkeep and faction-wide policy effects (treasury / influence / relation)
+    const inc = { taxes: r2(ledger.factionTax[f.id] || 0), policies: 0, upkeep: 0, armies: 0, tribute: 0, buildings: 0 };
+    // Policy upkeep and faction-wide policy income
     for (const { def, region, since } of factionPolicies(state, f)) {
       const strength = C.policyStrength(def, w.turn - num(since));
-      const upT = num(def.upkeep?.treasury); const upI = num(def.upkeep?.influence);
-      if (f.treasury < upT || f.influence < upI) {
+      const upT = num(def.upkeep?.treasury);
+      if (f.treasury < upT) {
         if (region) { const r = w.regions[region]; r.policies = r.policies.filter((p) => !(p.policyId === def.id && p.factionId === f.id)); } else f.policies = f.policies.filter((p) => p.policyId !== def.id);
         C.wlog(state, 'policy', `${def.emoji} **${f.name}** could not pay for **${def.name}** — it lapsed.`);
         continue;
       }
-      f.treasury = r2(f.treasury - upT); f.influence = r2(f.influence - upI); inc.upkeep -= upT;
-      if (!region) {
-        const regions = Math.max(1, C.controlled(state, f.id).length);
-        if (def.effects?.treasury) { const v = num(def.effects.treasury) * strength * regions; f.treasury = r2(f.treasury + v); inc.policies += v; }
-        if (def.effects?.influence) { const v = num(def.effects.influence) * strength; f.influence = r2(f.influence + v); inc.influence += v; }
-        if (def.effects?.relation) for (const o of w.factions) if (o.id !== f.id && o.active) C.addRelation(state, f.id, o.id, num(def.effects.relation) * strength);
+      f.treasury = r2(f.treasury - upT); inc.upkeep -= upT;
+      if (!region && def.effects?.treasury) {
+        const v = num(def.effects.treasury) * strength * Math.max(1, C.controlled(state, f.id).length);
+        f.treasury = r2(f.treasury + v); inc.policies += v;
       }
     }
     // Donations, disciples' fees and the sect's own fields: a small income even without land.
@@ -99,86 +87,41 @@ function tickFactions(state, ledger) {
     // Retainers, officials and upkeep of halls: a share of the treasury every turn (stops endless hoarding).
     const admin = r2(Math.max(0, f.treasury) * num(w.settings.adminCost, 1.5) / 100);
     f.treasury = r2(f.treasury - admin); inc.admin = -admin;
-    // Influence
-    const infl = influenceIncome(state, f);
-    f.influence = r2(Math.min(1000, f.influence + infl)); inc.influence += infl;
-    f.reputation = r2(clamp(num(f.reputation, 50) + (num(f.reputation, 50) < 60 ? 0.1 : 0), 0, 100));
     // Custom code
     if (f.scriptId) {
-      const out = C.runHooks(state, [{ scriptId: f.scriptId, type: 'faction', name: f.name }], 'factionTick', C.worldCtx(state, { faction: C.factionSummary(state, f) }), { treasury: 0, influence: 0, notes: [] });
-      if (out) { f.treasury = r2(f.treasury + num(out.treasury)); f.influence = r2(f.influence + num(out.influence)); (out.notes || []).forEach((n) => notes.push(`${f.name}: ${n}`)); }
+      const out = C.runHooks(state, [{ scriptId: f.scriptId, type: 'faction', name: f.name }], 'factionTick', C.worldCtx(state, { faction: C.factionSummary(state, f) }), { treasury: 0, notes: [] });
+      if (out) { f.treasury = r2(f.treasury + num(out.treasury)); (out.notes || []).forEach((n) => notes.push(`${f.name}: ${n}`)); }
     }
     f.lastIncome = inc;
   }
-  tickTreaties(state, ledger);
-  // Relations drift slowly back toward neutral; wars and treaties push them.
-  for (const [k, rel] of Object.entries(w.relations)) {
-    const [a, b] = k.split('|');
-    if (!C.faction(state, a)?.active || !C.faction(state, b)?.active) continue;
-    let d = -rel.value * 0.004;
-    if (rel.war) d -= 0.15;
-    for (const t of C.treatiesBetween(state, a, b)) d += num(w.treatyTypes.find((x) => x.id === t.type)?.drift);
-    rel.value = r2(clamp(rel.value + d, -100, 100));
-  }
+  tickAgreements(state, ledger);
   return notes;
 }
 
-function tickTreaties(state, ledger) {
+/** Tribute (agreements and alliances), expiry and custom code of agreements. */
+function tickAgreements(state, ledger) {
   const w = state.world;
-  for (const t of [...w.treaties]) {
-    if (t.endTurn && t.endTurn <= w.turn) { endTreaty(state, t.id, 'expired'); continue; }
-    const type = w.treatyTypes.find((x) => x.id === t.type);
-    // Marriage bonds last while the couple lives and stays married.
-    if (t.type === 'marriage' && t.couple) {
-      const [a, b] = t.couple.map((id) => state.characters.find((c) => c.id === id));
-      if (!a || !b || a.status !== 'active' || b.status !== 'active' || a.spouseId !== b.id) { endTreaty(state, t.id, 'dissolved'); continue; }
-    }
-    // Tribute / vassalage: payer → receiver, a share of the payer's taxes this turn.
-    const share = num(t.terms?.tribute, num(type?.tribute));
-    if (share && t.payer && t.receiver) {
-      const payer = C.faction(state, t.payer); const recv = C.faction(state, t.receiver);
-      if (payer && recv) {
-        const amount = r2(Math.min(payer.treasury, Math.max(num(t.terms?.fixed), num(ledger.factionTax[payer.id]) * share / 100)));
-        payer.treasury = r2(payer.treasury - amount); recv.treasury = r2(recv.treasury + amount);
-        if (payer.lastIncome) payer.lastIncome.tribute = r2(num(payer.lastIncome.tribute) - amount);
-        if (recv.lastIncome) recv.lastIncome.tribute = r2(num(recv.lastIncome.tribute) + amount);
-      }
-    }
+  const pay = (payerId, recvId, percent, fixed) => {
+    const payer = C.faction(state, payerId); const recv = C.faction(state, recvId);
+    if (!payer || !recv) return;
+    const amount = r2(Math.min(Math.max(0, payer.treasury), num(fixed) + num(ledger.factionTax[payer.id]) * num(percent) / 100));
+    if (!(amount > 0)) return;
+    payer.treasury = r2(payer.treasury - amount); recv.treasury = r2(recv.treasury + amount);
+    if (payer.lastIncome) payer.lastIncome.tribute = r2(num(payer.lastIncome.tribute) - amount);
+    if (recv.lastIncome) recv.lastIncome.tribute = r2(num(recv.lastIncome.tribute) + amount);
+  };
+  for (const t of [...w.agreements]) {
+    if (t.endTurn && t.endTurn <= w.turn) { require('./diplomacy').endAgreement(state, t.id, 'has run its course'); continue; }
+    if (t.tribute) pay(t.tribute.payer, t.tribute.receiver, t.tribute.percent, t.tribute.fixed);
     if (t.scriptId) {
-      const out = C.runHooks(state, [{ scriptId: t.scriptId, type: 'treaty', name: t.name }], 'treatyTick', C.worldCtx(state, { treaty: { id: t.id, name: t.name, type: t.type, parties: t.parties.map((id) => C.factionSummary(state, C.faction(state, id))), terms: t.terms, startTurn: t.startTurn, endTurn: t.endTurn } }), { transfers: [], relation: 0, end: false, notes: [] });
+      const out = C.runHooks(state, [{ scriptId: t.scriptId, type: 'agreement', name: t.name }], 'treatyTick', C.worldCtx(state, { treaty: { id: t.id, name: t.name, parties: t.parties.map((id) => C.factionSummary(state, C.faction(state, id))), perks: t.perks, note: t.note, startTurn: t.startTurn, endTurn: t.endTurn } }), { transfers: [], end: false, notes: [] });
       if (out) {
-        for (const tr of out.transfers || []) {
-          const from = C.faction(state, tr.from); const to = C.faction(state, tr.to);
-          const amt = r2(Math.max(0, Math.min(num(tr.nyang), from ? from.treasury : 0)));
-          if (from && to && amt) { from.treasury = r2(from.treasury - amt); to.treasury = r2(to.treasury + amt); }
-        }
-        if (out.relation) C.addRelation(state, t.parties[0], t.parties[1], num(out.relation));
-        if (out.end) endTreaty(state, t.id, 'ended by its terms');
+        for (const tr of out.transfers || []) pay(tr.from, tr.to, 0, tr.nyang);
+        if (out.end) require('./diplomacy').endAgreement(state, t.id, 'ended by its terms');
       }
     }
   }
+  for (const a of w.alliances) if (num(a.tribute) > 0 && a.leader) for (const m of a.members) if (m !== a.leader) pay(m, a.leader, a.tribute, 0);
 }
 
-function makeTreaty(state, type, parties, { duration = 0, name = '', terms = {}, payer = null, receiver = null, effects = {}, scriptId = '', couple = null, note = '' } = {}) {
-  const w = state.world;
-  const def = w.treatyTypes.find((x) => x.id === type);
-  const t = { id: newId('tr-'), type, name: name || def?.name || type, parties: [...parties], payer, receiver, terms, effects, scriptId, couple, note, startTurn: w.turn, endTurn: num(duration) ? w.turn + num(duration) : null };
-  w.treaties.push(t);
-  const names = parties.map((id) => C.faction(state, id)?.name || id);
-  C.wlog(state, 'treaty', `${def?.emoji || '📜'} **${t.name}** signed between **${names.join('** and **')}**${t.endTurn ? ` for ${duration} turns` : ''}.`);
-  return t;
-}
-function endTreaty(state, id, reason = 'ended') {
-  const w = state.world;
-  const t = w.treaties.find((x) => x.id === id);
-  if (!t) return null;
-  w.treaties = w.treaties.filter((x) => x.id !== id);
-  if (t.type === 'marriage' && t.couple) {
-    for (const cid of t.couple) { const c = state.characters.find((x) => x.id === cid); if (c && t.couple.includes(c.spouseId)) c.spouseId = ''; }
-    w.marriages = w.marriages.filter((m) => m.treatyId !== id);
-  }
-  C.wlog(state, 'treaty', `📜 **${t.name}** between ${t.parties.map((p) => C.faction(state, p)?.name || p).join(' and ')} ${reason}.`);
-  return t;
-}
-
-module.exports = { policyDef, factionPolicies, canAdopt, adoptPolicy, revokePolicy, influenceIncome, tickFactions, makeTreaty, endTreaty };
+module.exports = { policyDef, factionPolicies, canAdopt, adoptPolicy, revokePolicy, tickFactions, tickAgreements };

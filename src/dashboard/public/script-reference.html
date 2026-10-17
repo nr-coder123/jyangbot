@@ -112,10 +112,10 @@ hooks.consume = (ctx, result) =&gt; {
 <table class="reftable">
 <tr><th>Hook</th><th>Runs</th><th>Gets / returns</th></tr>
 <tr><td><code>hooks.regionTick(ctx, mods)</code></td><td>every turn, for each region the script touches (the region itself, its ruler, active events, policies, the ruler's treaties)</td><td><code>mods</code> = this turn's modifiers: <code>prosperity, security, unrest, corruption, population, caravanRisk, tariff, coffers, supply, attrition</code> (add) · <code>income, tax, recruitCost</code> (×) · <code>production, demand, price, stockLoss</code> ({ goodId | category | '*': × }) · <code>notes</code> (shown in the dashboard). Return mods.</td></tr>
-<tr><td><code>hooks.factionTick(ctx, ledger)</code></td><td>every turn, faction scripts</td><td>ledger <code>{ treasury, influence, notes }</code> — amounts added to the faction this turn.</td></tr>
-<tr><td><code>hooks.treatyTick(ctx, ledger)</code></td><td>every turn, treaty scripts</td><td>ledger <code>{ transfers: [{ from, to, nyang }], relation, end, notes }</code>. <code>ctx.treaty</code> has its parties, <code>terms</code> (free data you typed), start/end turn. Set <code>end: true</code> to dissolve it.</td></tr>
+<tr><td><code>hooks.factionTick(ctx, ledger)</code></td><td>every turn, faction scripts</td><td>ledger <code>{ treasury, notes }</code> — amount added to the faction's treasury this turn.</td></tr>
+<tr><td><code>hooks.treatyTick(ctx, ledger)</code></td><td>every turn, on one-on-one agreements with a script</td><td>ledger <code>{ transfers: [{ from, to, nyang }], end, notes }</code>. <code>ctx.treaty</code> has its parties, <code>perks</code>, <code>note</code> (what was agreed in RP), start/end turn. Set <code>end: true</code> to dissolve it.</td></tr>
 <tr><td><code>hooks.eventStart(ctx, event)</code></td><td>when an event with this script begins</td><td>event <code>{ regions, endTurn, vars, cancel }</code> — change where it hits or how long, or <code>cancel: true</code>.</td></tr>
-<tr><td><code>hooks.diplomacy(ctx, proposal)</code></td><td>when an action is proposed (<code>ctx.stage = 'propose'</code>) and when it takes effect (<code>'execute'</code>); action and both factions' scripts</td><td>set <code>blocked: 'reason'</code> to stop it; on execute you can change <code>effects</code> (relation, treaty, transfer…).</td></tr>
+<tr><td><code>hooks.diplomacy(ctx, proposal)</code></td><td>when a faction makes an offer (<code>ctx.stage = 'propose'</code>, <code>ctx.kind</code> = agreement, alliance-invite, alliance-join, alliance-found, peace or marriage; <code>ctx.payload</code>); the offering faction's script</td><td>set <code>blocked: 'reason'</code> to stop it.</td></tr>
 <tr><td><code>hooks.battleRound(ctx, v)</code></td><td>at the start of each 3-day battle phase; army, faction, formation and region scripts</td><td>v <code>{ attacker: { dice, damage, morale }, defender: { dice, damage, morale }, notes }</code> — <code>dice</code> are added to that side's roll, <code>damage</code> multiplies the damage it deals, <code>morale</code> is added to its morale now. <code>ctx.side</code> says whose script this is (<code>'attacker'</code>, <code>'defender'</code> or <code>'region'</code>); <code>ctx.phase</code> is <code>'fire'</code> or <code>'shock'</code>; <code>ctx.day</code>, <code>ctx.rolls</code>, <code>ctx.region</code> (terrain…), <code>ctx.attacker</code> / <code>ctx.defender</code> = { faction, formation, morale, maxMorale, men, units, commander: { name, realm, pips }, champions }.</td></tr>
 <tr><td><code>hooks.armyTick(ctx, v)</code></td><td>every turn, on armies with a script</td><td>v <code>{ morale, supply, attrition, notes }</code> — added to the army's morale and supply; <code>attrition</code> = % of men lost. <code>ctx.army</code> = { name, faction, region, units, morale, supply, status }, <code>ctx.region</code>.</td></tr>
 <tr><td><code>hooks.shopPrice(ctx, offer)</code></td><td>whenever someone looks at the faction's sect shop</td><td>offer <code>{ price, allowed, reason }</code>; <code>ctx.buyer</code> = { id, name, sect }, <code>ctx.item</code>.</td></tr>
@@ -135,12 +135,12 @@ hooks.regionTick = (ctx, m) =&gt; {
   return m;
 };
 
-// Faction: the Beggar Sect earns influence from every hungry region (they hear everything)
-hooks.factionTick = (ctx, l) =&gt; { l.influence += 0.5; return l; };
+// Faction: the Beggar Sect's network of informants sells secrets — 10 Nyang a turn
+hooks.factionTick = (ctx, l) =&gt; { l.treasury += 10; return l; };
 
-// Diplomacy action: the Shaolin never accept political marriages
+// Faction (Shaolin's script): the monks never offer political marriages
 hooks.diplomacy = (ctx, p) =&gt; {
-  if (ctx.stage === 'propose' &amp;&amp; ctx.action.id === 'marriage' &amp;&amp; ctx.to.name === 'Shaolin Sect') p.blocked = 'Shaolin monks do not marry.';
+  if (ctx.stage === 'propose' &amp;&amp; ctx.kind === 'marriage') p.blocked = 'Shaolin monks do not marry.';
   return p;
 };
 

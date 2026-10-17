@@ -99,9 +99,8 @@ function recruit(state, f, regionKey, unitId, count, { name, staff = false } = {
 function canEnter(state, a, key) {
   const r = state.world.regions[key];
   if (!r?.controller || r.controller === a.factionId) return 'own';
-  const rel = C.relation(state, a.factionId, r.controller);
-  if (rel.war) return 'enemy';
-  if (C.hasTreaty(state, a.factionId, r.controller, 'access') || C.stance(state, a.factionId, r.controller) === 'allied') return 'friendly';
+  if (C.atWar(state, a.factionId, r.controller)) return 'enemy';
+  if (C.hasPerk(state, a.factionId, r.controller, 'militaryAccess')) return 'friendly';
   return 'foreign';
 }
 
@@ -180,7 +179,7 @@ function tickArmies(state) {
     const fids = Object.keys(byFaction);
     let fought = false;
     for (let i = 0; i < fids.length && !fought; i++) for (let j = i + 1; j < fids.length && !fought; j++) {
-      if (C.relation(state, fids[i], fids[j]).war) {
+      if (C.atWar(state, fids[i], fids[j])) {
         const r = w.regions[key];
         const def = r?.controller === fids[j] ? fids[j] : fids[i] === r?.controller ? fids[i] : fids[j];
         const att = def === fids[i] ? fids[j] : fids[i];
@@ -192,7 +191,7 @@ function tickArmies(state) {
     // Occupation: an army at war with the controller, unopposed, occupies the region.
     const r = w.regions[key];
     if (!r?.controller) continue;
-    const occupier = here.find((a) => a.status === 'garrison' && a.factionId !== r.controller && C.relation(state, a.factionId, r.controller).war);
+    const occupier = here.find((a) => a.status === 'garrison' && a.factionId !== r.controller && C.atWar(state, a.factionId, r.controller));
     if (occupier && !here.some((a) => a.factionId === r.controller)) {
       if (r.occupiedBy !== occupier.factionId) { r.occupiedBy = occupier.factionId; r.occupiedSince = w.turn; C.wlog(state, 'war', `🏴 **${C.faction(state, occupier.factionId)?.name}** occupies **${geo.label(state, key)}**.`); (w.announceQueue ||= []).push({ kind: 'war', text: `🏴 **${C.faction(state, occupier.factionId)?.name}** occupies **${geo.label(state, key)}**!`, regions: [key] }); }
       else if (w.turn - r.occupiedSince >= num(w.settings.occupationTurns, 12)) {
@@ -207,7 +206,7 @@ function tickArmies(state) {
   return notes;
 }
 const groupBy = (list, fn) => list.reduce((m, x) => ((m[fn(x)] ||= []).push(x), m), {});
-const enemiesIn = (state, a, key) => state.world.armies.filter((b) => b.region === key && b.factionId !== a.factionId && b.status !== 'disbanded' && C.relation(state, a.factionId, b.factionId).war);
+const enemiesIn = (state, a, key) => state.world.armies.filter((b) => b.region === key && b.factionId !== a.factionId && b.status !== 'disbanded' && C.atWar(state, a.factionId, b.factionId));
 const inBattle = (state, armyId) => state.world.battles.some((b) => b.status === 'preparing' && [...b.sides.A.armies, ...b.sides.D.armies].includes(armyId));
 
 // ─────────── battles ───────────
@@ -360,7 +359,7 @@ function resolveBattle(state, b, rng = Math.random) {
   const siegePips = A.pips.siege + Object.entries(A.units).reduce((a, [id, n]) => a + num(unitType(state, id)?.siege) * n, 0) / Math.max(1, Object.values(A.units).reduce((a, n) => a + n, 0)) * 20;
   // Walls only shelter a defender fighting on its own (or its occupied) land.
   const ownWalls = r && D.faction && (r.controller === D.faction.id || r.occupiedBy === D.faction.id);
-  const walls = ownWalls ? 1 + Math.max(0, num(r.fort) - siegePips * 0.5) * num(set.wallStrength, 0.2) : 1;
+  const walls = ownWalls ? 1 + Math.max(0, C.wallsOf(state, b.region) - siegePips * 0.5) * num(set.wallStrength, 0.2) : 1;
   const widthFor = (X) => Math.max(1, num(terrain.width, 30) * num(X.formation.width, 1)) * 1000;
   const totalMen = (X) => Object.values(X.units).reduce((a, n) => a + Math.max(0, n), 0);
   // Elite troops count as several men (unit "power"): they hit harder and take more to kill.
@@ -491,8 +490,12 @@ function resolveBattle(state, b, rng = Math.random) {
     pips: { A: A.pips, D: D.pips }, commanders: { A: A.commander?.name || '', D: D.commander?.name || '' }, champDice: { A: A.champDice, D: D.champDice }, duelDice: { A: A.duelDice, D: D.duelDice },
     morale: { A: [A.maxMorale, A.morale], D: [D.maxMorale, D.morale] }, formations: { A: A.formation.id, D: D.formation.id },
   };
-  if (r) { r.prosperity = r2(Math.max(0, r.prosperity - 3)); r.security = r2(Math.max(0, r.security - 8)); r.unrest = r2(Math.min(100, r.unrest + 4)); }
-  if (A.faction && D.faction) C.addRelation(state, A.faction.id, D.faction.id, -5);
+  if (r) { r.prosperity = r2(Math.max(0, r.prosperity - 3)); r.security = r2(Math.max(0, r.security - 8)); }
+  // The fighting damages the region's buildings.
+  if (w.regions[b.region]?.buildings?.length) {
+    const dmg = require('./realm').battleDamage(state, b.region, { days: b.result.days, attackerWon: winner === 'A' }, rng);
+    b.result.buildings = dmg;
+  }
   const text = `⚔️ **Battle of ${geo.label(state, b.region)}** — **${S[winner].faction?.name}** ${winner === 'A' ? 'won the attack' : 'held the field'} after ${b.result.days} day${b.result.days === 1 ? '' : 's'}. Losses: ${A.faction?.name} ${lostA.toLocaleString('en-US')}, ${D.faction?.name} ${lostD.toLocaleString('en-US')}.`;
   C.wlog(state, 'war', text);
   (w.announceQueue ||= []).push({ kind: 'battle-result', text, battleId: b.id, regions: [b.region] });
@@ -521,9 +524,9 @@ function simulate(state, spec, runs = 200) {
     const w = {
       ...state.world,
       settings: { ...state.world.settings, championRealmMult: [1], championScale: 1, representativesFight: true },
-      regions: { __sim: { key: '__sim', terrain: spec.terrain || 'plains', fort: num(spec.fort), prosperity: 50, security: 50, unrest: 0, stock: {}, prices: {}, last: {}, controller: '__D', policies: [] } },
+      regions: { __sim: { key: '__sim', terrain: spec.terrain || 'plains', fort: num(spec.fort), prosperity: 50, security: 50, stock: {}, prices: {}, last: {}, controller: '__D', policies: [] } },
       factions: [{ id: '__A', name: 'Attacker', policies: [], scriptId: '' }, { id: '__D', name: 'Defender', policies: [], scriptId: '' }],
-      relations: {}, treaties: [], log: [], announceQueue: [], activeEvents: [],
+      wars: [], alliances: [], agreements: [], log: [], announceQueue: [], activeEvents: [],
     };
     const mk = (id, fid, s) => ({ id, name: id, factionId: fid, region: '__sim', units: { ...(s.units || {}) }, champions: [], morale: num(s.morale, 70), supply: num(s.supply, 100), formationId: s.formationId || 'square', status: 'garrison', scriptId: '' });
     w.armies = [mk('aA', '__A', spec.A || {}), mk('aD', '__D', spec.D || {})];

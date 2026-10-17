@@ -463,6 +463,8 @@ test('world: 300 turns stay stable (no negative stock, prosperity moves, no fami
 
 test('world: buying raises the price, selling lowers it, the market pays from its coffers', () => {
   const { state, c } = worldFresh();
+  assert.throws(() => W.economy.buyGood(state, c, 'grain', 1), /merchants and caravans/, 'players do not buy from province markets by default');
+  state.world.settings.playerMarketBuy = true;
   c.nyang = 100000;
   const key = W.economy.requireAt(state, c);
   const r = state.world.regions[key];
@@ -481,6 +483,7 @@ test('world: buying raises the price, selling lowers it, the market pays from it
 test('world: travel blocks trading, caravans arrive and sell', () => {
   const { state, c } = worldFresh();
   state.world.settings.travelMode = 'timed';
+  state.world.settings.playerMarketBuy = true; state.world.settings.playerCaravans = true;
   c.nyang = 1000;
   const from = W.economy.requireAt(state, c);
   W.economy.buyGood(state, c, 'salt', 5);
@@ -506,7 +509,7 @@ test('world: channel travel is instant, gives RP travel info, and posting moves 
   const moved = W.territory.notePresence(state, c, { id: 'chan', parentId: 'cat-js' });
   assert.deepStrictEqual(moved, { from: '四川', to: '江苏' });
   // Per-turn trade cap
-  state.world.settings.maxTradePerTurn = 50; c.nyang = 10000;
+  state.world.settings.maxTradePerTurn = 50; c.nyang = 10000; state.world.settings.playerMarketBuy = true;
   assert.throws(() => W.economy.buyGood(state, c, 'grain', 30), /more than you can still trade|traded as much/);
 });
 
@@ -583,10 +586,10 @@ test('world: forced events apply effects; drought can chain', () => {
   assert.ok(state.world.pendingChains.some((p) => p.eventId === 'famine'));
 });
 
-test('world: policies cost influence, fade with fatigue, sect shop closes with Closed Gates', () => {
+test('world: policies cost treasury, fade with fatigue, sect shop closes with Closed Gates', () => {
   const { state, c, d } = worldFresh();
   const f = W.common.factionOfChar(state, c);
-  f.influence = 100;
+  f.treasury = 5000;
   f.shop.items.push({ itemId: state.items[0].id, price: 100, stock: -1, restock: 0, access: 'inherit' });
   const outsider = W.economy.sectShopOffers(state, d).find((o) => o.faction.id === f.id);
   assert.ok(outsider.allowed && outsider.price === 110, 'outsiders pay +10%');
@@ -597,22 +600,81 @@ test('world: policies cost influence, fade with fatigue, sect shop closes with C
   assert.ok(W.common.policyStrength(ml, 30) < W.common.policyStrength(ml, 2));
 });
 
-test('world: diplomacy — trade agreement, political marriage needs consent and staff', () => {
+test('world: diplomacy — agreements, alliances call allies to war, marriage needs consent', () => {
   const { state, c, d } = worldFresh();
-  const A = W.common.factionOfChar(state, c); const B = W.common.factionOfChar(state, d);
-  A.representatives.push(c.id); B.representatives.push(d.id);
-  A.influence = 200;
-  W.common.relation(state, A.id, B.id).value = 30;
-  const p = W.diplomacy.propose(state, { actionId: 'trade', from: A.id, to: B.id, proposer: c });
+  const D = W.diplomacy; const C = W.common;
+  const A = C.factionOfChar(state, c); const B = C.factionOfChar(state, d);
+  const [X, Y] = state.world.factions.filter((f) => f.id !== A.id && f.id !== B.id);
+  const p = D.propose(state, { kind: 'agreement', from: A.id, to: B.id, payload: { perks: { freeTrade: true, militaryAccess: true } }, proposer: c });
   assert.strictEqual(p.status, 'awaiting-target');
-  W.diplomacy.respond(state, p.id, true, { kind: 'target', name: d.name, userId: d.ownerId });
-  assert.ok(W.common.hasTreaty(state, A.id, B.id, 'trade'));
-  const m = W.diplomacy.propose(state, { actionId: 'marriage', from: A.id, to: B.id, proposer: c, subjectCharId: c.id, targetCharId: d.id });
-  W.diplomacy.respond(state, m.id, true, { kind: 'target', name: d.name, userId: d.ownerId });
-  assert.strictEqual(m.status, 'awaiting-staff', 'the rep who is also the target player counts as consent');
-  W.diplomacy.respond(state, m.id, true, { kind: 'staff', name: 'staff' });
+  D.respond(state, p.id, true, { kind: 'target', name: d.name, userId: d.ownerId });
+  assert.ok(C.hasPerk(state, A.id, B.id, 'freeTrade') && C.hasPerk(state, A.id, B.id, 'militaryAccess'));
+  assert.strictEqual(C.stance(state, A.id, B.id), 'agreement');
+  // An alliance: all members share its terms; a defensive pact pulls members into a war.
+  const al = D.createAlliance(state, { name: 'Nine Pillars', members: [A.id, X.id], terms: { defensive: true, nonAggression: true } });
+  assert.ok(C.sameAlliance(state, A.id, X.id) && C.hasPerk(state, A.id, X.id, 'defensive'));
+  assert.throws(() => D.declareWar(state, A.id, X.id), /non-aggression/);
+  const war = D.declareWar(state, Y.id, A.id, { reason: 'old grudge' });
+  assert.ok(war.defenders.includes(X.id), 'ally joins the defence');
+  assert.ok(C.atWar(state, Y.id, X.id));
+  D.makePeace(state, war.id);
+  assert.ok(!C.atWar(state, Y.id, A.id));
+  D.addMember(state, al.id, B.id);
+  assert.strictEqual(C.stance(state, A.id, B.id), 'allied');
+  // Marriage: the target's player must consent (here the representative is that player).
+  const m = D.propose(state, { kind: 'marriage', from: A.id, to: B.id, payload: { subjectCharId: c.id, targetCharId: d.id }, proposer: c });
+  D.respond(state, m.id, true, { kind: 'target', name: d.name, userId: d.ownerId, needsStaff: true });
+  assert.strictEqual(m.status, 'awaiting-staff', 'accepting rep\'s rank needs staff');
+  D.respond(state, m.id, true, { kind: 'staff', name: 'staff' });
   assert.strictEqual(c.spouseId, d.id);
-  assert.ok(W.diplomacy.actionsFor(state, A.id, B.id).find((x) => x.action.id === 'war').reasons.length, 'cannot declare war on in-laws');
+});
+
+test('world: representative ranks — free, staff approval, spending limit; buildings', () => {
+  const { state, c } = worldFresh();
+  const R = W.realm; const T = W.territory;
+  const f = W.common.factionOfChar(state, c);
+  T.setOffice(state, c, 'representative');
+  f.repRanks[c.id] = 'envoy';
+  assert.strictEqual(R.powerLevel(state, f, c, null, 'build'), 'none');
+  assert.throws(() => R.perform(state, 'build', f, { region: '陕西', typeId: 'granary' }, { char: c }), /office doesn't allow/);
+  f.repRanks[c.id] = 'steward';
+  T.paint(state, ['陕西'], f.id);
+  f.treasury = 10000;
+  const ok = R.perform(state, 'build', f, { region: '陕西', typeId: 'granary' }, { char: c });
+  assert.ok(ok.done, 'steward builds on the spot under the limit');
+  const big = R.perform(state, 'build', f, { region: '陕西', typeId: 'walls' }, { char: c });
+  assert.ok(big.pending, 'over the spending limit → staff');
+  R.approveRequest(state, big.pending.id, { name: 'staff' });
+  const r = state.world.regions['陕西'];
+  assert.strictEqual(r.buildings.length, 2);
+  state.world.turn += 10; R.tickBuildings(state);
+  assert.ok(r.buildings.every((b) => b.status === 'ready'));
+  assert.ok(W.common.wallsOf(state, '陕西') === r.fort + 1, 'walls add a fort level');
+  assert.ok(W.common.regionMods(state, '陕西').sources.some((x) => /Granary/.test(x)));
+  // A battle damages buildings; a takeover can raze them.
+  const dmg = R.battleDamage(state, '陕西', { days: 30, attackerWon: true }, () => 0.99);
+  assert.ok(dmg.every((x) => x.hp < 100));
+  const other = state.world.factions.find((x) => x.id !== f.id);
+  const t = T.forceTakeover(state, { regions: ['陕西'], to: other.id, by: { name: 'staff' } });
+  assert.ok(Array.isArray(t.razed));
+});
+
+test('world: a trade guild runs caravans where it has trade rights', () => {
+  const { state } = worldFresh();
+  const R = W.realm; const T = W.territory;
+  const guild = W.state.normalizeFaction({ id: 'jade-guild', name: 'Jade Road Guild', kind: 'guild', treasury: 20000 });
+  state.world.factions.push(guild);
+  const sect = state.world.factions[0];
+  T.paint(state, ['四川'], sect.id);
+  assert.throws(() => R.sendFactionCaravan(state, guild, { from: '河南', to: '四川', good: 'tea', qty: 20 }), /trade rights/);
+  W.diplomacy.makeAgreement(state, { parties: [guild.id, sect.id], perks: { freeTrade: true } });
+  const cv = R.sendFactionCaravan(state, guild, { from: '河南', to: '四川', good: 'tea', qty: 20 });
+  assert.ok(guild.treasury < 20000);
+  state.world.turn = cv.arriveTurn;
+  const done = R.settleFactionCaravans(state);
+  assert.strictEqual(done.length, 1);
+  assert.ok(done[0].result.earned > 0);
+  assert.throws(() => R.sendFactionCaravan(state, sect, { from: '四川', to: '河南', good: 'tea', qty: 5 }), /doesn't run trade caravans/);
 });
 
 test('world: EU4-style battles — numbers, duel dice, generals, terrain, custom code', () => {

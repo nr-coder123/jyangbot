@@ -34,7 +34,8 @@ const office = new SlashCommandBuilder().setName('office').setDescription('Staff
     { name: 'Representative — leads diplomacy, trade and politics (usually does not fight)', value: 'representative' },
     { name: 'Leader — head of the faction', value: 'leader' },
     { name: 'Member — no office', value: 'member' },
-  ));
+  ))
+  .addStringOption((o) => o.setName('rank').setDescription('Representative rank (what they may do; see World settings)').setAutocomplete(true));
 
 const allRegions = () => [...geo.provinces(), ...geo.prefectures()].map((x) => x.key);
 function findRegion(text) {
@@ -99,14 +100,19 @@ async function execOffice(i) {
   if (!c) throw new UserError('Character not found.');
   const o = i.options.getString('office');
   const f = T.setOffice(s, c, o);
+  const rk = i.options.getString('rank');
+  if (o === 'representative') { const r = W.realm.rank(s, rk || s.world.settings.defaultRepRank); if (!r) throw new UserError('Unknown rank.'); f.repRanks[c.id] = r.id; }
   store.log(actor(i), 'world.office', `${c.name} is now ${o} of ${f.name}`);
   store.markDirty();
   const sync = await syncOffice(i.client, c).catch(() => null);
-  return i.reply({ content: `${o === 'leader' ? '👑' : o === 'representative' ? '🎐' : '•'} **${c.name}** is now ${o === 'member' ? 'an ordinary member' : `${o === 'leader' ? 'the leader' : 'a representative'}`} of **${f.name}**.${sync?.note ? `\n-# ${sync.note}` : ''}`, flags: EPH });
+  const rank = W.realm.rankOf(s, f, c);
+  return i.reply({ content: `**${c.name}** is now ${o === 'member' ? 'an ordinary member' : o === 'leader' ? 'the leader' : `a representative — **${rank?.name}**`} of **${f.name}**.${rank ? `\n-# ${W.realm.powerSummary(s, f, c).free.join(', ') || 'nothing'} on their own; ${W.realm.powerSummary(s, f, c).staff.join(', ') || 'nothing'} with staff approval; spend up to ${rank.spendLimit}.` : ''}${sync?.note ? `\n-# ${sync.note}` : ''}`, flags: EPH });
 }
 function autoOffice(i) {
   const s = st();
-  const q = norm(i.options.getFocused());
+  const focused = i.options.getFocused(true);
+  if (focused.name === 'rank') return i.respond(W.realm.ranks(s).filter((r) => !focused.value || norm(r.name).includes(norm(focused.value))).slice(0, 25).map((r) => ({ name: truncate(`${r.name} — ${r.description || ''}`, 100), value: r.id })));
+  const q = norm(focused.value);
   return i.respond(s.characters.filter((c) => c.status === 'active' && (!q || norm(c.name).includes(q))).slice(0, 25).map((c) => ({ name: truncate(`${c.name} — ${c.sect || 'no sect'} (${T.officeOf(s, c)})`, 100), value: c.id })));
 }
 

@@ -259,3 +259,15 @@ td .pill { font-size: 11px; }
   .wm-side.closed { display: flex; }
   .wm-bottom { position: static; }
 }
+
+/* realms (Politics) */
+.realm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; margin-top: 10px; }
+.realm-card { text-align: left; background: var(--panel-2); border: 1px solid var(--line); border-top: 4px solid var(--fc, #888); border-radius: 10px; padding: 10px 12px; color: var(--text); cursor: pointer; display: grid; gap: 3px; font: inherit; }
+.realm-card:hover { border-color: var(--fc, #888); }
+.realm-card.off { opacity: .55; }
+.realm-name { font-family: 'Cormorant Garamond', Georgia, serif; font-size: 19px; font-weight: 700; }
+.realm-line { font-size: 13px; }
+.realm-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.chip { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 12px; color: var(--muted); }
+.wm-tabs.inline { border-bottom: 1px solid var(--line); }
+.wm-tabs.inline button { flex: none; padding: 8px 14px; }
