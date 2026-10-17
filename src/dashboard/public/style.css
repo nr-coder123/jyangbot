@@ -193,3 +193,15 @@ td .pill { font-size: 11px; }
 #view { grid-template-columns: minmax(0, 1fr); }
 #view > * { min-width: 0; }
 .card .table-wrap td input, .card .table-wrap td select { min-width: 0; }
+
+/* ---------- world map ---------- */
+.wmap-wrap { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 12px; align-items: start; }
+.wmap-holder { width: 100%; }
+.wmap { width: 100%; height: min(72vh, 760px); display: block; border-radius: 8px; touch-action: none; cursor: grab; background: #a9c2c6; user-select: none; }
+.wmap:active { cursor: grabbing; }
+.wmap .wreg:hover { filter: brightness(1.08); stroke-width: 1.8; }
+.wdrawer { max-height: min(72vh, 760px); overflow-y: auto; display: grid; gap: 10px; align-content: start; }
+.wlayers { position: relative; }
+.wlayers > summary { list-style: none; }
+.wlayers > summary::-webkit-details-marker { display: none; }
+@media (max-width: 1100px) { .wmap-wrap { grid-template-columns: 1fr; } .wdrawer { max-height: none; } .wmap { height: auto; aspect-ratio: 1400 / 920; } }

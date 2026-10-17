@@ -297,7 +297,7 @@ const DEFAULT_SETTINGS = {
   maxCultivationMethods: 2,
   martialArtLimits: { generic: 3, core: 1, special: 1, forbidden: 1 },
   elements: ELEMENTS,
-  channels: { submissions: '', progress: '', announcements: '', log: '', consumption: '' },
+  channels: { submissions: '', progress: '', announcements: '', log: '', consumption: '', world: '', diplomacy: '', war: '' },
   staffRoleIds: [],
   approvedRoleIds: [],
   shopSellbackPercent: 50,
@@ -340,6 +340,10 @@ function normalizeItem(i = {}) {
     poison: { tier: 1, element: '', impurity: 10, debuff: '', gimmick: '', activation: '', repeatable: false, triggersBurst: false, ...(i.poison || {}) },
     purification: { tier: 1, element: '', gimmick: '', ...(i.purification || {}) },
     scriptId: i.scriptId || '',
+    // World economy: tradeGood links the item to a regional trade good (bought/sold in /world markets);
+    // economy.good + sensitivity lets the good's local price move this item's shop price (bounded in World settings).
+    tradeGood: i.tradeGood || '',
+    economy: { good: i.economy?.good || '', sensitivity: Math.max(0, Math.min(1, num(i.economy?.sensitivity))) },
     createdAt: i.createdAt || now,
     updatedAt: i.updatedAt || now,
   };
@@ -401,6 +405,11 @@ function normalizeCharacter(c = {}) {
     notes: c.notes || '',
     approvedBy: c.approvedBy || null,
     approvedAt: c.approvedAt || null,
+    // World: where the character is, travel in progress, marriage and sworn bonds.
+    location: c.location || '',
+    travel: c.travel && typeof c.travel === 'object' ? c.travel : null,
+    spouseId: c.spouseId || '',
+    bonds: arr(c.bonds),
     createdAt: c.createdAt || new Date().toISOString(),
   };
 }

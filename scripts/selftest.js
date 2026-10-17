@@ -430,4 +430,147 @@ test('breakthrough pill cap and keep-on-fail', () => {
   assert.strictEqual(c.breakthroughBonus, 0, 'kept bonus is only kept once');
 });
 
+// ---------------- world ----------------
+const { migrate } = require('../src/store');
+const W = require('../src/world');
+const worldFresh = () => {
+  const state = migrate(null);
+  const c = chars.createCharacter(state, { ownerId: '1', ownerTag: 'tester', name: 'Chung Myung', sect: 'Mount Hua Sect' });
+  const d = chars.createCharacter(state, { ownerId: '2', ownerTag: 'other', name: 'Namgoong Dowi', sect: 'Namgoong Clan' });
+  return { state, c, d };
+};
+
+test('world: map data, factions for every sect, trade-good items', () => {
+  const { state } = worldFresh();
+  assert.strictEqual(W.geo.provinces().length, 34);
+  assert.ok(W.geo.prefectures().length > 400);
+  for (const s of state.sects) assert.ok(W.common.factionOfSect(state, s.name), `faction for ${s.name}`);
+  assert.strictEqual(state.items.filter((i) => i.tradeGood).length, state.world.goods.length);
+  assert.ok(W.geo.route(state, '河南', '广东').hops >= 2);
+  assert.ok(W.geo.route(state, '海南', '北京'), 'islands reachable by sea lanes');
+});
+
+test('world: 300 turns stay stable (no negative stock, prosperity moves, no famine everywhere)', () => {
+  const { state } = worldFresh();
+  for (let i = 0; i < 300; i++) W.tick.runTurn(state);
+  const regs = W.geo.marketKeys(state).map((k) => state.world.regions[k]);
+  for (const r of regs) for (const [g, v] of Object.entries(r.stock)) assert.ok(v >= 0, `${r.key} ${g} ${v}`);
+  const p = regs.map((r) => r.prosperity).sort((a, b) => a - b);
+  assert.ok(p[Math.floor(p.length / 2)] > 35 && p[Math.floor(p.length / 2)] < 90, `median prosperity ${p[Math.floor(p.length / 2)]}`);
+  assert.ok(regs.filter((r) => r.last.food < 0.8).length < regs.length / 4, 'most regions are fed');
+  for (const f of state.world.factions) assert.ok(f.treasury >= 0, `${f.name} treasury`);
+});
+
+test('world: buying raises the price, selling lowers it, the market pays from its coffers', () => {
+  const { state, c } = worldFresh();
+  c.nyang = 100000;
+  const key = W.economy.requireAt(state, c);
+  const r = state.world.regions[key];
+  r.stock.grain = Math.max(300, r.targets.grain); r.targets.grain = r.stock.grain;
+  W.economy.updatePrices(state, key, W.common.emptyMods());
+  const before = r.prices.grain;
+  const buy = W.economy.buyGood(state, c, 'grain', 50);
+  assert.ok(r.prices.grain > before, 'price up after buying');
+  assert.ok(buy.each > before * 0.99);
+  const coffers = r.coffers;
+  const sell = W.economy.sellGood(state, c, 'grain', 50);
+  assert.ok(sell.total < buy.total, 'round trip loses money (no free arbitrage)');
+  assert.ok(r.coffers < coffers);
+});
+
+test('world: travel blocks trading, caravans arrive and sell', () => {
+  const { state, c } = worldFresh();
+  c.nyang = 1000;
+  const from = W.economy.requireAt(state, c);
+  W.economy.buyGood(state, c, 'salt', 5);
+  const dest = W.geo.neighbors(state, from).find((k) => !k.includes('/')) || W.geo.neighbors(state, from)[0];
+  const r = W.economy.sendCaravan(state, c, dest, 'salt', 5, { escort: true });
+  assert.ok(r.hours > 0);
+  W.economy.startTravel(state, c, dest);
+  assert.throws(() => W.economy.buyGood(state, c, 'salt', 1), /on the road/);
+  const out = W.tick.realtime(state, Date.now() + 72 * 3600000);
+  assert.strictEqual(out.arrivals.length, 1);
+  assert.strictEqual(out.caravans.length, 1);
+  assert.strictEqual(W.economy.locationOf(state, c), dest);
+});
+
+test('world: trade goods can only be handed over in the same region', () => {
+  const { state, c, d } = worldFresh();
+  c.inventory['good-silk'] = 3;
+  c.location = '河南'; d.location = '四川';
+  assert.throws(() => economy.createTrade(state, c, d, { itemId: 'good-silk', qty: 1 }, {}), /same region/);
+  d.location = '河南';
+  assert.ok(economy.createTrade(state, c, d, { itemId: 'good-silk', qty: 1 }, {}));
+});
+
+test('world: forced events apply effects; drought can chain', () => {
+  const { state } = worldFresh();
+  const ae = W.events.startEvent(state, 'flood', '河南', { forced: true });
+  assert.ok(ae.regions.includes('河南'));
+  const mods = W.common.regionMods(state, '河南');
+  assert.ok(mods.production.food < 1 && mods.prosperity < 0);
+  W.events.startEvent(state, 'drought', '山东', { forced: true });
+  assert.ok(state.world.pendingChains.some((p) => p.eventId === 'famine'));
+});
+
+test('world: policies cost influence, fade with fatigue, sect shop closes with Closed Gates', () => {
+  const { state, c, d } = worldFresh();
+  const f = W.common.factionOfChar(state, c);
+  f.influence = 100;
+  f.shop.items.push({ itemId: state.items[0].id, price: 100, stock: -1, restock: 0, access: 'inherit' });
+  const outsider = W.economy.sectShopOffers(state, d).find((o) => o.faction.id === f.id);
+  assert.ok(outsider.allowed && outsider.price === 110, 'outsiders pay +10%');
+  assert.strictEqual(W.economy.sectShopOffers(state, c).find((o) => o.faction.id === f.id).price, 85, 'members pay −15%');
+  W.politics.adoptPolicy(state, f, 'closed-gates');
+  assert.ok(!W.economy.sectShopOffers(state, d).find((o) => o.faction.id === f.id).allowed);
+  const ml = W.politics.policyDef(state, 'martial-law');
+  assert.ok(W.common.policyStrength(ml, 30) < W.common.policyStrength(ml, 2));
+});
+
+test('world: diplomacy — trade agreement, political marriage needs consent and staff', () => {
+  const { state, c, d } = worldFresh();
+  const A = W.common.factionOfChar(state, c); const B = W.common.factionOfChar(state, d);
+  A.representatives.push(c.id); B.representatives.push(d.id);
+  A.influence = 200;
+  W.common.relation(state, A.id, B.id).value = 30;
+  const p = W.diplomacy.propose(state, { actionId: 'trade', from: A.id, to: B.id, proposer: c });
+  assert.strictEqual(p.status, 'awaiting-target');
+  W.diplomacy.respond(state, p.id, true, { kind: 'target', name: d.name, userId: d.ownerId });
+  assert.ok(W.common.hasTreaty(state, A.id, B.id, 'trade'));
+  const m = W.diplomacy.propose(state, { actionId: 'marriage', from: A.id, to: B.id, proposer: c, subjectCharId: c.id, targetCharId: d.id });
+  W.diplomacy.respond(state, m.id, true, { kind: 'target', name: d.name, userId: d.ownerId });
+  assert.strictEqual(m.status, 'awaiting-staff', 'the rep who is also the target player counts as consent');
+  W.diplomacy.respond(state, m.id, true, { kind: 'staff', name: 'staff' });
+  assert.strictEqual(c.spouseId, d.id);
+  assert.ok(W.diplomacy.actionsFor(state, A.id, B.id).find((x) => x.action.id === 'war').reasons.length, 'cannot declare war on in-laws');
+});
+
+test('world: battles — duels add momentum, the bigger army usually wins, simulator agrees', () => {
+  const { state } = worldFresh();
+  const sim = W.military.simulate(state, { A: { units: { spearmen: 2000 } }, D: { units: { spearmen: 1000 } } }, 100);
+  assert.ok(sim.attackerWins > 80, `2:1 should win (${sim.attackerWins}%)`);
+  const even = W.military.simulate(state, { A: { units: { spearmen: 1000 }, momentum: 0.3 }, D: { units: { spearmen: 1000 } } }, 100);
+  assert.ok(even.attackerWins > 60, `momentum matters (${even.attackerWins}%)`);
+  const cav = W.military.simulate(state, { A: { units: { 'heavy-cav': 500 } }, D: { units: { crossbows: 1000 } } }, 100);
+  assert.ok(cav.attackerWins > 80, 'cavalry beats crossbows');
+});
+
+test('world: balance report adds up and recommends playable sects', () => {
+  const { state } = worldFresh();
+  const r = W.power.report(state);
+  const sum = r.rows.reduce((a, x) => a + x.pi, 0);
+  assert.ok(Math.abs(sum - 100) < 1, `PI sums to 100 (${sum})`);
+  assert.strictEqual(r.recommend.length, 3);
+  assert.ok(r.recommend.every((x) => state.sects.find((s) => s.name === x.sect)?.playable !== false));
+});
+
+test('world: custom code can change a region every turn', () => {
+  const { state } = worldFresh();
+  state.scripts.push({ id: 'boom', name: 'Boomtown', enabled: true, code: 'hooks.regionTick = (ctx, m) => { m.prosperity += 5; m.notes = ["boom in " + ctx.region.name]; return m; };' });
+  state.world.regions['河南'].scriptId = 'boom';
+  const m = W.common.regionMods(state, '河南');
+  assert.strictEqual(m.prosperity, 5);
+  assert.ok(m.notes[0].includes('Henan'));
+});
+
 console.log(`\n${passed} passed${process.exitCode ? ', some FAILED' : ''}`);

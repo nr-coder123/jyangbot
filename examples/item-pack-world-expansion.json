@@ -1,0 +1,2250 @@
+{
+  "format": "jianghu-items",
+  "version": 1,
+  "exportedAt": "2026-10-17T21:15:04.613Z",
+  "note": "World expansion: 23 trade goods, 5 materials, 23 pills/elixirs/teas, 6 poisons, 6 antidotes (2nd Rate to Transcendent) + 16 recipes. Import from Dashboard → Items → Import. Recipes that use Spirit Grass / Thousand-Year Ginseng / Green Antidote need the first pack.",
+  "items": [
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🌾",
+      "id": "good-grain",
+      "name": "Grain",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "grain",
+      "description": "Rice, wheat and millet. Everyone eats; shortages starve regions.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 4; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🐟",
+      "id": "good-meat",
+      "name": "Meat & Fish",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "meat",
+      "description": "Livestock from the steppe, fish from the lakes and coast.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 9; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🧂",
+      "id": "good-salt",
+      "name": "Salt",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "salt",
+      "description": "Sea salt, well salt and lake salt. A state monopoly in most dynasties.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 10; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🍵",
+      "id": "good-tea",
+      "name": "Tea",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "tea",
+      "description": "Pressed bricks and loose leaf. Traded for horses on the Tea-Horse Road.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 14; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🧶",
+      "id": "good-cloth",
+      "name": "Cotton & Hemp Cloth",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "cloth",
+      "description": "Cotton & Hemp Cloth: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 12; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🪵",
+      "id": "good-timber",
+      "name": "Timber",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "timber",
+      "description": "Timber: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 5; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "⛏️",
+      "id": "good-iron",
+      "name": "Iron",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "iron",
+      "description": "Iron: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 9; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🌿",
+      "id": "good-herbs",
+      "name": "Medicinal Herbs",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "herbs",
+      "description": "Medicinal Herbs: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 12; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🐛",
+      "id": "good-rawsilk",
+      "name": "Raw Silk",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "rawsilk",
+      "description": "Cocoons and reeled thread, woven into silk in the weaveries.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 14; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🍶",
+      "id": "good-wine",
+      "name": "Wine",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "wine",
+      "description": "Wine: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 16; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "📜",
+      "id": "good-paper",
+      "name": "Paper & Ink",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "paper",
+      "description": "Paper & Ink: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 10; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "💊",
+      "id": "good-medicine",
+      "name": "Medicine",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "medicine",
+      "description": "Prepared remedies. Demand explodes during epidemics.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 28; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "⚔️",
+      "id": "good-arms",
+      "name": "Arms & Armour",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "arms",
+      "description": "Spears, blades, crossbows and lamellar. Armies need it to recruit.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 45; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🐎",
+      "id": "good-horses",
+      "name": "Horses",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "horses",
+      "description": "Steppe and highland horses. Cavalry needs them.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 70; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🧵",
+      "id": "good-silk",
+      "name": "Silk",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "silk",
+      "description": "Silk: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 40; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🏺",
+      "id": "good-porcelain",
+      "name": "Porcelain",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "porcelain",
+      "description": "Porcelain: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 30; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🌶️",
+      "id": "good-spices",
+      "name": "Spices",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "spices",
+      "description": "Spices: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 30; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": false,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🦊",
+      "id": "good-furs",
+      "name": "Furs",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "furs",
+      "description": "Furs: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 35; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "💎",
+      "id": "good-jade",
+      "name": "Jade",
+      "rarity": "Heavenly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "jade",
+      "description": "Jade: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 120; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🦪",
+      "id": "good-pearls",
+      "name": "Pearls",
+      "rarity": "Heavenly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "pearls",
+      "description": "Pearls: bulk trade cargo.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 110; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🍃",
+      "id": "good-spiritherbs",
+      "name": "Spirit Herbs",
+      "rarity": "Heavenly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "spiritherbs",
+      "description": "Rare roots and fungi that grow where Qi gathers: old ginseng, snow lotus, lingzhi.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 45; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🔴",
+      "id": "good-cinnabar",
+      "name": "Cinnabar",
+      "rarity": "Heavenly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "cinnabar",
+      "description": "Mercury ore, the base of most alchemy.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 38; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": false,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "⚗️",
+      "id": "good-elixirs",
+      "name": "Elixir Stock",
+      "rarity": "Heavenly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "tradeGood": "elixirs",
+      "description": "Refined alchemical stock that pill makers buy. Sect shop pills linked to it get cheaper or dearer with it.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 90; what it's worth depends on where you are. Hand it over only in person (same region), or send it by caravan."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 4,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🌲",
+      "id": "wp-old-pine-resin",
+      "name": "Old Pine Resin",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "description": "Amber resin from pines older than any dynasty. Calms the blood. Used in teas and incense (see Crafting)."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 3,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🌿",
+      "id": "wp-phoenix-tail-fern",
+      "name": "Phoenix Tail Fern",
+      "rarity": "Earthly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "description": "A common fern of the southern hills, named for its shape. Draws out heat and fire poisons."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🪷",
+      "id": "wp-snow-lotus",
+      "name": "Snow Lotus",
+      "rarity": "Heavenly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "description": "Blooms once a decade on the snow line of the western mountains. The base of cold, clean pills."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🍄",
+      "id": "wp-purple-lingzhi",
+      "name": "Purple Lingzhi",
+      "rarity": "Heavenly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "description": "A purple ganoderma that grows on dead imperial pines. Prized by every alchemist."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🌕",
+      "id": "wp-moon-dew",
+      "name": "Moon Dew",
+      "rarity": "Heavenly",
+      "type": "material",
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "description": "Dew gathered from lotus leaves on the night of the full moon. Spoils into ordinary water by dawn — unless sealed in jade."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 2,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": 5,
+      "scriptId": "wp-famine-mercy",
+      "emoji": "🍚",
+      "id": "wp-hundred-grains-pill",
+      "name": "Hundred Grains Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 1,
+        "impurity": 6,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 40,
+        "monthlyLimit": 0,
+        "peakRealm": 1,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 40,
+        "stock": -1
+      },
+      "economy": {
+        "good": "grain",
+        "sensitivity": 0.8
+      },
+      "description": "A commoner's pill pressed from a hundred kinds of grain. Cheap, weak and honest.\n\n**Gimmick:** **double Qi** if you take it where a **Famine or Drought** is happening.\n-# Its price follows the local price of grain. Made for **2nd Rate**."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": 15,
+      "scriptId": "",
+      "emoji": "🌲",
+      "id": "wp-morning-pine-pill",
+      "name": "Morning Pine Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 3,
+        "impurity": 18,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 35,
+        "monthlyLimit": 0,
+        "peakRealm": 1,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 120,
+        "stock": -1
+      },
+      "economy": {
+        "good": "elixirs",
+        "sensitivity": 0.3
+      },
+      "description": "Rolled at dawn from pine pollen and spirit grass.\n\n-# Made for **2nd Rate**. 35% weaker for each one taken this month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "wp-cinnabar",
+      "emoji": "🔴",
+      "id": "wp-red-cinnabar-pill",
+      "name": "Red Cinnabar Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 5,
+        "impurity": 28,
+        "element": "Fire",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 40,
+        "monthlyLimit": 0,
+        "peakRealm": 2,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 240,
+        "stock": -1
+      },
+      "economy": {
+        "good": "cinnabar",
+        "sensitivity": 0.4
+      },
+      "description": "The classic Taoist pill: cinnabar fired nine times. Strong — and full of mercury.\n\n**Gimmick:** **+5 extra Impurity** if you already have 40 or more.\n-# Made for **1st Rate**."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "wp-winter-plum",
+      "emoji": "🌸",
+      "id": "wp-winter-plum-pill",
+      "name": "Winter Plum Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 4,
+        "impurity": 18,
+        "element": "Wood",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 30,
+        "monthlyLimit": 3,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 220,
+        "stock": -1
+      },
+      "description": "Brewed from plum blossoms picked in the snow.\n\n**Gimmick:** **×1.75 Qi in Winter**, ×0.5 in Summer. Max 3 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "wp-homeland-spring",
+      "emoji": "🏞️",
+      "id": "wp-homeland-spring-pill",
+      "name": "Homeland Spring Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 4,
+        "impurity": 20,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 30,
+        "monthlyLimit": 3,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 260,
+        "stock": -1
+      },
+      "description": "Every sect brews it from the water of its own mountain springs.\n\n**Gimmick:** **+50% Qi** when taken in land **your own faction rules**. Max 3 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "❄️",
+      "id": "wp-snow-lotus-pill",
+      "name": "Snow Lotus Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 6,
+        "impurity": 22,
+        "element": "Water",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 30,
+        "monthlyLimit": 0,
+        "peakRealm": 3,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 380,
+        "stock": -1
+      },
+      "economy": {
+        "good": "elixirs",
+        "sensitivity": 0.3
+      },
+      "description": "A cold, clean pill around a snow lotus heart.\n\n-# Made for **Expert**. 30% weaker for each one taken this month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🥕",
+      "id": "wp-ginseng-pill",
+      "name": "Thousand-Year Ginseng Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 7,
+        "impurity": 20,
+        "element": "Earth",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": 4,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 600,
+        "stock": -1
+      },
+      "economy": {
+        "good": "spiritherbs",
+        "sensitivity": 0.3
+      },
+      "description": "A whole thousand-year root refined into one pill.\n\n-# Made for **Master**. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🍄",
+      "id": "wp-purple-ganoderma-elixir",
+      "name": "Purple Ganoderma Elixir",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 5,
+        "impurity": -5,
+        "element": "Wood",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 30,
+        "monthlyLimit": 2,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 520,
+        "stock": -1
+      },
+      "economy": {
+        "good": "elixirs",
+        "sensitivity": 0.3
+      },
+      "description": "A rare clean elixir: it feeds Qi **and** washes a little impurity away.\n\n-# +5 Qi and −5 Impurity. Max 2 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🟡",
+      "id": "wp-nine-turn-golden-pill",
+      "name": "Nine-Turn Golden Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 18,
+        "impurity": 35,
+        "element": "Metal",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 2,
+        "peakRealm": 6,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 2800,
+        "stock": -1
+      },
+      "economy": {
+        "good": "elixirs",
+        "sensitivity": 0.25
+      },
+      "description": "Turned in the furnace nine times over forty-nine days.\n\n-# Made for **Supreme Peak**. Max 2 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🌌",
+      "id": "wp-origin-pill",
+      "name": "Heaven-and-Earth Origin Pill",
+      "rarity": "Immortal",
+      "type": "pill",
+      "pill": {
+        "yieldType": "qi",
+        "yieldAmount": 26,
+        "impurity": 40,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": 7,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 5500,
+        "stock": 2
+      },
+      "economy": {
+        "good": "elixirs",
+        "sensitivity": 0.2
+      },
+      "description": "Said to hold the Qi of the world before it split into Heaven and Earth. Only a handful exist.\n\n-# Made for **Transcendent**. Max 1 per month. The shop rarely has more than two."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🐂",
+      "id": "wp-ox-horn-pill",
+      "name": "Ox Horn Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "strength",
+        "yieldAmount": 3,
+        "impurity": 18,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 35,
+        "monthlyLimit": 0,
+        "peakRealm": 4,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 260,
+        "stock": -1
+      },
+      "description": "Powdered horn of a mountain ox, bound with honey.\n\n-# Made for **Master**. 35% weaker for each one taken this month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🐻",
+      "id": "wp-bear-gall-pill",
+      "name": "Bear Gall Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "endurance",
+        "yieldAmount": 3,
+        "impurity": 18,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 35,
+        "monthlyLimit": 0,
+        "peakRealm": 4,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 260,
+        "stock": -1
+      },
+      "description": "Bitter enough to make grown men weep. Toughens the body.\n\n-# Made for **Master**. 35% weaker for each one taken this month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🐆",
+      "id": "wp-leopard-sinew-pill",
+      "name": "Leopard Sinew Pill",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "mobility",
+        "yieldAmount": 3,
+        "impurity": 18,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 35,
+        "monthlyLimit": 0,
+        "peakRealm": 4,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 260,
+        "stock": -1
+      },
+      "description": "Loosens the tendons like a hunting leopard's.\n\n-# Made for **Master**. 35% weaker for each one taken this month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🥇",
+      "id": "wp-golden-body-pill",
+      "name": "Golden Body Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "points",
+        "yieldAmount": 4,
+        "impurity": 24,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 2,
+        "peakRealm": 5,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 600,
+        "stock": -1
+      },
+      "description": "Tempers the whole body at once.\n\n-# Gives 4 stat points (Strength / Endurance / Mobility). Made for **Peak**. Max 2 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🌀",
+      "id": "wp-myriad-forms-pill",
+      "name": "Myriad Forms Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "flex",
+        "yieldAmount": 5,
+        "impurity": 28,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": 6,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 1500,
+        "stock": -1
+      },
+      "description": "Lets the body become whatever the cultivator needs.\n\n-# Gives 5 flexible points (any stat, including Qi). Made for **Supreme Peak**. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "wp-moon-phase",
+      "emoji": "🌕",
+      "id": "wp-moon-elixir",
+      "name": "Mid-Autumn Moon Elixir",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": 15,
+        "element": "",
+        "breakthroughBonus": 2,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 300,
+        "stock": -1
+      },
+      "description": "Sealed under the harvest moon with moon dew.\n\n**Gimmick:** +2% Realm Breakthrough — **+6% in Autumn**. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "wp-bodhi-seed",
+      "emoji": "🪷",
+      "id": "wp-bodhi-seed-incense",
+      "name": "Bodhi Seed Incense",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": 0,
+        "element": "",
+        "breakthroughBonus": 4,
+        "keepOnFail": 100,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": 4,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 650,
+        "stock": -1
+      },
+      "description": "Burned before seclusion by Shaolin elders.\n\n**Gimmick:** +4% Realm Breakthrough, **kept if the attempt fails** — but only works with a calm mind: **wasted at 25+ Impurity**. No impurity. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "⛰️",
+      "id": "wp-peak-opening-pill",
+      "name": "Peak-Opening Pill",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": 25,
+        "element": "",
+        "breakthroughBonus": 6,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": 5,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 1600,
+        "stock": -1
+      },
+      "description": "Pries open the last gate of the Peak.\n\n-# +6% Realm Breakthrough. Made for **Peak** → Supreme Peak. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "⛩️",
+      "id": "wp-heavenly-gate-elixir",
+      "name": "Heavenly Gate Elixir",
+      "rarity": "Immortal",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": 30,
+        "element": "",
+        "breakthroughBonus": 7,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": 6,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 3200,
+        "stock": 2
+      },
+      "description": "Brewed once a generation for a sect master standing at the edge of Transcendence.\n\n-# +7% Realm Breakthrough. Made for **Supreme Peak** → Transcendent. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🍵",
+      "id": "wp-pine-needle-tea",
+      "name": "Pine Needle Tea",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": -3,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 4,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 35,
+        "stock": -1
+      },
+      "economy": {
+        "good": "tea",
+        "sensitivity": 0.5
+      },
+      "description": "Bitter tea of pine needles and resin. A little cleaner each cup.\n\n-# −3 Impurity. Max 4 per month. Its price follows the local price of tea."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🛁",
+      "id": "wp-medicine-bath",
+      "name": "Medicinal Bath Herbs",
+      "rarity": "Earthly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": -8,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 2,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 90,
+        "stock": -1
+      },
+      "economy": {
+        "good": "medicine",
+        "sensitivity": 0.6
+      },
+      "description": "A bundle of herbs for an hour-long medicinal bath.\n\n-# −8 Impurity. Max 2 per month. Cheaper where medicine is plentiful."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🪷",
+      "id": "wp-lotus-heart-decoction",
+      "name": "Lotus Heart Decoction",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": -20,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 2,
+        "peakRealm": null,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 260,
+        "stock": -1
+      },
+      "economy": {
+        "good": "medicine",
+        "sensitivity": 0.3
+      },
+      "description": "Lotus hearts simmered for a day and a night.\n\n-# −20 Impurity. Max 2 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": false,
+      "useEffect": "",
+      "sellPrice": null,
+      "scriptId": "wp-snow-water",
+      "emoji": "🏔️",
+      "id": "wp-snow-mountain-water",
+      "name": "Snow Mountain Ice Water",
+      "rarity": "Heavenly",
+      "type": "pill",
+      "pill": {
+        "yieldType": "none",
+        "yieldAmount": 0,
+        "impurity": -45,
+        "element": "",
+        "breakthroughBonus": 0,
+        "keepOnFail": 0,
+        "tolerance": 0,
+        "monthlyLimit": 1,
+        "peakRealm": 5,
+        "realmFalloff": 50
+      },
+      "shop": {
+        "enabled": true,
+        "price": 650,
+        "stock": -1
+      },
+      "description": "Meltwater from the Kunlun glaciers, carried down in sealed jade.\n\n**Gimmick:** removes **45 Impurity**, but **4 Qi** freezes away with it. Max 1 per month."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "Drunken Immortal Powder was slipped into the drink.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🍶",
+      "id": "wp-drunken-immortal-powder",
+      "name": "Drunken Immortal Powder",
+      "rarity": "Earthly",
+      "type": "poison",
+      "poison": {
+        "tier": 1,
+        "element": "Water",
+        "impurity": 10,
+        "debuff": "+10 Impurity. If the target has 20+ Impurity: −5 Qi, −1 Qi Bar.",
+        "gimmick": "Wine-heavy limbs: the target's Mobility counts one tier lower for 1 turn.",
+        "activation": "Dissolved in wine or tea. Tasteless in strong liquor.",
+        "repeatable": false,
+        "triggersBurst": false
+      },
+      "shop": {
+        "enabled": true,
+        "price": 80,
+        "stock": -1
+      },
+      "description": "A tasteless powder sold under the counter in rowdy inns."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "Weapon dusted with Centipede Ash.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🐛",
+      "id": "wp-centipede-ash",
+      "name": "Centipede Ash",
+      "rarity": "Earthly",
+      "type": "poison",
+      "poison": {
+        "tier": 1,
+        "element": "Earth",
+        "impurity": 10,
+        "debuff": "+10 Impurity on hit. If the target has 20+ Impurity: −5 Qi, −1 Qi Bar.",
+        "gimmick": "The wound swells: T4 (Light) damage on the hit area, repeating over 2 turns.",
+        "activation": "Rubbed onto blades or hidden weapons; enters through broken skin.",
+        "repeatable": false,
+        "triggersBurst": false
+      },
+      "shop": {
+        "enabled": true,
+        "price": 100,
+        "stock": -1
+      },
+      "description": "Ash of burned giant centipedes, black and gritty."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "Needles coated with Silver Needle Toxin.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🪡",
+      "id": "wp-silver-needle-toxin",
+      "name": "Silver Needle Toxin",
+      "rarity": "Earthly",
+      "type": "poison",
+      "poison": {
+        "tier": 1,
+        "element": "Metal",
+        "impurity": 10,
+        "debuff": "+10 Impurity on hit. If the target has 20+ Impurity: −5 Qi, −1 Qi Bar.",
+        "gimmick": "Hard to notice: the target only realises they were poisoned at the end of the next turn (unless they are Expert or above).",
+        "activation": "Coats hidden needles. One dose coats three needles.",
+        "repeatable": false,
+        "triggersBurst": false
+      },
+      "shop": {
+        "enabled": true,
+        "price": 110,
+        "stock": -1
+      },
+      "description": "A clear oil favoured by assassins because it does not tarnish silver."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "Weapon coated with Seven-Step Snake Venom.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🐍",
+      "id": "wp-seven-step-venom",
+      "name": "Seven-Step Snake Venom",
+      "rarity": "Heavenly",
+      "type": "poison",
+      "poison": {
+        "tier": 2,
+        "element": "Wood",
+        "impurity": 30,
+        "debuff": "+30 Impurity on hit. If the target has 20+ Impurity: −20 Qi, −2 Qi Bars, −5 Endurance.",
+        "gimmick": "Seven steps: if the target uses a movement technique while poisoned, the venom reaches the heart — +10 more Impurity.",
+        "activation": "Coats a blade; enters through broken skin.",
+        "repeatable": false,
+        "triggersBurst": false
+      },
+      "shop": {
+        "enabled": true,
+        "price": 480,
+        "stock": -1
+      },
+      "description": "From the snake whose bite, they say, lets you walk seven steps."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "A Corpse Flower Gu was hidden in the meal.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🥀",
+      "id": "wp-corpse-flower-gu",
+      "name": "Corpse Flower Gu",
+      "rarity": "Heavenly",
+      "type": "poison",
+      "poison": {
+        "tier": 2,
+        "element": "Earth",
+        "impurity": 30,
+        "debuff": "+30 Impurity. If the target has 20+ Impurity: −20 Qi, −2 Qi Bars, −5 Strength.",
+        "gimmick": "Dormant: it sleeps until the target spends Qi Bars, then wakes and eats one more Qi Bar.",
+        "activation": "Swallowed in food or drink. Southern gu masters' work.",
+        "repeatable": false,
+        "triggersBurst": false
+      },
+      "shop": {
+        "enabled": true,
+        "price": 520,
+        "stock": -1
+      },
+      "description": "A tiny larva sealed in wax. The Hao Sect denies it ever sold one."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "A Heart-Eroding Pill was given to the victim.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🖤",
+      "id": "wp-heart-eroding-pill",
+      "name": "Heart-Eroding Pill",
+      "rarity": "Immortal",
+      "type": "poison",
+      "poison": {
+        "tier": 3,
+        "element": "Fire",
+        "impurity": 50,
+        "debuff": "+50 Impurity, applied over three days (+17 a day). If the target has 20+ Impurity: −50 Qi, −4 Qi Bars, −10 Mobility and −10 Endurance.",
+        "gimmick": "Slow poison: no symptoms for a day, so the victim rarely knows who gave it.",
+        "activation": "Disguised as an ordinary pill or sweet.",
+        "repeatable": false,
+        "triggersBurst": false
+      },
+      "shop": {
+        "enabled": false,
+        "price": 0,
+        "stock": -1
+      },
+      "description": "Looks exactly like a medicinal pill. That is the point."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "T1 Metal purification: halves a T1 poison and removes its gimmick; halves a T2 poison's numbers. Useless against Fire, weaker against Earth.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "💛",
+      "id": "wp-golden-needle-antidote",
+      "name": "Golden Needle Antidote",
+      "rarity": "Earthly",
+      "type": "purification",
+      "purification": {
+        "tier": 1,
+        "element": "Metal",
+        "gimmick": ""
+      },
+      "shop": {
+        "enabled": true,
+        "price": 70,
+        "stock": -1
+      },
+      "economy": {
+        "good": "medicine",
+        "sensitivity": 0.4
+      },
+      "description": "Acupuncture needles dipped in a bitter tincture."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "T1 Fire purification: halves a T1 poison and removes its gimmick; halves a T2 poison's numbers. Useless against Water, weaker against Wood.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "❤️",
+      "id": "wp-red-ember-antidote",
+      "name": "Red Ember Antidote",
+      "rarity": "Earthly",
+      "type": "purification",
+      "purification": {
+        "tier": 1,
+        "element": "Fire",
+        "gimmick": ""
+      },
+      "shop": {
+        "enabled": true,
+        "price": 70,
+        "stock": -1
+      },
+      "economy": {
+        "good": "medicine",
+        "sensitivity": 0.4
+      },
+      "description": "Phoenix tail fern charred over embers."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "T1 Water purification: halves a T1 poison and removes its gimmick; halves a T2 poison's numbers. Useless against Earth, weaker against Metal.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🖤",
+      "id": "wp-black-water-antidote",
+      "name": "Black Water Antidote",
+      "rarity": "Earthly",
+      "type": "purification",
+      "purification": {
+        "tier": 1,
+        "element": "Water",
+        "gimmick": ""
+      },
+      "shop": {
+        "enabled": true,
+        "price": 70,
+        "stock": -1
+      },
+      "economy": {
+        "good": "medicine",
+        "sensitivity": 0.4
+      },
+      "description": "A dark decoction that tastes of river mud."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "T2 Wood purification: removes T1 poisons, halves T2 and removes its gimmick, halves T3. Useless against Metal, weaker against Fire.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "💚",
+      "id": "wp-jade-dew-antidote",
+      "name": "Jade Dew Antidote",
+      "rarity": "Heavenly",
+      "type": "purification",
+      "purification": {
+        "tier": 2,
+        "element": "Wood",
+        "gimmick": "Also halves any poison's gimmick duration, even ones it can't cure."
+      },
+      "shop": {
+        "enabled": true,
+        "price": 320,
+        "stock": -1
+      },
+      "economy": {
+        "good": "medicine",
+        "sensitivity": 0.3
+      },
+      "description": "Dew collected in a jade bowl, steeped with five herbs."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "T2 Water purification: removes T1 poisons, halves T2 and removes its gimmick, halves T3. Useless against Earth, weaker against Metal.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🤍",
+      "id": "wp-snow-lotus-antidote",
+      "name": "Snow Lotus Antidote",
+      "rarity": "Heavenly",
+      "type": "purification",
+      "purification": {
+        "tier": 2,
+        "element": "Water",
+        "gimmick": "Cools the blood: the user loses 3 Impurity even if there was no poison."
+      },
+      "shop": {
+        "enabled": true,
+        "price": 320,
+        "stock": -1
+      },
+      "economy": {
+        "good": "medicine",
+        "sensitivity": 0.3
+      },
+      "description": "A sliver of snow lotus in cold spring water."
+    },
+    {
+      "tradeable": true,
+      "marketable": true,
+      "inDropPool": true,
+      "dropWeight": 1,
+      "consumable": true,
+      "useEffect": "T3 Earth purification: removes T1 and T2 poisons, halves T3 and removes its gimmick. Weaker against Wood.",
+      "sellPrice": null,
+      "scriptId": "",
+      "emoji": "🧪",
+      "id": "wp-hundred-poisons-elixir",
+      "name": "Hundred Poisons Elixir",
+      "rarity": "Immortal",
+      "type": "purification",
+      "purification": {
+        "tier": 3,
+        "element": "Earth",
+        "gimmick": "Works on any element at one tier lower if its own element is weak against it."
+      },
+      "shop": {
+        "enabled": true,
+        "price": 1200,
+        "stock": 3
+      },
+      "description": "The Tang Clan's answer to its own poisons. They sell very few."
+    }
+  ],
+  "arts": [],
+  "scripts": [
+    {
+      "id": "wp-winter-plum",
+      "name": "Winter Plum Pill",
+      "description": "×1.75 yield in winter, ×0.5 in summer.",
+      "code": "// Winter Plum Pill — the plum blooms in the snow. Uses ctx.world.season (0 spring, 1 summer, 2 autumn, 3 winter).\nhooks.consume = (ctx, result) => {\n  const s = ctx.world && ctx.world.season;\n  const mult = s === 3 ? 1.75 : s === 1 ? 0.5 : 1;\n  result.yieldAmount = Math.round(result.yieldAmount * mult * 100) / 100;\n  result.notes.push(s === 3 ? '❄️🌸 Plum blossoms in the snow — the pill is at its strongest (×1.75).' : s === 1 ? '☀️ The summer heat wilts the plum — half potency.' : '🌸 An ordinary season for the plum.');\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "wp-homeland-spring",
+      "name": "Homeland Spring Pill",
+      "description": "+50% yield when taken in land your own faction rules.",
+      "code": "// Homeland Spring Pill — water from your own sect's springs. Uses ctx.world.region.ownLand.\nhooks.consume = (ctx, result) => {\n  if (ctx.world && ctx.world.region && ctx.world.region.ownLand) {\n    result.yieldAmount = Math.round(result.yieldAmount * 1.5 * 100) / 100;\n    result.notes.push('🏞️ The springs of home answer you: +50% Qi.');\n  } else {\n    result.notes.push('🏞️ Far from home, the spring water is just water with herbs in it.');\n  }\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "wp-bodhi-seed",
+      "name": "Bodhi Seed Incense",
+      "description": "Only works with a calm mind: wasted at 25+ Impurity.",
+      "code": "// Bodhi Seed Incense — only a clear mind can use it.\nhooks.consume = (ctx, result) => {\n  if (ctx.character.impurity >= 25) {\n    result.breakthroughBonus = 0;\n    result.keepOnFail = 0;\n    result.notes.push('🪷 Your thoughts are too turbid (Impurity 25+). The incense burns out unnoticed.');\n  } else {\n    result.notes.push('🪷 Your mind is still. The incense settles into your heart.');\n  }\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "wp-moon-phase",
+      "name": "Mid-Autumn Moon Elixir",
+      "description": "+2% Realm Breakthrough, +6% in autumn.",
+      "code": "// Mid-Autumn Moon Elixir — strongest under the harvest moon.\nhooks.consume = (ctx, result) => {\n  if (ctx.world && ctx.world.season === 2) {\n    result.breakthroughBonus = 6;\n    result.notes.push('🌕 Under the harvest moon: +6% Realm Breakthrough.');\n  } else {\n    result.notes.push('🌙 The moon is not full — only +' + result.breakthroughBonus + '%.');\n  }\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "wp-famine-mercy",
+      "name": "Hundred Grains Pill",
+      "description": "Twice as strong during a Famine or Drought where you are.",
+      "code": "// Hundred Grains Pill — a commoner's pill. In hard times every grain counts.\nhooks.consume = (ctx, result) => {\n  const ev = (ctx.world && ctx.world.events) || [];\n  if (ev.includes('famine') || ev.includes('drought')) {\n    result.yieldAmount = result.yieldAmount * 2;\n    result.notes.push('🌾 In a starving land, the humble grain pill feels like a feast: double Qi.');\n  }\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "wp-cinnabar",
+      "name": "Red Cinnabar Pill",
+      "description": "Taoist cinnabar: +5 extra Impurity if you already have 40+.",
+      "code": "// Red Cinnabar Pill — mercury builds up in the body.\nhooks.consume = (ctx, result) => {\n  if (ctx.character.impurity >= 40) {\n    result.impurity += 5;\n    result.notes.push('🔴 Mercury has gathered in your organs: +5 extra Impurity.');\n  }\n  return result;\n};\n",
+      "enabled": true
+    },
+    {
+      "id": "wp-snow-water",
+      "name": "Snow Mountain Ice Water",
+      "description": "Removes 45 Impurity but costs 4 Qi.",
+      "code": "// Snow Mountain Ice Water — freezing the filth out also freezes some Qi.\nhooks.consume = (ctx, result) => {\n  const loss = Math.min(4, ctx.character.stats.qi);\n  result.yieldType = 'qi';\n  result.yieldAmount = -loss;\n  result.notes.push('🏔️ The ice water burns cold through every meridian — ' + loss + ' Qi freezes away with the filth.');\n  return result;\n};\n",
+      "enabled": true
+    }
+  ],
+  "recipes": [
+    {
+      "name": "Hundred Grains Pill",
+      "description": "Press grain and herbs into a pill.",
+      "inputs": [
+        {
+          "itemId": "good-grain",
+          "qty": 8
+        },
+        {
+          "itemId": "good-herbs",
+          "qty": 1
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-hundred-grains-pill",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 0,
+      "successChance": 95,
+      "consumeOnFail": true,
+      "minRealm": 0,
+      "enabled": true
+    },
+    {
+      "name": "Morning Pine Pill",
+      "description": "Pine resin and spirit grass at dawn.",
+      "inputs": [
+        {
+          "itemId": "wp-old-pine-resin",
+          "qty": 2
+        },
+        {
+          "itemId": "pack-spirit-grass",
+          "qty": 2
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-morning-pine-pill",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 20,
+      "successChance": 90,
+      "consumeOnFail": true,
+      "minRealm": 1,
+      "enabled": true
+    },
+    {
+      "name": "Red Cinnabar Pill",
+      "description": "Fire cinnabar nine times.",
+      "inputs": [
+        {
+          "itemId": "good-cinnabar",
+          "qty": 2
+        },
+        {
+          "itemId": "good-herbs",
+          "qty": 3
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-red-cinnabar-pill",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 40,
+      "successChance": 75,
+      "consumeOnFail": true,
+      "minRealm": 2,
+      "enabled": true
+    },
+    {
+      "name": "Snow Lotus Pill",
+      "description": "A snow lotus heart in spirit herbs.",
+      "inputs": [
+        {
+          "itemId": "wp-snow-lotus",
+          "qty": 1
+        },
+        {
+          "itemId": "good-spiritherbs",
+          "qty": 2
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-snow-lotus-pill",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 60,
+      "successChance": 80,
+      "consumeOnFail": true,
+      "minRealm": 3,
+      "enabled": true
+    },
+    {
+      "name": "Thousand-Year Ginseng Pill",
+      "description": "Refine a whole root.",
+      "inputs": [
+        {
+          "itemId": "pack-thousand-year-ginseng",
+          "qty": 1
+        },
+        {
+          "itemId": "good-elixirs",
+          "qty": 1
+        },
+        {
+          "itemId": "good-spiritherbs",
+          "qty": 2
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-ginseng-pill",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 100,
+      "successChance": 70,
+      "consumeOnFail": true,
+      "minRealm": 4,
+      "enabled": true
+    },
+    {
+      "name": "Purple Ganoderma Elixir",
+      "description": "Lingzhi steeped in elixir stock.",
+      "inputs": [
+        {
+          "itemId": "wp-purple-lingzhi",
+          "qty": 1
+        },
+        {
+          "itemId": "good-elixirs",
+          "qty": 1
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-purple-ganoderma-elixir",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 80,
+      "successChance": 75,
+      "consumeOnFail": true,
+      "minRealm": 3,
+      "enabled": true
+    },
+    {
+      "name": "Nine-Turn Golden Pill",
+      "description": "Forty-nine days at the furnace.",
+      "inputs": [
+        {
+          "itemId": "good-elixirs",
+          "qty": 3
+        },
+        {
+          "itemId": "good-cinnabar",
+          "qty": 2
+        },
+        {
+          "itemId": "pack-thousand-year-ginseng",
+          "qty": 1
+        },
+        {
+          "itemId": "wp-snow-lotus",
+          "qty": 1
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-nine-turn-golden-pill",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 400,
+      "successChance": 55,
+      "consumeOnFail": true,
+      "minRealm": 5,
+      "enabled": true
+    },
+    {
+      "name": "Mid-Autumn Moon Elixir",
+      "description": "Seal moon dew in jade.",
+      "inputs": [
+        {
+          "itemId": "wp-moon-dew",
+          "qty": 1
+        },
+        {
+          "itemId": "good-jade",
+          "qty": 1
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-moon-elixir",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 30,
+      "successChance": 85,
+      "consumeOnFail": true,
+      "minRealm": 2,
+      "enabled": true
+    },
+    {
+      "name": "Pine Needle Tea",
+      "description": "Brew pine needles with tea.",
+      "inputs": [
+        {
+          "itemId": "good-tea",
+          "qty": 1
+        },
+        {
+          "itemId": "wp-old-pine-resin",
+          "qty": 1
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-pine-needle-tea",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 0,
+      "successChance": 100,
+      "consumeOnFail": true,
+      "minRealm": 0,
+      "enabled": true
+    },
+    {
+      "name": "Medicinal Bath Herbs",
+      "description": "Bundle medicine for a bath.",
+      "inputs": [
+        {
+          "itemId": "good-medicine",
+          "qty": 2
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-medicine-bath",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 10,
+      "successChance": 95,
+      "consumeOnFail": true,
+      "minRealm": 0,
+      "enabled": true
+    },
+    {
+      "name": "Lotus Heart Decoction",
+      "description": "Simmer for a day and a night.",
+      "inputs": [
+        {
+          "itemId": "good-medicine",
+          "qty": 3
+        },
+        {
+          "itemId": "wp-snow-lotus",
+          "qty": 1
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-lotus-heart-decoction",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 40,
+      "successChance": 85,
+      "consumeOnFail": true,
+      "minRealm": 2,
+      "enabled": true
+    },
+    {
+      "name": "Golden Needle Antidote",
+      "description": "Dip needles in tincture.",
+      "inputs": [
+        {
+          "itemId": "good-herbs",
+          "qty": 2
+        },
+        {
+          "itemId": "good-iron",
+          "qty": 1
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-golden-needle-antidote",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 10,
+      "successChance": 100,
+      "consumeOnFail": true,
+      "minRealm": 0,
+      "enabled": true
+    },
+    {
+      "name": "Red Ember Antidote",
+      "description": "Char the fern over embers.",
+      "inputs": [
+        {
+          "itemId": "wp-phoenix-tail-fern",
+          "qty": 2
+        },
+        {
+          "itemId": "good-herbs",
+          "qty": 1
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-red-ember-antidote",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 10,
+      "successChance": 100,
+      "consumeOnFail": true,
+      "minRealm": 0,
+      "enabled": true
+    },
+    {
+      "name": "Black Water Antidote",
+      "description": "A dark decoction.",
+      "inputs": [
+        {
+          "itemId": "good-herbs",
+          "qty": 2
+        },
+        {
+          "itemId": "good-salt",
+          "qty": 1
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-black-water-antidote",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 10,
+      "successChance": 100,
+      "consumeOnFail": true,
+      "minRealm": 0,
+      "enabled": true
+    },
+    {
+      "name": "Green Antidote (from herbs)",
+      "description": "The market way: buy herbs, skip the spirit grass.",
+      "inputs": [
+        {
+          "itemId": "good-herbs",
+          "qty": 3
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "pack-green-antidote-pill",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 0,
+      "successChance": 100,
+      "consumeOnFail": true,
+      "minRealm": 0,
+      "enabled": true
+    },
+    {
+      "name": "Hundred Poisons Elixir",
+      "description": "The Tang Clan recipe, more or less.",
+      "inputs": [
+        {
+          "itemId": "good-medicine",
+          "qty": 4
+        },
+        {
+          "itemId": "good-spiritherbs",
+          "qty": 2
+        },
+        {
+          "itemId": "wp-snow-lotus",
+          "qty": 1
+        },
+        {
+          "itemId": "wp-purple-lingzhi",
+          "qty": 1
+        }
+      ],
+      "outputs": [
+        {
+          "itemId": "wp-hundred-poisons-elixir",
+          "qty": 1
+        }
+      ],
+      "nyangCost": 200,
+      "successChance": 65,
+      "consumeOnFail": true,
+      "minRealm": 4,
+      "enabled": true
+    }
+  ]
+}

@@ -157,7 +157,7 @@ function migrateArts(s, data, d) {
 
 function migrate(data) {
   const d = defaults.createDefaultState();
-  if (!isPlainObject(data)) return d;
+  if (!isPlainObject(data)) { require('./world/state').normalizeWorld(d); return d; }
   const s = { ...d, ...data };
   s.settings = deepMerge(d.settings, data.settings || {});
   for (const k of ['rarities', 'realms', 'sects', 'traits', 'scripts', 'items', 'arts', 'characters', 'recipes', 'applications', 'progress', 'trades', 'market', 'changelog', 'dashboardUsers']) {
@@ -200,6 +200,8 @@ function migrate(data) {
     s.items.unshift(defaults.defaultWeaponItem());
     for (const c of s.characters) if (!c.inventory[defaults.DEFAULT_WEAPON_ID]) c.inventory[defaults.DEFAULT_WEAPON_ID] = 1;
   }
+  // The world (map, economy, politics, war). Created on first load; repaired on every load.
+  require('./world/state').normalizeWorld(s);
   return s;
 }
 

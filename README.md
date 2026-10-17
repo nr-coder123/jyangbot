@@ -24,6 +24,7 @@ One Node.js process runs **both** the bot and the dashboard, so a single Render 
 - **Dashboard control of every command**: who can use it, which channels, on/off, description
 - **Every panel is editable**: the character sheet, stats, inventory, market, realm, crafting, compare and all announcements are templates with a live Discord-style preview (Discohook import/export). **Every emoji and button** can be changed or removed, including custom server emojis
 - Save / load / backups, and a changelog of every edit
+- **The World** (`/world` + dashboard Map, Economy, Events, Politics, War, Balance): the Murim Map Studio map of all 34 provinces and 455 prefectures; regional markets with supply & demand, workshops, merchant caravans, coffers and prosperity cycles; low-fantasy random events; policies; a diplomacy map with Sect Representatives and political marriages; armies, formations and battles that RP duels can swing; balance formulas that recommend sects to new players — all hookable with custom code
 
 ---
 
@@ -111,14 +112,15 @@ Anyone who knows those can log in; you can also create one account per editor in
 
 ## Commands
 
-17 commands — most things happen through buttons in `/menu`.
+18 commands — most things happen through buttons in `/menu` and `/world`.
 
 ### Players
 | Command | What it does |
 |---|---|
 | `/submit name document [sect]` | Send your character for approval |
 | `/menu [player] [public]` | Your character sheet + tabs: **Sheet · Stats · Inventory · Market · Realm** |
-| `/market [show]` | Opens the menu on the Market (everything / player market only / shop only) |
+| `/market [show]` | Opens the menu on the Market (everything / player market / shop / sect shops) |
+| `/world [tab] [region]` | The world: **Region · Market · Caravans · Workshops · Politics · War** (see *The World* below) |
 | `/consume pill` | Consume one of your pills or elixirs |
 | `/equip weapon` | Choose your main weapon |
 | `/progress link summary [breakthrough]` | Submit a finished RP or fight for rewards |
@@ -152,6 +154,9 @@ Anyone who knows those can log in; you can also create one account per editor in
 | `/impurity add · remove · reset` | `poison:true` never bursts meridians unless `can_burst:true` |
 | `/title player title` | Set a title exactly as typed (`none` removes it) |
 | `/admin backup · dashboard · sync` | Backup now, dashboard link, re-send commands to Discord |
+| `/admin event event region [turns]` | Force a world event (drought, flood, trade fair, bandits…) in a region |
+| `/admin turn [count]` | Advance the world by hand |
+| **Approve** on diplomacy posts · **Record duel** on battle posts | Staff steps of diplomacy and war |
 
 ## Pill limits, consumables and the item pack
 
@@ -172,6 +177,36 @@ The weights (PP per Qi, per stat, per +1% breakthrough, cost per Impurity…) ar
 **Items → ⬇ Export / ⬆ Import** moves items between servers or backups, together with the arts their manuals teach, their custom code and their crafting recipes. Import previews what will be created/updated first and makes a safety backup.
 
 `examples/item-pack-murim-30.json` is a ready-made pack of 30 items for 3rd Rate to Peak (Qi pills, stat pills, detox, breakthrough aids, poisons, antidotes, combat consumables, crafting materials and 4 recipes), with 9 custom-code gimmicks. Import it from the dashboard and adjust prices to your economy.
+
+## The World (Dashboard → Map · Economy · Events · Politics · War · Balance)
+
+Everything here runs in **turns** (default: one every 6 real hours, 28 turns a season, 4 seasons a year). Staff can pause, advance or tune it in **Economy → ⚙️ World settings**. Travel, caravans and battle preparation run on real time.
+
+**Map.** The Murim Map Studio map (github.com/nr-coder123/myumyu) is built in: 34 provinces, 455 prefectures, rivers, sacred peaks and passes. Tools: inspect, **paint ruler** (who controls a region: they collect its taxes and set policies there), **★ special prefecture**, landmarks, frontier lines; overlays for prosperity, food, security, unrest, corruption, the price of any good, a faction's relations, events and terrain; armies, battles and caravans on the map; SVG/PNG export. **⚙️ Map & Discord** links every province to its Discord category (auto-link by name, or create the missing ones) and imports a project exported from the Murim Map Studio.
+
+**Regions and markets.** Every province is a market. Only the prefectures you mark ★ special get their own market (a share of the province's people and production moves there) — use them for sect seats, great cities and passes; the defaults include each sect's seat plus Luoyang, Kaifeng, Chang'an, Yangzhou, Hangzhou, Canton, Wuchang, Jiayu Pass, Jingdezhen, Bozhou and Cangzhou. Each market has population, terrain, walls, prosperity, security, unrest, corruption, a tax rate, coffers, production of 23 trade goods, and workshops.
+
+**Economy** (inspired by Bannerlord's supply-chain mods):
+- `price = base × (target ÷ stock)^elasticity` — the target is what the people, workshops and armies there need for a few turns. Every unit a player buys or sells moves the price, so there is no free arbitrage.
+- **Workshops** turn inputs into outputs (grain → wine, iron + timber → arms, herbs → medicine, herbs + spirit herbs + cinnabar → elixir stock, raw silk → silk, timber → porcelain / paper, grain → horses) or earn from customers (teahouses, escort agencies). Players can own up to 2.
+- **Peddlers** move goods along every road from plenty to scarcity; the **Grand Merchant Guild** sends big caravans 2–4 roads away. Bandits (low security, bandit events) raid them.
+- **Coffers**: households spend into the merchants' purse; imports and buying from players drain it, so a market can only absorb so much. The ruling faction takes the taxes; corruption skims them.
+- **Prosperity** rises with food, salt/cloth/tea, luxuries, trade and safety, and is dragged down by its own weight, corruption and unrest. Corruption grows while a region is rich, so golden ages rot and recover — no region stays prosperous forever. Population grows only as far as the land can feed.
+- Players: `/world` → **Market** buys and sells where their character stands; **Travel** takes real time (≈1.5 h per 100 map px); **Caravans** ship goods without travelling (sold on arrival; escorts cut raid risk); **Workshops** earn every turn. Trade goods are cargo: they can only change hands in the same region.
+- **Sect shops** (Politics → a faction → Sect shop) sell in `/market` → *Sect shops*: members −15%, allies −5%, outsiders +10%, rivals +30%, enemies at war refused. Closing them to outsiders is a policy (*Closed Gates*) with a price: relations with everyone slowly sour.
+- Any item can follow a good's local price (item editor → *World economy*, e.g. pills follow Elixir Stock), capped at ±25%.
+
+**Events** (Events tab, or `/admin event`): drought, flood, locusts, epidemic, harsh winter, earthquake, wildfire, famine (only where grain really runs out), bumper harvest, trade fair, silver shortage, salt crackdown, guild boycott, mine collapse, new vein, spirit herb bloom, tax levy, imperial inspector, corrupt magistrate, peasant revolt, refugees, bandits, river pirates, Murim tournament, Lantern Festival, succession dispute, rumours of a hidden master. Each has conditions (season, terrain, prosperity, unrest, shortages…), effects, chains (drought → famine → revolt) and spreading (epidemics, locusts). All editable.
+
+**Politics.** Every sect has a faction (plus the Imperial Court and the Grand Merchant Guild). Factions have a treasury, influence, reputation, policies (granaries, salt monopoly, open markets, tariffs, martial law, bandit suppression, conscription, tax relief, heavy taxes, alchemy patronage, escort charters, closed gates, open recruitment, temple charity, censors, corvée) — with upkeep and **fatigue** (martial law and bandit hunts lose strength over time). **Sect Representatives** (set per faction, or by a Discord role) use `/world` → Politics to adopt policies and propose diplomacy. Proposals are posted in the diplomacy channel; the other side's representative accepts; marriages and sworn brotherhood also need the other character's player; some actions need staff approval. The **Diplomacy map** (Politics tab) shows every action and what it unlocks: gifts, envoys, trade agreements, joint ventures, embargoes, disciple exchanges, non-aggression pacts, military access, defensive and full alliances, calls to arms, **political marriages**, sworn brotherhood, vassalage, tribute, denouncing, war, truces, peace with reparations, mediation and breaking treaties. **Custom agreements** can carry their own effects and custom code.
+
+**War.** Representatives recruit troops in their regions (equipment is bought from the local market — a shortage of arms or horses makes armies expensive) and march them; armies cost upkeep, eat local grain and lose supply abroad. When enemies meet, a **battle opens for 24 h**: commanders choose a **formation** and a **tactic per round** (Battle plan), characters join as champions, and staff **record RP duels** — each win gives momentum, and a beaten commander shakes his army. Then the battle is simulated round by round (formulas in the War tab) and a report is posted. An unopposed army at war occupies a region and takes its taxes; with *auto-conquest* on it changes hands after a while. Formations (Square, Fish Scale, Crane Wing, Arrowhead, Long Snake, Crescent Moon, Wild Geese, Yoke, Eight Trigrams, Scattered Stars), troops and tactics are all editable, and the **battle simulator** tests them.
+
+**Balance.** Three formulas per faction: **① Power Index** (military, economy, politics and cultivation shares), **② gap to the fair share** with the HHI concentration index, **③ Recruitment Need**. The top three playable sects are recommended in `/help` and to sectless characters, and an optional join bonus can reward joining them.
+
+**Custom code** works everywhere: `regionTick`, `factionTick`, `treatyTick`, `eventStart`, `diplomacy`, `battleRound`, `shopPrice` (see Custom Code → reference). Pills can read the season and the region (`ctx.world`).
+
+`examples/item-pack-world-expansion.json` adds 63 items for 2nd Rate to Transcendent: the 23 trade goods, 5 materials, Qi / stat / breakthrough / detox pills (several with seasonal, regional or impurity gimmicks), 6 poisons, 6 antidotes and 16 recipes that use trade goods. (The 23 trade-good items are also created automatically the first time the world starts.)
 
 ## Sects & Discord roles (Dashboard → Sects)
 
@@ -352,8 +387,12 @@ src/
   engine/             game rules (no Discord code): stats, effects, scripts, characters,
                       economy, rolls, affinity, fengshui, grants, crafting, combat, templates
   bot/                Discord client, permissions (access.js), embeds, the stat typing window,
-                      commands/: menu, submit, progress, trade, tools, staff
-  dashboard/          Express API (server.js), login (auth.js), web app (public/)
+                      commands/: menu, submit, progress, trade, tools, staff, world
+  world/              the world: geo (map graph), state, economy, events, politics, diplomacy,
+                      military, power (balance), tick, runner; mapdata.json (built from myumyu)
+  dashboard/          Express API (server.js, world-api.js), login (auth.js), web app (public/: app.js, world.js)
 scripts/selftest.js   rule tests
+scripts/map/          rebuilds src/world/mapdata.json from the Murim Map Studio data
+scripts/packs/        item pack generators
 render.yaml           Render blueprint
 ```

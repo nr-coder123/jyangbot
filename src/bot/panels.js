@@ -4,6 +4,7 @@
  * from the dashboard-editable templates. Each function returns { content?, embeds, ...extra }.
  */
 const store = require('../store');
+const world = require('../world');
 const templates = require('../engine/templates');
 const ui = require('../engine/ui');
 const stats = require('../engine/stats');
@@ -218,14 +219,20 @@ function itemInfo(it, c = null) {
 }
 
 // ---------------- market ----------------
-/** Shop items + player listings as one list. filter: all | players | shop */
-function marketEntries(filter = 'all') {
+/** Shop items + sect shops + player listings as one list. filter: all | players | shop | sect */
+function marketEntries(filter = 'all', c = null) {
   const st = store.state;
   const out = [];
-  if (filter !== 'players') {
-    for (const it of economy.shopItems(st)) out.push({ kind: 'S', id: it.id, it, price: it.shop.price, qty: it.shop.stock, seller: null });
+  if (filter === 'all' || filter === 'shop') {
+    for (const it of economy.shopItems(st)) out.push({ kind: 'S', id: it.id, it, price: world.economy.dynamicItemPrice(st, it, it.shop.price, c), base: it.shop.price, qty: it.shop.stock, seller: null });
   }
-  if (filter !== 'shop') {
+  if ((filter === 'all' || filter === 'sect') && st.world?.settings?.enabled) {
+    for (const o of world.economy.sectShopOffers(st, c)) {
+      if (!o.allowed && filter === 'all') continue;
+      out.push({ kind: 'F', id: `${o.faction.id}|${o.it.id}`, it: o.it, price: o.price, base: o.base, qty: o.stock, seller: null, faction: o.faction, terms: o });
+    }
+  }
+  if (filter === 'all' || filter === 'players') {
     for (const l of st.market) {
       const it = st.items.find((x) => x.id === l.itemId);
       if (it) out.push({ kind: 'L', id: l.id, it, price: l.price, qty: l.qty, seller: st.characters.find((x) => x.id === l.sellerCharId), listing: l });
@@ -234,28 +241,32 @@ function marketEntries(filter = 'all') {
   return out.sort((a, b) => a.it.name.localeCompare(b.it.name) || a.price - b.price);
 }
 
-const FILTER_NAME = { all: 'Everything', players: 'Player market', shop: 'Shop' };
+const FILTER_NAME = { all: 'Everything', players: 'Player market', shop: 'Shop', sect: 'Sect shops' };
 const PER_PAGE = 20;
+const TIER_LABEL = { member: 'member price', ally: 'ally price', neutral: 'outsider price', rival: 'rival price', war: 'enemy' };
 
 function market(c, filter = 'all', page = 0) {
   const st = store.state;
-  const list = marketEntries(filter);
+  const list = marketEntries(filter, c);
   const pages = Math.max(1, Math.ceil(list.length / PER_PAGE));
   page = Math.max(0, Math.min(pages - 1, Number(page) || 0));
   const slice = list.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
   const lines = slice.map((x) => (x.kind === 'S'
-    ? `${E('shop')} ${itemIcon(x.it)} **${x.it.name}** — ${E('nyang')} ${fmt(x.price)} · Shop${x.qty >= 0 ? ` (${x.qty} left)` : ''}`
-    : `${E('player')} ${itemIcon(x.it)} **${x.it.name}** ×${x.qty} — ${E('nyang')} ${fmt(x.price)} each · by ${x.seller?.name || '?'}`));
-  const empty = filter === 'players' ? 'No player listings yet. Sell yours from Inventory → List on market.' : 'Nothing for sale yet.';
+    ? `${E('shop')} ${itemIcon(x.it)} **${x.it.name}** — ${E('nyang')} ${fmt(x.price)}${x.price !== x.base ? ` *(base ${fmt(x.base)})*` : ''} · Shop${x.qty >= 0 ? ` (${x.qty} left)` : ''}`
+    : x.kind === 'F'
+      ? `${x.faction.icon || '🏯'} ${itemIcon(x.it)} **${x.it.name}** — ${x.terms.allowed ? `${E('nyang')} ${fmt(x.price)} · ${x.faction.name} (${TIER_LABEL[x.terms.tier] || x.terms.tier})` : `🔒 ${x.terms.reason}`}${x.qty >= 0 ? ` (${x.qty} left)` : ''}`
+      : `${E('player')} ${itemIcon(x.it)} **${x.it.name}** ×${x.qty} — ${E('nyang')} ${fmt(x.price)} each · by ${x.seller?.name || '?'}`));
+  const empty = filter === 'players' ? 'No player listings yet. Sell yours from Inventory → List on market.' : filter === 'sect' ? 'No sect sells anything yet (staff set sect shops in the dashboard → Politics).' : 'Nothing for sale yet.';
   return {
     ...msg('marketPanel', { filter: FILTER_NAME[filter] || filter, entries: truncate(lines.join('\n') || empty, 4000), page: String(page + 1), pages: String(pages), nyang: fmt(c.nyang), currency: st.settings.currencyName }),
     slice, page, pages,
   };
 }
 
-function findEntry(key) {
-  const [kind, id] = String(key).split('.');
-  return marketEntries('all').find((x) => x.kind === kind && x.id === id) || null;
+function findEntry(key, c = null) {
+  const i = String(key).indexOf('.');
+  const kind = String(key).slice(0, i); const id = String(key).slice(i + 1);
+  return marketEntries('all', c).find((x) => x.kind === kind && x.id === id) || marketEntries('sect', c).find((x) => x.kind === kind && x.id === id) || null;
 }
 
 function marketEntry(c, entry) {
@@ -267,7 +278,7 @@ function marketEntry(c, entry) {
     rarity: it.rarity,
     description: truncate(it.description || '*No description.*', 3000),
     price: `${E('nyang')} ${fmt(entry.price)} ${st.settings.currencyName}${entry.kind === 'L' ? ' each' : ''}`,
-    seller: entry.kind === 'S' ? 'Shop' : entry.seller?.name || '?',
+    seller: entry.kind === 'S' ? 'Shop' : entry.kind === 'F' ? `${entry.faction.name} (${TIER_LABEL[entry.terms.tier] || entry.terms.tier}${entry.terms.pct ? `, ${entry.terms.pct > 0 ? '+' : ''}${entry.terms.pct}%` : ''})` : entry.seller?.name || '?',
     available: entry.qty >= 0 ? String(entry.qty) : 'Unlimited',
     details: itemDetails(it),
     nyang: fmt(c.nyang),

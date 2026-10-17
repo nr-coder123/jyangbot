@@ -254,6 +254,97 @@ const DEFS = {
     sample: { player: '<@100000000000000001>', character: 'Chung Myung', recipe: 'Qi Gathering Pill', items: '1× Qi Gathering Pill' },
     default: E({ color: 0x7f8c8d, title: '💥 {character} failed to craft {recipe}', description: 'The materials were lost.' }),
   },
+
+  // ---------------- world (/world) ----------------
+  worldRegion: {
+    group: 'World', label: 'Region (/world → Region)',
+    buttons: [['wRegion', 'wMarket', 'wCaravans', 'wWorkshops', 'wPolitics', 'wWar'], ['wTravel']],
+    placeholders: ['region', 'province', 'hanzi', 'controller', 'terrain', 'population', 'prosperity', 'prosperityBar', 'security', 'unrest', 'corruption', 'fort', 'coffers', 'calendar', 'events', 'policies', 'you', 'notes', 'armies', 'currency', 'trend'],
+    help: '{prosperityBar} is a ten-block bar. {you} says where your character is and whether they are travelling.',
+    sample: { region: 'Luoyang', province: 'Henan', hanzi: '洛阳', controller: '🪷 Shaolin Sect', terrain: '🌾 Plains', population: '21', prosperity: '64', prosperityBar: '🟩🟩🟩🟩🟩🟩⬛⬛⬛⬛', security: '61', unrest: '4', corruption: '18', fort: '4', coffers: '1,240', calendar: '🌸 Spring, day 3 · Year 428', events: '🎪 Great Trade Fair (3 turns left)', policies: '🏛️ Ever-Normal Granaries', you: '📍 You are here.', notes: 'Ancient capital: sword manors and the great market.', armies: '', currency: 'Nyang', trend: '📈 +0.4 / turn' },
+    default: E({
+      title: '{region} · {hanzi}',
+      description: '-# {province} · {calendar}\n{notes}',
+      color: 0xc0a062,
+      fields: [
+        { name: 'Ruled by', value: '{controller}', inline: true },
+        { name: 'Land', value: '{terrain} · Walls {fort}/5', inline: true },
+        { name: 'People', value: '{population}k households', inline: true },
+        { name: 'Prosperity', value: '{prosperityBar} **{prosperity}**\n-# {trend}', inline: false },
+        { name: 'Security', value: '{security}', inline: true },
+        { name: 'Unrest', value: '{unrest}', inline: true },
+        { name: 'Merchants\' purse', value: '{e.nyang} {coffers}', inline: true },
+        { name: 'Happening now', value: '{events}', inline: false },
+        { name: 'Policies', value: '{policies}', inline: false },
+        { name: 'Armies here', value: '{armies}', inline: false },
+        { name: 'You', value: '{you}', inline: false },
+      ],
+    }),
+  },
+  worldMarket: {
+    group: 'World', label: 'Regional market (/world → Market)',
+    buttons: [['wRegion', 'wMarket', 'wCaravans', 'wWorkshops', 'wPolitics', 'wWar']],
+    placeholders: ['region', 'goods', 'nyang', 'currency', 'tariff', 'coffers'],
+    sample: { region: 'Luoyang', goods: '🌾 **Grain** 4.2 ▲ · stock ●●●○ · you 0\n🧂 **Salt** 13.1 ▼ · stock ●○○○ · you 12', nyang: '120', currency: 'Nyang', tariff: '3%', coffers: '1,240' },
+    default: E({
+      title: '🏪 Market of {region}',
+      description: '{goods}',
+      color: 0xc0a062,
+      footer: { text: 'Prices per unit · buy a little above, sell a little below · tariff {tariff} · merchants can pay up to {coffers} · your purse {nyang} {currency}' },
+    }),
+  },
+  worldEvent: {
+    group: 'World', label: 'World event announcement',
+    placeholders: ['text', 'name', 'emoji', 'description', 'regions', 'turns', 'calendar'],
+    sample: { text: '☀️ **Drought** in **Henan**. No rain for weeks. Fields crack and wells run dry.', name: 'Drought', emoji: '☀️', description: 'No rain for weeks. Fields crack and wells run dry.', regions: 'Henan', turns: '8', calendar: '☀️ Summer, day 4 · Year 428' },
+    default: E({ color: 0xb3261e, description: '{text}', footer: { text: '{calendar}' } }),
+  },
+  worldNews: {
+    group: 'World', label: 'World news (diplomacy, policies, wars)',
+    placeholders: ['text', 'calendar'],
+    sample: { text: '🤝 **Propose Trade Agreement** — **Wudang Sect** and **Shaolin Sect**.', calendar: '🌸 Spring, day 3 · Year 428' },
+    default: E({ color: 0x2980b9, description: '{text}', footer: { text: '{calendar}' } }),
+  },
+  worldProposal: {
+    group: 'World', label: 'Diplomatic proposal (diplomacy channel)',
+    buttons: [['wAccept', 'wDecline']],
+    placeholders: ['action', 'emoji', 'from', 'to', 'proposer', 'description', 'note', 'step', 'characters', 'expires', 'pings'],
+    sample: { action: 'Political Marriage', emoji: '💍', from: 'Mount Hua Sect', to: 'Namgoong Clan', proposer: 'Chung Myung (<@100000000000000001>)', description: 'Marry a character of your house to one of theirs.', note: 'May our houses be joined in spring.', step: 'Waiting for a Namgoong Clan representative.', characters: 'Yoon Jong ⇄ Namgoong Dowi', expires: '<t:1900000000:R>', pings: '<@100000000000000002>' },
+    default: E({
+      title: '{emoji} {action}',
+      description: '**{from}** → **{to}**\n{description}\n\n> {note}',
+      color: 0x8e44ad,
+      fields: [
+        { name: 'Proposed by', value: '{proposer}', inline: true },
+        { name: 'Characters', value: '{characters}', inline: true },
+        { name: 'Next', value: '{step}', inline: false },
+      ],
+      footer: { text: 'Expires {expires}' },
+    }, '{pings}'),
+  },
+  worldBattle: {
+    group: 'World', label: 'Battle (war channel)',
+    buttons: [['wJoinA', 'wJoinD', 'wPlan', 'wDuel']],
+    placeholders: ['region', 'attacker', 'defender', 'attackerArmy', 'defenderArmy', 'resolves', 'duels', 'champions', 'terrain', 'fort'],
+    sample: { region: 'Kaifeng', attacker: 'Blood Cult', defender: 'Shaolin Sect', attackerArmy: '1,200 Spearmen · 400 Crossbowmen\nFormation: 🔺 Arrowhead · Momentum +8%', defenderArmy: '900 Shield & Sabre · 150 Sect Disciples\nFormation: ⬛ Square', resolves: '<t:1900000000:R>', duels: '🤺 Chung Myung defeated Baek Cheon', champions: 'Attacker: Baek Cheon\nDefender: Chung Myung', terrain: '🌊 Rivers & Lakes', fort: '3' },
+    default: E({
+      title: '⚔️ Battle of {region}',
+      description: '**{attacker}** attacks **{defender}** · {terrain} · walls {fort}/5\nThe battle begins {resolves}. Until then champions may duel in RP; staff record the result with **Record duel**.',
+      color: 0x8b0000,
+      fields: [
+        { name: '🗡️ {attacker}', value: '{attackerArmy}', inline: true },
+        { name: '🛡️ {defender}', value: '{defenderArmy}', inline: true },
+        { name: 'Champions', value: '{champions}', inline: false },
+        { name: 'Duels', value: '{duels}', inline: false },
+      ],
+    }),
+  },
+  worldBattleResult: {
+    group: 'World', label: 'Battle report',
+    placeholders: ['region', 'winner', 'attacker', 'defender', 'rounds', 'losses', 'summary'],
+    sample: { region: 'Kaifeng', winner: 'Shaolin Sect', attacker: 'Blood Cult', defender: 'Shaolin Sect', rounds: '**1** 🏹 Volley vs 🛡️ Hold — losses 80 / 120 · morale 64 / 58\n**2** 🐎 Charge vs 🛡️ Hold — losses 150 / 90 · morale 48 / 50', losses: 'Blood Cult lost 430 · Shaolin Sect lost 310', summary: 'The Blood Cult routed in round 4.' },
+    default: E({ title: '📜 Battle of {region} — {winner} victorious', description: '{summary}\n\n{rounds}', color: 0x8b0000, fields: [{ name: 'Losses', value: '{losses}', inline: false }] }),
+  },
 };
 
 function get(state, key) {

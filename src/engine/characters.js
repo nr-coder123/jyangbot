@@ -42,9 +42,16 @@ function setSect(state, c, sectName) {
     c.martialArts.core.push({ id: art.id, name: art.name });
     out.coreArt = art.name;
   }
-  if (num(sect.joinNyang) > 0 && !(c.joinedSects || []).includes(sect.id)) {
-    c.nyang = r2(c.nyang + num(sect.joinNyang));
-    out.nyang = num(sect.joinNyang);
+  if (!(c.joinedSects || []).includes(sect.id)) {
+    let bonus = num(sect.joinNyang);
+    // World → Balance: sects that need members can pay an extra join bonus (World settings → join bonus).
+    const extra = num(state.world?.settings?.underdogBonus);
+    if (extra > 0 && state.world?.settings?.enabled) {
+      try {
+        if (require('../world/power').report(state).recommend.some((x) => x.sect === sect.name)) { bonus += extra; out.underdog = extra; }
+      } catch {}
+    }
+    if (bonus > 0) { c.nyang = r2(c.nyang + bonus); out.nyang = bonus; }
   }
   c.joinedSects = [...new Set([...(c.joinedSects || []), sect.id])];
   return out;

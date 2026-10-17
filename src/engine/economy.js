@@ -42,12 +42,13 @@ function shopSellPrice(state, item) {
   return 0;
 }
 
-function buyFromShop(state, c, item, qty) {
+function buyFromShop(state, c, item, qty, unitPrice = null) {
   qty = positiveInt(qty);
   if (!item.shop?.enabled) throw new UserError(`**${item.name}** is not sold in the shop.`);
   const stock = num(item.shop.stock, -1);
   if (stock >= 0 && stock < qty) throw new UserError(`Only ${stock} left in stock.`);
-  const cost = r2(num(item.shop.price) * qty);
+  // unitPrice: the regional price (items linked to a trade good move with it, within World settings → max swing).
+  const cost = r2(num(unitPrice ?? item.shop.price) * qty);
   spendNyang(state, c, cost);
   if (stock >= 0) item.shop.stock = stock - qty;
   addItem(c, item.id, qty);
@@ -65,11 +66,17 @@ function sellToShop(state, c, item, qty) {
 }
 
 // ---------- Trades ----------
-function validateSide(state, c, side, label) {
+function validateSide(state, c, side, label, other) {
   if (side.itemId) {
     const it = state.items.find((i) => i.id === side.itemId);
     if (!it) throw new UserError(`${label}: item no longer exists.`);
     if (!it.tradeable) throw new UserError(`**${it.name}** cannot be traded.`);
+    // Trade goods are bulky cargo: you can only hand them over in person (same region), or send a caravan.
+    if (it.tradeGood && other && state.world?.settings?.enabled) {
+      const E = require('../world/economy');
+      const a = require('../world/geo').marketOf(state, E.locationOf(state, c)); const b = require('../world/geo').marketOf(state, E.locationOf(state, other));
+      if (a !== b || E.isTravelling(c) || E.isTravelling(other)) throw new UserError(`**${it.name}** is cargo — both characters must be in the same region to hand it over (send a caravan instead).`);
+    }
     if (qtyOf(c, side.itemId) < side.qty) throw new UserError(`${label}: **${c.name}** doesn't have ${side.qty}× ${it.name}.`);
   }
   if (side.nyang > 0 && c.nyang < side.nyang) throw new UserError(`${label}: **${c.name}** doesn't have ${fmt(side.nyang)} ${state.settings.currencyName}.`);
@@ -81,7 +88,7 @@ function createTrade(state, from, to, give, want) {
   give = clean(give);
   want = clean(want);
   if (!give.itemId && !give.nyang && !want.itemId && !want.nyang) throw new UserError('A trade needs at least one item or some Nyang.');
-  validateSide(state, from, give, 'Your offer');
+  validateSide(state, from, give, 'Your offer', to);
   const t = {
     id: newId('T'),
     fromCharId: from.id, fromUserId: from.ownerId,
@@ -105,8 +112,8 @@ function settleTrade(state, t) {
   const from = state.characters.find((c) => c.id === t.fromCharId);
   const to = state.characters.find((c) => c.id === t.toCharId);
   if (!from || !to) throw new UserError('One of the characters no longer exists.');
-  validateSide(state, from, t.give, 'Offer');
-  validateSide(state, to, t.want, 'Request');
+  validateSide(state, from, t.give, 'Offer', to);
+  validateSide(state, to, t.want, 'Request', from);
   if (t.give.itemId) { addItem(from, t.give.itemId, -t.give.qty); addItem(to, t.give.itemId, t.give.qty); }
   if (t.give.nyang) { addNyang(from, -t.give.nyang); addNyang(to, t.give.nyang); }
   if (t.want.itemId) { addItem(to, t.want.itemId, -t.want.qty); addItem(from, t.want.itemId, t.want.qty); }

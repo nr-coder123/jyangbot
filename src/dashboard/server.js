@@ -112,7 +112,7 @@ function create(bot) {
   app.get('/health', (req, res) => res.json({ ok: true, bot: bot.status.online }));
   // Always serve the latest dashboard files (phones otherwise keep an old copy of app.js for days).
   const BUILD = Date.now().toString(36);
-  const indexHtml = () => require('fs').readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8').replace(/(app\.js|style\.css)"/g, `$1?v=${BUILD}"`);
+  const indexHtml = () => require('fs').readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8').replace(/(app\.js|world\.js|style\.css)"/g, `$1?v=${BUILD}"`);
   const sendIndex = (req, res) => {
     res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     res.type('html').send(indexHtml());
@@ -174,7 +174,7 @@ function create(bot) {
       me: { username: req.user.username, isAdmin: !!req.user.isAdmin, defaultPassword: defaultPw },
       settings: s.settings, rarities: s.rarities, realms: s.realms, sects: s.sects, traits: s.traits, arts: s.arts, scripts: s.scripts, rev: store.revision,
       items: s.items, characters: s.characters, applications: s.applications.slice(0, 300), progress: s.progress.slice(0, 100),
-      market: s.market, meta: s.meta,
+      market: s.market, meta: s.meta, goods: (s.world?.goods || []).map((g) => ({ id: g.id, name: g.name, emoji: g.emoji, basePrice: g.basePrice })),
       constants: { ART_KINDS: defaults.ART_KINDS, ART_KIND_LABEL: defaults.ART_KIND_LABEL, WEAPON_GRADES: defaults.WEAPON_GRADES, BONUS_KEYS: defaults.BONUS_KEYS, ITEM_TYPES: defaults.ITEM_TYPES, MANUAL_CATEGORIES: defaults.MANUAL_CATEGORIES, YIELD_TYPES: defaults.YIELD_TYPES, GRANT_TYPES, TAKE_TYPES, HOOKS: scripts.HOOKS },
       recipes: s.recipes, combat: s.combat,
       server: { storage: store.backend.kind, lastSavedAt: store.lastSavedAt, saveError: store.lastError, bot: bot.status, publicUrl: config.publicUrl },
@@ -246,7 +246,14 @@ function create(bot) {
       joinNyang: Math.max(0, num(s.joinNyang)),
     }));
     if (list.some((s) => !s.name)) throw new UserError('Every sect needs a name.');
+    // Renamed sects (same id) keep their world faction.
+    const beforeSects = store.state.sects;
+    for (const s of list) {
+      const old = beforeSects.find((x) => (x.id || slug(x.name)) === s.id);
+      if (old && old.name !== s.name) for (const f of store.state.world?.factions || []) if (f.sect === old.name) { f.sect = s.name; if (f.name === old.name) f.name = s.name; }
+    }
     store.state.sects = list;
+    require('../world/state').normalizeWorld(store.state); // new sects get a faction
     store.log(req.actor, 'sects.update', `${list.length} sects saved`);
     return { sects: list };
   }));
@@ -812,6 +819,8 @@ function create(bot) {
     store.log(req.actor, 'account.password', target.username);
     return { ok: true };
   }));
+
+  require('./world-api').mount(app, { wrap, bot, diff });
 
   app.use('/api', (req, res) => res.status(404).json({ error: 'Not found' }));
   return app;

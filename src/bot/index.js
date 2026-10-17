@@ -1,5 +1,5 @@
 'use strict';
-const { Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, Events, EmbedBuilder, PermissionFlagsBits, ChannelType } = require('discord.js');
 const config = require('../config');
 const store = require('../store');
 const allocation = require('./allocation');
@@ -9,7 +9,7 @@ const sectsync = require('./sectsync');
 const { EPH, sendToChannel } = require('./util');
 const { UserError, truncate } = require('../utils');
 
-const MODULES = ['menu', 'submit', 'progress', 'trade', 'tools', 'staff'];
+const MODULES = ['menu', 'submit', 'progress', 'trade', 'tools', 'staff', 'world'];
 const modules = MODULES.map((m) => require(`./commands/${m}`));
 const commands = new Map();
 const components = {};
@@ -142,6 +142,7 @@ function wire() {
         console.warn('[sects] startup sync failed', e.message);
       }
     }
+    require('../world/runner').setDeliver(require('./worlddeliver').makeDeliver(client));
     try {
       await registerCommands();
     } catch (e) {
@@ -229,7 +230,8 @@ function getDiscordInfo() {
   const guilds = client.guilds.cache.map((g) => ({
     id: g.id,
     name: g.name,
-    channels: g.channels.cache.filter((c) => c.isTextBased() && !c.isThread()).map((c) => ({ id: c.id, name: c.name })).sort((a, b) => a.name.localeCompare(b.name)),
+    channels: g.channels.cache.filter((c) => c.isTextBased() && !c.isThread()).map((c) => ({ id: c.id, name: c.name, parentId: c.parentId || '' })).sort((a, b) => a.name.localeCompare(b.name)),
+    categories: g.channels.cache.filter((c) => c.type === ChannelType.GuildCategory).map((c) => ({ id: c.id, name: c.name, position: c.position })).sort((a, b) => a.position - b.position),
     roles: g.roles.cache.filter((r) => r.id !== g.id && !r.managed).map((r) => ({ id: r.id, name: r.name, position: r.position, color: r.hexColor })).sort((a, b) => b.position - a.position),
     members: g.members.cache.filter((m) => !m.user.bot).map((m) => ({ id: m.id, name: m.displayName })),
   }));
@@ -248,10 +250,29 @@ async function applySectRoles(userId, sectName) {
   return sectsync.applySectRoles(client, userId, sectName);
 }
 
+/** Dashboard: create a Discord category for each province that has none. */
+async function createCategories(list) {
+  if (!client || !status.online) throw new UserError('The bot is offline.');
+  const g = config.guildId ? await client.guilds.fetch(config.guildId) : client.guilds.cache.first();
+  if (!g) throw new UserError('The bot is not in a server.');
+  const out = [];
+  for (const x of list.slice(0, 40)) {
+    const c = await g.channels.create({ name: x.name.slice(0, 100), type: ChannelType.GuildCategory });
+    out.push({ key: x.key, id: c.id });
+  }
+  return out;
+}
+
+/** Dashboard: update (or post) a diplomacy proposal in Discord. */
+async function postProposal(p) {
+  if (!client || !status.online) return;
+  return require('./commands/world').postProposal(client, p);
+}
+
 async function stop() {
   try {
     if (client) await client.destroy();
   } catch {}
 }
 
-module.exports = { start, stop, status, getDiscordInfo, commandJSON, catalog, registerCommands, sendTest, applySectRoles };
+module.exports = { start, stop, status, getDiscordInfo, commandJSON, catalog, registerCommands, sendTest, applySectRoles, createCategories, postProposal };

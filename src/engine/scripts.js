@@ -17,7 +17,7 @@ const vm = require('vm');
 const { clone } = require('../utils');
 
 const TIMEOUT_MS = 150;
-const HOOKS = ['effects', 'qiGain', 'breakthroughChance', 'consume'];
+const HOOKS = ['effects', 'qiGain', 'breakthroughChance', 'consume', 'regionTick', 'factionTick', 'treatyTick', 'eventStart', 'diplomacy', 'battleRound', 'shopPrice'];
 
 /** Name of a character reference. kind: 'art' (martial arts, cultivation, qi core), 'trait' or 'item'. */
 function refName(state, ref, kind = 'art') {
@@ -91,10 +91,34 @@ function buildContext(state, c, source, extra) {
     },
     realm: clone(realm),
     nextRealm: next ? clone(next) : null,
+    world: worldInfo(state, c),
     source,
     thresholds: clone(state.settings.impurity),
     extra: clone(extra || {}),
   };
+}
+
+/** Where and when the character is: season, region, its ruler and events (empty object if the world is off). */
+function worldInfo(state, c) {
+  if (!state.world?.settings?.enabled) return {};
+  try {
+    const C = require('../world/common');
+    const E = require('../world/economy');
+    const geo = require('../world/geo');
+    const loc = geo.marketOf(state, E.locationOf(state, c));
+    const r = state.world.regions[loc] || {};
+    const f = C.factionOfChar(state, c);
+    const cal = C.calendar(state);
+    return {
+      turn: cal.turn, season: cal.season, seasonName: cal.seasonName, year: cal.year,
+      region: { key: loc, name: geo.label(state, loc), terrain: r.terrain, prosperity: r.prosperity, controller: r.controller || null, ownLand: !!(f && r.controller === f.id) },
+      events: state.world.activeEvents.filter((e) => e.regions.includes(loc)).map((e) => e.eventId),
+      faction: f ? { id: f.id, name: f.name } : null,
+      travelling: E.isTravelling(c),
+    };
+  } catch {
+    return {};
+  }
 }
 
 /** Run one hook of one script. Returns { has, value }. Throws on script errors. */

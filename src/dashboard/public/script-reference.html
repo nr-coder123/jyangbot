@@ -100,11 +100,57 @@ hooks.consume = (ctx, result) =&gt; {
 <tr><td><code>ctx.thresholds</code></td><td>{ yieldPenaltyAt: 50, yieldPenaltyPercent: 50, debuffAt: 75, debuffPercent: 25, burstAt: 100, burstPercent: 25 } (from Settings)</td></tr>
 <tr><td><code>ctx.source</code></td><td>what this script is attached to: { type: 'trait' | 'cultivation method' | 'qi core' | 'main weapon' | 'core martial art' … | 'pill', name }</td></tr>
 <tr><td><code>ctx.extra</code></td><td>hook-specific: <code>source</code> for qiGain, <code>item</code> for consume</td></tr>
+<tr><td><code>ctx.world.season</code> / <code>seasonName</code> / <code>year</code> / <code>turn</code></td><td>0–3 (spring, summer, autumn, winter), 'Winter', 428, 120</td></tr>
+<tr><td><code>ctx.world.region</code></td><td>where the character stands: { key: '河南/洛阳', name: 'Luoyang', terrain: 'plains', prosperity: 64, controller: 'shaolin-sect', ownLand: false }</td></tr>
+<tr><td><code>ctx.world.events</code>, <code>faction</code>, <code>travelling</code></td><td>['drought'], { id, name } of their sect's faction, false</td></tr>
 </table>
 <p>Tip: press <b>▶ Run test</b> — the result includes the full <code>ctx</code> of the chosen character.</p>
 </details>
 
-<details><summary>8. Handy recipes</summary>
+<details><summary>8. World hooks — regions, factions, treaties, events, diplomacy, battles, shops</summary>
+<p>Attach a script to a <b>region</b> (Map → click → Edit), a <b>faction</b> (Politics), an <b>event</b>, a <b>policy</b>, a <b>diplomacy action</b>, a <b>treaty / custom agreement</b> or a <b>formation</b>. Use it for very specific deals and setups that the normal fields can't express.</p>
+<table class="reftable">
+<tr><th>Hook</th><th>Runs</th><th>Gets / returns</th></tr>
+<tr><td><code>hooks.regionTick(ctx, mods)</code></td><td>every turn, for each region the script touches (the region itself, its ruler, active events, policies, the ruler's treaties)</td><td><code>mods</code> = this turn's modifiers: <code>prosperity, security, unrest, corruption, population, caravanRisk, tariff, coffers, supply, attrition</code> (add) · <code>income, tax, recruitCost</code> (×) · <code>production, demand, price, stockLoss</code> ({ goodId | category | '*': × }) · <code>notes</code> (shown in the dashboard). Return mods.</td></tr>
+<tr><td><code>hooks.factionTick(ctx, ledger)</code></td><td>every turn, faction scripts</td><td>ledger <code>{ treasury, influence, notes }</code> — amounts added to the faction this turn.</td></tr>
+<tr><td><code>hooks.treatyTick(ctx, ledger)</code></td><td>every turn, treaty scripts</td><td>ledger <code>{ transfers: [{ from, to, nyang }], relation, end, notes }</code>. <code>ctx.treaty</code> has its parties, <code>terms</code> (free data you typed), start/end turn. Set <code>end: true</code> to dissolve it.</td></tr>
+<tr><td><code>hooks.eventStart(ctx, event)</code></td><td>when an event with this script begins</td><td>event <code>{ regions, endTurn, vars, cancel }</code> — change where it hits or how long, or <code>cancel: true</code>.</td></tr>
+<tr><td><code>hooks.diplomacy(ctx, proposal)</code></td><td>when an action is proposed (<code>ctx.stage = 'propose'</code>) and when it takes effect (<code>'execute'</code>); action and both factions' scripts</td><td>set <code>blocked: 'reason'</code> to stop it; on execute you can change <code>effects</code> (relation, treaty, transfer…).</td></tr>
+<tr><td><code>hooks.battleRound(ctx, round)</code></td><td>each battle round; formation, faction and region scripts</td><td>round <code>{ attackerLoss, defenderLoss, notes }</code> — fractions of men lost this round (0–0.9).</td></tr>
+<tr><td><code>hooks.shopPrice(ctx, offer)</code></td><td>whenever someone looks at the faction's sect shop</td><td>offer <code>{ price, allowed, reason }</code>; <code>ctx.buyer</code> = { id, name, sect }, <code>ctx.item</code>.</td></tr>
+</table>
+<p>World hooks get <code>ctx.world</code> (calendar), <code>ctx.region</code> (name, terrain, population, prosperity, security, unrest, corruption, fort, coffers, taxRate, controller, stock, prices, production, events, policies) and <code>ctx.faction</code> (id, name, kind, treasury, influence, reputation, members, regions, policies) where they apply.</p>
+<pre class="out">// Custom agreement: "The Namgoong pay Mount Hua 40 Nyang a turn while Mount Hua guards their caravans"
+hooks.treatyTick = (ctx, l) =&gt; {
+  l.transfers.push({ from: 'namgoong-clan', to: 'mount-hua-sect', nyang: 40 });
+  if (ctx.world.turn &gt; ctx.treaty.startTurn + 112) l.end = true;   // four weeks of 6-hour turns
+  return l;
+};
+
+// Region: Luoyang's great market — luxuries always sell, and the Lantern Festival is bigger here
+hooks.regionTick = (ctx, m) =&gt; {
+  m.demand.luxury = (m.demand.luxury || 1) * 1.3;
+  if (ctx.region.events.includes('lantern-festival')) m.prosperity += 1;
+  return m;
+};
+
+// Faction: the Beggar Sect earns influence from every hungry region (they hear everything)
+hooks.factionTick = (ctx, l) =&gt; { l.influence += 0.5; return l; };
+
+// Diplomacy action: the Shaolin never accept political marriages
+hooks.diplomacy = (ctx, p) =&gt; {
+  if (ctx.stage === 'propose' &amp;&amp; ctx.action.id === 'marriage' &amp;&amp; ctx.to.name === 'Shaolin Sect') p.blocked = 'Shaolin monks do not marry.';
+  return p;
+};
+
+// Formation: the Eight Trigrams wears down an enemy that keeps charging
+hooks.battleRound = (ctx, r) =&gt; {
+  if (ctx.defender.formation === 'eight-trigrams' &amp;&amp; ctx.attacker.tactic === 'charge') { r.attackerLoss *= 1.2; r.notes.push('☯️ The charge is lost in the eight gates.'); }
+  return r;
+};</pre>
+</details>
+
+<details><summary>9. Handy recipes</summary>
 <pre class="out">// Weapon: +3 Strength only while Impurity is under 50
 hooks.effects = (ctx, fx) =&gt; {
   if (ctx.character.impurity &lt; 50) { fx.tempStats.strength += 3; fx.notes.push('🗡️ The blade hums: +3 Strength.'); }

@@ -158,10 +158,16 @@ async function executeTitle(i) {
 // ---------- /admin ----------
 const admin = new SlashCommandBuilder()
   .setName('admin')
-  .setDescription('Backups, dashboard link and command refresh')
+  .setDescription('Backups, dashboard link, command refresh, world events and turns')
   .addSubcommand((s) => s.setName('backup').setDescription('Save everything and create a backup now').addStringOption((o) => o.setName('label').setDescription('Label for the backup')))
   .addSubcommand((s) => s.setName('dashboard').setDescription('Get the dashboard link'))
-  .addSubcommand((s) => s.setName('sync').setDescription('Re-send the slash commands to Discord (after editing them in the dashboard)'));
+  .addSubcommand((s) => s.setName('sync').setDescription('Re-send the slash commands to Discord (after editing them in the dashboard)'))
+  .addSubcommand((s) => s.setName('event').setDescription('Force a world event in a region (drought, flood, trade fair…)')
+    .addStringOption((o) => o.setName('event').setDescription('Event').setRequired(true).setAutocomplete(true))
+    .addStringOption((o) => o.setName('region').setDescription('Where').setRequired(true).setAutocomplete(true))
+    .addIntegerOption((o) => o.setName('turns').setDescription('How many turns it lasts (default: the event\'s own duration)').setMinValue(1).setMaxValue(200)))
+  .addSubcommand((s) => s.setName('turn').setDescription('Advance the world by hand')
+    .addIntegerOption((o) => o.setName('count').setDescription('How many turns (default 1)').setMinValue(1).setMaxValue(20)));
 
 async function executeAdmin(i) {
   const sub = i.options.getSubcommand();
@@ -171,6 +177,20 @@ async function executeAdmin(i) {
     return i.editReply(`💾 Saved and backed up: **${meta.label}** (\`${meta.id}\`). Restore it from the dashboard → Save & Backups.`);
   }
   if (sub === 'dashboard') return i.reply({ content: config.publicUrl ? `🖥️ Dashboard: ${config.publicUrl}` : '🖥️ The dashboard is at your Render service URL (set PUBLIC_URL to show it here).', flags: EPH });
+  if (sub === 'event') {
+    const W = require('../../world');
+    const ae = W.events.startEvent(store.state, i.options.getString('event'), W.geo.marketOf(store.state, i.options.getString('region')), { forced: true, by: i.user.username, duration: i.options.getInteger('turns') || undefined });
+    if (!ae) return i.reply({ content: 'A custom script cancelled that event.', flags: EPH });
+    store.log(actor(i), 'world.event', `Forced: ${ae.text}`);
+    require('../../world/runner').step();
+    return i.reply({ content: `${ae.text}\n-# Ends on turn ${ae.endTurn} (now ${store.state.world.turn}).`, flags: EPH, allowedMentions: { parse: [] } });
+  }
+  if (sub === 'turn') {
+    await i.deferReply({ flags: EPH });
+    const out = await require('../../world/runner').advance(i.options.getInteger('count') || 1, actor(i));
+    const last = out[out.length - 1];
+    return i.editReply(`🗓️ Advanced ${out.length} turn(s) → **turn ${last.turn}** (${last.calendar}). Average prosperity ${last.avgProsperity}.`);
+  }
   if (sub === 'sync') {
     await i.deferReply({ flags: EPH });
     await require('../index').registerCommands();
@@ -184,6 +204,18 @@ module.exports = {
     { data: takeCmd, execute: executeGiveTake, autocomplete: autocompleteGiveTake, staff: true },
     { data: impurity, execute: executeImpurity, staff: true },
     { data: title, execute: executeTitle, staff: true },
-    { data: admin, execute: executeAdmin, staff: true },
+    {
+      data: admin,
+      execute: executeAdmin,
+      staff: true,
+      autocomplete: (i) => {
+        const W = require('../../world');
+        const st = store.state;
+        const f = i.options.getFocused(true);
+        const q = String(f.value || '').toLowerCase();
+        if (f.name === 'event') return i.respond(st.world.events.filter((e) => !q || e.name.toLowerCase().includes(q)).slice(0, 25).map((e) => ({ name: `${e.emoji} ${e.name}`.slice(0, 100), value: e.id })));
+        return i.respond(W.geo.marketKeys(st).map((k) => ({ k, n: W.geo.fullLabel(st, k) })).filter((x) => !q || x.n.toLowerCase().includes(q) || x.k.includes(q)).slice(0, 25).map((x) => ({ name: x.n.slice(0, 100), value: x.k })));
+      },
+    },
   ],
 };

@@ -45,6 +45,7 @@ async function housekeeping() {
 
   bot.start().catch((e) => console.error('[bot] failed to start:', e.message));
 
+  require('./world/runner').start();
   housekeeping().catch((e) => console.error('[housekeeping]', e));
   setInterval(() => housekeeping().catch((e) => console.error('[housekeeping]', e)), 10 * 60000);
 

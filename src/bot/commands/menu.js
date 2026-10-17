@@ -16,6 +16,7 @@ const store = require('../../store');
 const stats = require('../../engine/stats');
 const chars = require('../../engine/characters');
 const economy = require('../../engine/economy');
+const world = require('../../world');
 const rolls = require('../../engine/rolls');
 const crafting = require('../../engine/crafting');
 const ui = require('../../engine/ui');
@@ -37,7 +38,7 @@ const marketCmd = new SlashCommandBuilder()
   .setName('market')
   .setDescription('Browse the market: the shop and items other players are selling')
   .addStringOption((o) => o.setName('show').setDescription('What to show').addChoices(
-    { name: 'Everything', value: 'all' }, { name: 'Player market only', value: 'players' }, { name: 'Shop only', value: 'shop' },
+    { name: 'Everything', value: 'all' }, { name: 'Player market only', value: 'players' }, { name: 'Shop only', value: 'shop' }, { name: 'Sect shops only', value: 'sect' },
   ));
 
 // ---------- component helpers ----------
@@ -173,20 +174,20 @@ VIEWS.item = (ctx, itemId) => {
 };
 
 VIEWS.market = (ctx, filter = 'all', page = 0) => {
-  filter = ['all', 'players', 'shop'].includes(filter) ? filter : 'all';
+  filter = ['all', 'players', 'shop', 'sect'].includes(filter) ? filter : 'all';
   const m = panels.market(ctx.c, filter, page);
   const components = [navRow(ctx, 'market')];
   if (m.slice.length) {
     components.push(row(select(cid('s', ctx, 'entry', filter), '🛒 Pick something to buy', m.slice.map((x) => ({
       label: `${x.it.name}${x.kind === 'L' ? ` ×${x.qty}` : ''} — ${fmt(x.price)} ${S().currencyName}`,
       value: `${x.kind}.${x.id}`,
-      description: x.kind === 'S' ? `Shop · ${x.it.rarity} ${x.it.type}` : `Player: ${x.seller?.name || '?'} · ${x.it.rarity} ${x.it.type}`,
-      emoji: x.kind === 'S' ? ui.emoji(st(), 'shop') : ui.emoji(st(), 'player'),
+      description: x.kind === 'S' ? `Shop · ${x.it.rarity} ${x.it.type}` : x.kind === 'F' ? `${x.faction.name} · ${x.it.rarity} ${x.it.type}` : `Player: ${x.seller?.name || '?'} · ${x.it.rarity} ${x.it.type}`,
+      emoji: x.kind === 'S' ? ui.emoji(st(), 'shop') : x.kind === 'F' ? (x.faction.icon || '🏯') : ui.emoji(st(), 'player'),
     })))));
   }
   const f = (key, value) => btn(cid('v', ctx, 'market', value, 0), key, { style: filter === value ? ButtonStyle.Primary : ButtonStyle.Secondary });
   components.push(row(
-    f('filterAll', 'all'), f('filterPlayers', 'players'), f('filterShop', 'shop'),
+    f('filterAll', 'all'), f('filterPlayers', 'players'), f('filterShop', 'shop'), st().world?.settings?.enabled ? f('filterSect', 'sect') : null,
     m.pages > 1 ? btn(cid('v', ctx, 'market', filter, m.page - 1), 'prev', { disabled: m.page <= 0 }) : null,
     m.pages > 1 ? btn(cid('v', ctx, 'market', filter, m.page + 1), 'next', { disabled: m.page >= m.pages - 1 }) : null,
   ));
@@ -194,11 +195,11 @@ VIEWS.market = (ctx, filter = 'all', page = 0) => {
 };
 
 VIEWS.entry = (ctx, key, filter = 'all') => {
-  const entry = panels.findEntry(key);
-  if (!entry) return VIEWS.market(ctx, filter, 0);
   const { c } = ctx;
+  const entry = panels.findEntry(key, c);
+  if (!entry) return VIEWS.market(ctx, filter, 0);
   const own = entry.kind === 'L' && entry.listing.sellerUserId === ctx.viewer;
-  const canBuy = ctx.isOwner && !own && c.nyang >= entry.price && entry.qty !== 0;
+  const canBuy = ctx.isOwner && !own && c.nyang >= entry.price && entry.qty !== 0 && (entry.kind !== 'F' || entry.terms.allowed);
   return {
     ...panels.marketEntry(c, entry),
     components: [navRow(ctx, 'market'), row(
@@ -297,10 +298,16 @@ async function announce(i, payload, { preferAnnouncements = false } = {}) {
 function buyEntry(i, ctx, key, qty) {
   const state = st();
   const { c } = ctx;
-  const entry = panels.findEntry(key);
+  const entry = panels.findEntry(key, c);
   if (!entry) throw new UserError('That is no longer for sale.');
+  if (entry.kind === 'F') {
+    const [fid, itemId] = entry.id.split('|');
+    const r = world.economy.buyFromSectShop(state, c, fid, itemId, qty);
+    store.log(actor(i), 'sectshop.buy', `${c.name} bought ${r.qty}× ${entry.it.name} from ${r.faction.name} for ${r.cost} (${r.tier})`);
+    return `🛒 Bought ${r.qty}× **${entry.it.name}** from **${r.faction.name}** for ${ui.emoji(state, 'nyang')} ${fmt(r.cost)}. Purse: ${fmt(c.nyang)}.`;
+  }
   if (entry.kind === 'S') {
-    const r = economy.buyFromShop(state, c, entry.it, qty);
+    const r = economy.buyFromShop(state, c, entry.it, qty, entry.price);
     store.log(actor(i), 'shop.buy', `${c.name} bought ${r.qty}× ${entry.it.name} for ${r.cost}`);
     return `🛒 Bought ${r.qty}× **${entry.it.name}** for ${ui.emoji(state, 'nyang')} ${fmt(r.cost)}. Purse: ${fmt(c.nyang)}.`;
   }
@@ -409,7 +416,7 @@ async function onButton(i) {
     }
     case 'buy': {
       const note = buyEntry(i, ctx, arg, Number(arg2) || 1);
-      return i.update(render(ctx, panels.findEntry(arg) ? 'entry' : 'market', arg, note));
+      return i.update(render(ctx, panels.findEntry(arg, c) ? 'entry' : 'market', arg, note));
     }
     case 'buyq': {
       return i.showModal(new ModalBuilder().setCustomId(['mm', 'buyq', ctx.viewer, c.id, arg].join(':')).setTitle('How many?').addComponents(
@@ -498,7 +505,7 @@ async function onModal(i) {
   }
   if (parts[1] === 'buyq') {
     const note = buyEntry(i, ctx, parts[4], Math.floor(numIn('qty')));
-    return i.update(render(ctx, panels.findEntry(parts[4]) ? 'entry' : 'market', parts[4], note));
+    return i.update(render(ctx, panels.findEntry(parts[4], c) ? 'entry' : 'market', parts[4], note));
   }
   if (parts[1] === 'list') {
     const it = state.items.find((x) => x.id === parts[4]);

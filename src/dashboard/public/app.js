@@ -552,6 +552,17 @@ let ITEMS_PREVIEW = (() => { try { return localStorage.getItem('jh_items_preview
 // Redraw after the browser finishes the change/blur event (redrawing inside it breaks focus handling).
 const later = (fn) => setTimeout(fn, 0);
 const QE_DIRTY = new Map(); // id -> { kind: 'item'|'art', data } — unsaved quick edits survive filtering and live refresh
+/** Quick-edit delete: asks once, then removes the item (from every inventory and the market) or the art. */
+function qeDelete(kind, obj) {
+  return h('button', { class: 'btn small danger', title: `Delete ${obj.name}`, onclick: run(async () => {
+    const used = kind === 'item' ? D.characters.filter((c) => (c.inventory?.[obj.id] || 0) > 0).length : D.characters.filter((c) => c.cultivationMethods.some((r) => r.id === obj.id)).length;
+    if (!confirm(`Delete "${obj.name}"?${used ? `\n${used} character(s) ${kind === 'item' ? 'own it — it will be removed from their inventories' : 'know it'}.` : ''}\nThis can't be undone (except by restoring a backup).`)) return;
+    await api(`/${kind === 'item' ? 'items' : 'arts'}/${obj.id}`, { method: 'DELETE' });
+    QE_DIRTY.delete(obj.id);
+    toast(`Deleted ${obj.name}.`);
+    await refresh();
+  }) }, '🗑');
+}
 function quickEditView(filter) {
   const dirty = QE_DIRTY;
   const saveBtn = h('button', { class: 'btn primary', disabled: !dirty.size }, dirty.size ? `Save changes (${dirty.size})` : 'Save changes');
@@ -609,6 +620,7 @@ function quickEditView(filter) {
       ['Tol %', (x) => num(x.it, 'pill.tolerance', 'any', 60)],
       ['/month', (x) => num(x.it, 'pill.monthlyLimit', '1', 55)],
       ['Made for', (x) => sel(x.it, 'pill.peakRealm', [['', 'any'], ...D.realms.map((r, i) => [i, r.name])], 110)],
+      ['', (x) => qeDelete('item', x.it)],
     ], rated));
   };
   drawPills();
@@ -631,9 +643,29 @@ function quickEditView(filter) {
       ['Bonus %', (a) => num(a, 'absorption')],
       ['Impurity −%', (a) => num(a, 'impurityReduction')],
       ['Affinities', (a) => Object.entries(a.affinities || {}).map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}%`).join(', ') || '—'],
+      ['', (a) => qeDelete('art', a)],
     ], methods));
   };
   drawMethods();
+
+  // --- everything else (poisons, antidotes, materials, trade goods, manuals, weapons…) ---
+  const others = D.items.filter((i) => i.type !== 'pill' && filter(i)).map((i) => dirty.get(i.id)?.data || clone(i));
+  const otherWrap = h('div');
+  const drawOthers = () => {
+    const price = (it) => {
+      const i = h('input', { type: 'number', value: it.shop?.enabled ? it.shop.price : '', placeholder: 'not sold', style: 'width:72px' });
+      i.onchange = () => { it.shop = { ...it.shop, enabled: i.value !== '', price: Number(i.value) || 0 }; markDirty('item', it); };
+      return i;
+    };
+    otherWrap.replaceChildren(table([
+      ['Item', (it) => h('div', {}, h('a', { href: '#', onclick: (e) => { e.preventDefault(); editItem(D.items.find((i) => i.id === it.id)); } }, `${it.emoji || ''} ${it.name}`), h('div', { class: 'muted small' }, `${it.rarity} ${it.type}${it.tradeGood ? ' · trade good' : ''}${dirty.has(it.id) ? ' · edited' : ''}`))],
+      ['Price', (it) => (it.tradeGood ? h('span', { class: 'muted small' }, 'regional') : price(it))],
+      ['Drop pool', (it) => { const c = h('input', { type: 'checkbox' }); c.checked = !!it.inDropPool; c.onchange = () => { it.inDropPool = c.checked; markDirty('item', it); }; return c; }],
+      ['Owners', (it) => D.characters.filter((c) => (c.inventory?.[it.id] || 0) > 0).length],
+      ['', (it) => (it.id === D.settings.defaultWeaponId ? h('span', { class: 'muted small' }, 'default') : qeDelete('item', it))],
+    ], others));
+  };
+  drawOthers();
 
   const w = RW();
   return [
@@ -657,6 +689,11 @@ function quickEditView(filter) {
           h('p', {}, h('b', {}, '① Pill ×'), ' = (Absorption rate + bonus) ÷ 100 — how much of every pill\'s yield is kept (Qi Gathering ×0.5).'),
           h('p', {}, h('b', {}, '② Impurity ×'), ' = 1 − impurity reduction ÷ 100 — how much of every pill\'s impurity is taken.'),
           h('p', {}, h('b', {}, '③ Purity index'), ' = Pill × ÷ Impurity × — yield per point of impurity compared with a plain 100% method (1.00). Above 1 is better; elemental affinities are extra on top.'))),
+    ),
+    h('div', { class: 'card' },
+      h('h3', { style: 'margin:0 0 8px' }, 'Other items'),
+      h('p', { class: 'muted small', style: 'margin:0 0 10px' }, 'Poisons, antidotes, materials, trade goods, manuals and weapons. Edit the price and drop pool here, or click a name for everything else.'),
+      otherWrap,
     ),
   ];
 }
@@ -787,6 +824,10 @@ function editItem(item, prefill = null) {
     { section: 'Weapon', show: ['weapon'] },
     { k: 'weapon.grade', label: 'Grade', t: 'select', opts: () => D.constants.WEAPON_GRADES, show: ['weapon'], help: 'Spiritual < Dharma < Numinous < Immortal Treasure' },
     ...D.constants.BONUS_KEYS.map((k) => ({ k: `bonuses.${k}`, label: `+ ${({ strength: 'Strength', endurance: 'Endurance', mobility: 'Mobility', qi: 'Qi', qiBars: 'Qi Bars' })[k]} while equipped`, t: 'number', show: ['weapon'] })),
+    { section: 'World economy' },
+    { k: 'tradeGood', label: 'This item IS a trade good', t: 'select', opts: () => [['', '— no —'], ...(D.goods || []).map((g) => [g.id, `${g.emoji} ${g.name}`])], help: 'Bought and sold at regional markets (/world → Market). Leave the shop off.' },
+    { k: 'economy.good', label: 'Shop price follows this good', t: 'select', opts: () => [['', '— fixed price —'], ...(D.goods || []).map((g) => [g.id, `${g.emoji} ${g.name}`])], help: 'e.g. pills follow Elixir Stock: dearer where elixirs are scarce' },
+    { k: 'economy.sensitivity', label: 'How strongly (0–1)', t: 'number', step: 0.05, help: '0.3 = 30% of the good\'s price swing. Capped by World → Settings → max shop swing.' },
     { section: 'Custom code' },
     { k: 'scriptId', label: 'Script (runs while known / when consumed)', t: 'select', opts: () => [['', '— none —'], ...D.scripts.map((s) => [s.id, s.name])], help: 'Write scripts in the Custom Code tab' },
   ];
@@ -1107,6 +1148,9 @@ VIEWS.settings = () => {
     { k: 'channels.announcements', label: 'Announcements channel (approvals, reports, breakthroughs)', t: 'channel' },
     { k: 'channels.log', label: 'Changelog channel — EVERY change is posted here (optional)', t: 'channel' },
     { k: 'channels.consumption', label: 'Consumption log — every pill consumed, with where and when (optional)', t: 'channel' },
+    { k: 'channels.world', label: 'World news — events, policies, wars, new seasons (optional)', t: 'channel' },
+    { k: 'channels.diplomacy', label: 'Diplomacy — proposals with Accept/Decline buttons for representatives', t: 'channel' },
+    { k: 'channels.war', label: 'War — battle posts (join, battle plan, record duel) and battle reports', t: 'channel' },
     { k: 'staffRoleIds', label: 'Staff roles', t: 'roles', help: 'Used by commands set to "Staff" (Commands tab). Members with Manage Server always count as staff. Ctrl/Cmd-click for several.' },
     { k: 'approvedRoleIds', label: 'Roles given when a character is approved', t: 'roles' },
     { section: 'Elements & title reference' },
