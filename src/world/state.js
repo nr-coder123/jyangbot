@@ -94,7 +94,7 @@ function normalizeRegion(key, r = {}) {
   return out;
 }
 
-const WORLD_VERSION = 5;
+const WORLD_VERSION = 6;
 /** Put the preset buildings into regions that don't have them yet. */
 function seedBuildings(regions) {
   for (const [key, typeId, level] of W.START_BUILDINGS) {
@@ -105,7 +105,12 @@ function seedBuildings(regions) {
     r.buildings.push(normalizeBuilding({ id: `bd-${slug(key)}-${typeId}`, typeId, level, factionId: r.controller || '', status: 'ready' }));
   }
 }
-/** v4 → v5: sect shops are gone (the one shop is priced where you stand); City Walls can be raised to level 3. */
+/** v5 → v6: the shop no longer depends on where a character posts (no local prices, sales tax or "open markets"). */
+function migrateV6(state, w) {
+  w.policies = arr(w.policies).map(W.cleanPolicy);
+  if (w.settings) for (const k of ['localPrices', 'shopSalesTax', 'madeHereDiscount', 'shopTiers']) delete w.settings[k];
+}
+/** v4 → v5: sect shops are gone; City Walls can be raised to level 3. */
 function migrateV5(state, w) {
   w.policies = arr(w.policies).map(W.cleanPolicy);
   const walls = arr(w.buildingTypes).find((t) => t.id === 'walls');
@@ -212,7 +217,7 @@ function normalizeAlliance(a = {}) {
     name: String(a.name || 'Alliance').slice(0, 80), hanzi: String(a.hanzi || '').slice(0, 20),
     color: /^#[0-9a-f]{6}$/i.test(a.color || '') ? a.color : '#b3261e',
     members: [...new Set(arr(a.members).map(String))], leader: a.leader || '',
-    terms: { ...W.ALLIANCE_TERMS, ...(isPlainObject(a.terms) ? Object.fromEntries(Object.entries(a.terms).map(([k, v]) => [k, !!v])) : {}) },
+    terms: { ...W.ALLIANCE_TERMS, ...(isPlainObject(a.terms) ? Object.fromEntries(Object.entries(a.terms).filter(([k]) => k in W.ALLIANCE_TERMS).map(([k, v]) => [k, !!v])) : {}) },
     tribute: num(a.tribute, 0), // % of each member's taxes paid to the leader
     note: String(a.note || '').slice(0, 2000), effects: isPlainObject(a.effects) ? a.effects : {}, scriptId: a.scriptId || '',
     showOnMap: a.showOnMap !== false, foundedTurn: num(a.foundedTurn),
@@ -391,6 +396,7 @@ function normalizeWorld(state) {
   if (w.version < 3) { migrateV3(state, w); w.version = 3; }
   if (w.version < 4) { w.version = 4; }
   if (w.version < 5) { migrateV5(state, w); w.version = 5; }
+  if (w.version < 6) { migrateV6(state, w); w.version = 6; }
   if (w.needsBuildingSeed) { seedBuildings(w.regions); delete w.needsBuildingSeed; }
   w.factions = w.factions.map(normalizeFaction);
   const fids = new Set(w.factions.map((f) => f.id));

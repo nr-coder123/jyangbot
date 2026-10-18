@@ -43,7 +43,7 @@ const atWar = (state, a, b) => !!warBetween(state, a, b);
 /** Has either side closed its markets to the other? */
 const embargo = (state, a, b) => { const A = faction(state, a); const B = faction(state, b); return !!(A && B && (A.embargoes?.includes(b) || B.embargoes?.includes(a))); };
 const agreementsBetween = (state, a, b) => (state.world.agreements || []).filter((t) => t.parties.includes(a) && t.parties.includes(b));
-/** Does a perk (militaryAccess, freeTrade, sharedShops = open markets, nonAggression, defensive, callToArms) hold between a and b? */
+/** Does a perk (militaryAccess, freeTrade, nonAggression, defensive, callToArms) hold between a and b? */
 function hasPerk(state, a, b, perk) {
   if (!a || !b || a === b) return false;
   if (sameAlliance(state, a, b) && allianceOf(state, a).terms?.[perk]) return true;

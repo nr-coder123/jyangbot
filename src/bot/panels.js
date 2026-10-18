@@ -219,16 +219,12 @@ function itemInfo(it, c = null) {
 }
 
 // ---------------- market ----------------
-/** Shop items (priced where the character stands) + player listings as one list. filter: all | players | shop */
+/** Shop items + player listings as one list. filter: all | players | shop */
 function marketEntries(filter = 'all', c = null) {
   const st = store.state;
   const out = [];
   if (filter === 'all' || filter === 'shop') {
-    for (const it of economy.shopItems(st)) {
-      const q = world.economy.shopQuote(st, it, it.shop.price, c);
-      if (!q.allowed) continue;
-      out.push({ kind: 'S', id: it.id, it, price: q.price, base: it.shop.price, qty: it.shop.stock, seller: null, quote: q });
-    }
+    for (const it of economy.shopItems(st)) out.push({ kind: 'S', id: it.id, it, price: world.economy.dynamicItemPrice(st, it, it.shop.price), base: it.shop.price, qty: it.shop.stock, seller: null });
   }
   if (filter === 'all' || filter === 'players') {
     for (const l of st.market) {
@@ -252,9 +248,8 @@ function market(c, filter = 'all', page = 0) {
     ? `${E('shop')} ${itemIcon(x.it)} **${x.it.name}** — ${E('nyang')} ${fmt(x.price)}${x.price !== x.base ? ` *(base ${fmt(x.base)})*` : ''} · Shop${x.qty >= 0 ? ` (${x.qty} left)` : ''}`
     : `${E('player')} ${itemIcon(x.it)} **${x.it.name}** ×${x.qty} — ${E('nyang')} ${fmt(x.price)} each · by ${x.seller?.name || '?'}`));
   const empty = filter === 'players' ? 'No player listings yet. Sell yours from Inventory → List on market.' : 'Nothing for sale yet.';
-  const where = filter !== 'players' && st.world?.settings?.enabled ? world.economy.shopHeadline(st, c) : '';
   return {
-    ...msg('marketPanel', { filter: FILTER_NAME[filter] || filter, entries: truncate(`${where ? `📍 ${where}\n\n` : ''}${lines.join('\n') || empty}`, 4000), page: String(page + 1), pages: String(pages), nyang: fmt(c.nyang), currency: st.settings.currencyName }),
+    ...msg('marketPanel', { filter: FILTER_NAME[filter] || filter, entries: truncate(lines.join('\n') || empty, 4000), page: String(page + 1), pages: String(pages), nyang: fmt(c.nyang), currency: st.settings.currencyName }),
     slice, page, pages,
   };
 }
@@ -274,7 +269,7 @@ function marketEntry(c, entry) {
     rarity: it.rarity,
     description: truncate(it.description || '*No description.*', 3000),
     price: `${E('nyang')} ${fmt(entry.price)} ${st.settings.currencyName}${entry.kind === 'L' ? ' each' : ''}`,
-    seller: entry.kind === 'S' ? `Shop${entry.quote?.ctx ? ` in ${world.geo.label(st, entry.quote.ctx.key)}` : ''}${entry.quote?.notes?.length ? ` (${entry.quote.notes.join(', ')})` : ''}` : entry.seller?.name || '?',
+    seller: entry.kind === 'S' ? 'Shop' : entry.seller?.name || '?',
     available: entry.qty >= 0 ? String(entry.qty) : 'Unlimited',
     details: itemDetails(it),
     nyang: fmt(c.nyang),

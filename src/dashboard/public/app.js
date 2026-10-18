@@ -830,7 +830,7 @@ function editItem(item, prefill = null) {
     ...D.constants.BONUS_KEYS.map((k) => ({ k: `bonuses.${k}`, label: `+ ${({ strength: 'Strength', endurance: 'Endurance', mobility: 'Mobility', qi: 'Qi', qiBars: 'Qi Bars' })[k]} while equipped`, t: 'number', show: ['weapon'] })),
     { section: 'World economy' },
     { k: 'tradeGood', label: 'This item IS a trade good', t: 'select', opts: () => [['', '— no —'], ...(D.goods || []).map((g) => [g.id, `${g.emoji} ${g.name}`])], help: 'Bought and sold at regional markets (/world → Market). Leave the shop off.' },
-    { k: 'economy.good', label: 'Shop price follows this good', t: 'select', opts: () => [['', '— fixed price —'], ...(D.goods || []).map((g) => [g.id, `${g.emoji} ${g.name}`])], help: 'e.g. pills follow Elixir Stock: dearer where elixirs are scarce' },
+    { k: 'economy.good', label: 'Shop price follows this good', t: 'select', opts: () => [['', '— fixed price —'], ...(D.goods || []).map((g) => [g.id, `${g.emoji} ${g.name}`])], help: 'e.g. pills follow Elixir Stock: dearer when elixirs are scarce across the realm. Same price for everyone, wherever they post' },
     { k: 'economy.sensitivity', label: 'How strongly (0–1)', t: 'number', step: 0.05, help: '0.3 = 30% of the good\'s price swing. Capped by World → Settings → max shop swing.' },
     { section: 'Custom code' },
     { k: 'scriptId', label: 'Script (runs while known / when consumed)', t: 'select', opts: () => [['', '— none —'], ...D.scripts.map((s) => [s.id, s.name])], help: 'Write scripts in the Custom Code tab' },

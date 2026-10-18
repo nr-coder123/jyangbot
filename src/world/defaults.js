@@ -267,7 +267,6 @@ const PO = (id, name, emoji, scope, o) => ({
   effects: o.effects || {},
   fatigue: o.fatigue ?? 0, grace: o.grace ?? 10, floor: o.floor ?? 0.4,
   exclusive: o.exclusive || [],
-  outsiderMarkup: o.outsiderMarkup || 0, // % extra that non-members pay in the shop in this faction's lands
   minTurns: o.minTurns ?? 4,
   scriptId: '',
 });
@@ -283,7 +282,7 @@ const POLICIES_RAW = [
   PO('heavy-taxes', 'Heavy Taxation', '⚖️', 'faction', { description: 'Squeeze every coin from the people.', effects: { tax: 1.35, prosperity: -0.25, unrest: 0.5 }, exclusive: ['tax-relief'], influence: 10 }),
   PO('alchemy-patronage', 'Patronage of Alchemists', '⚗️', 'faction', { description: 'Fund furnaces and herb gardens. More elixir stock, hungrier herb markets.', upkeep: 30, effects: { production: { elixirs: 1.35, medicine: 1.15 }, demand: { herbs: 1.2, spiritherbs: 1.2 } }, influence: 20 }),
   PO('escort-charter', 'Escort Agency Charter', '🚩', 'faction', { description: 'License escort agencies to guard the roads.', upkeep: 20, effects: { caravanRisk: -0.08, security: 1, income: 1.03 }, influence: 15 }),
-  PO('closed-gates', 'Closed Gates', '🚪', 'faction', { kinds: ['sect', 'clan', 'palace', 'cult'], description: 'Seal the sect\'s lands from the outside world: outsiders pay 25% more in the shop there, and the mountain is safe.', effects: { security: 1.5 }, outsiderMarkup: 25, influence: 10 }),
+  PO('closed-gates', 'Closed Gates', '🚪', 'faction', { kinds: ['sect', 'clan', 'palace', 'cult'], description: 'Seal the sect\'s lands from the outside world: no wanderers, spies or bandits get through.', effects: { security: 1.5 }, influence: 10 }),
   PO('open-recruitment', 'Open Recruitment', '📣', 'faction', { kinds: ['sect', 'clan', 'palace', 'cult'], description: 'Welcome wanderers and commoners into the outer halls: troops are cheaper to raise.', upkeep: 15, effects: { recruitCost: 0.9 }, influence: 5 }),
   PO('temple-charity', 'Temple Charity', '🪷', 'region', { description: 'Soup kitchens and free physicians at the temples.', upkeep: 25, effects: { unrest: -0.6, population: 0.05, demand: { grain: 1.03, medicine: 1.1 }, prosperity: 0.15 }, influence: 10 }),
   PO('censors', 'Imperial Censors', '🔍', 'faction', { kinds: ['court'], description: 'Send censors to audit the provinces.', upkeep: 60, effects: { corruption: -1.2, tax: 1.05 }, influence: 20 }),
@@ -298,13 +297,12 @@ const POLICIES_RAW = [
 const PERKS = [
   { id: 'militaryAccess', name: 'Military access', description: 'Their armies may cross and stay on your land without losing supply.' },
   { id: 'freeTrade', name: 'Free trade', description: 'No tariffs for each other\'s members; caravans may trade in each other\'s markets.' },
-  { id: 'sharedShops', name: 'Open markets', description: 'Members shop in each other\'s lands at the friend price (no outsider prices, no Closed Gates).' },
   { id: 'nonAggression', name: 'Non-aggression', description: 'Neither may declare war on the other while it lasts (staff can still end it).' },
   { id: 'defensive', name: 'Defensive pact', description: 'If one is attacked, the others join the war as defenders.' },
   { id: 'callToArms', name: 'Call to arms', description: 'When one declares war, the others join as attackers.' },
 ];
 // An alliance is a bloc shown on the map. Its terms apply between every pair of members at once.
-const ALLIANCE_TERMS = { militaryAccess: true, freeTrade: true, sharedShops: true, nonAggression: true, defensive: true, callToArms: false };
+const ALLIANCE_TERMS = { militaryAccess: true, freeTrade: true, nonAggression: true, defensive: true, callToArms: false };
 
 // What a representative may do. Each rank gives each power one of: 'free' (on the spot), 'staff' (needs staff approval), 'none'.
 const POWERS = [
@@ -368,9 +366,8 @@ const cleanEvent = (e) => ({ ...e, effects: cleanBlock(e.effects), onStart: clea
 function cleanPolicy(p) {
   const infl = Number(p.cost?.influence) || 0;
   const out = { ...p, effects: cleanBlock(p.effects), cost: { treasury: (Number(p.cost?.treasury) || 0) + infl * 20 }, upkeep: { treasury: Number(p.upkeep?.treasury) || 0 } };
-  // Sect shops are gone: "members only / allies only" became a markup for outsiders in the faction's lands.
-  if (out.shopAccess !== undefined) { if (!out.outsiderMarkup) out.outsiderMarkup = out.shopAccess === 'members' ? 25 : out.shopAccess === 'allies' ? 15 : 0; delete out.shopAccess; }
-  out.outsiderMarkup = Number(out.outsiderMarkup) || 0;
+  // Sect shops are gone, and the shop has one price for everyone: policies no longer touch it.
+  delete out.shopAccess; delete out.outsiderMarkup;
   return out;
 }
 const EVENTS = EVENTS_RAW.filter((e) => !DROPPED_EVENTS.includes(e.id)).map(cleanEvent);
@@ -451,10 +448,6 @@ const DEFAULT_WORLD_SETTINGS = {
   spendingToCoffers: 0.9,
   maxCoffersPerPop: 60,
   shopSwingMax: 25,
-  // The shop is priced where a character stands: % for the ruler's members, open-market partners, everyone else, enemies at war.
-  localPrices: { home: -10, friend: -5, neutral: 0, enemy: 25 },
-  shopSalesTax: 10, // % of every shop sale paid to the region's ruler
-  madeHereDiscount: 5, // % cheaper per level of a production building there that makes the item's good
   battlePrepHours: 24,
   battleDays: 30,
   pipStat: 30,

@@ -586,36 +586,24 @@ test('world: forced events apply effects; drought can chain', () => {
   assert.ok(state.world.pendingChains.some((p) => p.eventId === 'famine'));
 });
 
-test('world: the shop is priced where you stand — home ground, enemies, Closed Gates, made here, sales tax', () => {
+test('world: the shop has one price for everyone, wherever they post; linked items follow the realm', () => {
   const { state, c, d } = worldFresh();
   const E = W.economy; const w = state.world;
-  const f = W.common.factionOfChar(state, c); const g = W.common.factionOfChar(state, d);
+  const f = W.common.factionOfChar(state, c);
   const it = state.items.find((x) => !x.tradeGood) || state.items[0];
-  it.shop = { ...(it.shop || {}), enabled: true, price: 100, stock: -1 }; it.economy = {};
-  c.location = d.location = '湖北';
-  w.regions['湖北'].buildings = [];
-  assert.strictEqual(E.shopQuote(state, it, 100, c).price, 100, 'unclaimed land: base price');
-  W.territory.paint(state, ['湖北'], f.id);
-  assert.strictEqual(E.shopQuote(state, it, 100, c).price, 90, 'home ground −10%');
-  assert.strictEqual(E.shopQuote(state, it, 100, d).price, 100, 'outsiders pay the normal price');
-  W.diplomacy.makeAgreement(state, { parties: [f.id, g.id], perks: { sharedShops: true } });
-  assert.strictEqual(E.shopQuote(state, it, 100, d).price, 95, 'open markets −5%');
-  f.treasury = 5000;
-  W.politics.adoptPolicy(state, f, 'closed-gates');
-  assert.strictEqual(E.shopQuote(state, it, 100, d).price, 120, 'Closed Gates: outsiders +25%');
-  assert.strictEqual(E.shopQuote(state, it, 100, c).price, 90, 'members are not affected');
-  // Made here: a working apothecary makes medicine, so medicine-linked items are cheaper.
-  it.economy = { good: 'medicine', sensitivity: 0 };
-  w.regions['湖北'].buildings.push(W.state.normalizeBuilding({ typeId: 'apothecary', level: 2, status: 'ready' }));
-  assert.strictEqual(E.shopQuote(state, it, 100, c).price, 80, 'home −10% and made here −10% (level 2)');
-  // Sales tax goes to the ruler.
-  const before = f.taxPending || 0;
-  assert.strictEqual(E.shopSaleTax(state, d, 200), 20);
-  assert.strictEqual(f.taxPending, before + 20);
-  assert.ok(/ruled by/.test(E.shopHeadline(state, d)));
-  W.diplomacy.declareWar(state, g.id, f.id, { force: true, silent: true });
   it.economy = {};
-  assert.strictEqual(E.shopQuote(state, it, 100, d).price, 150, 'enemies +25% (and Closed Gates +25%)');
+  W.territory.paint(state, ['湖北'], f.id);
+  c.location = '湖北'; d.location = '广东';
+  assert.strictEqual(E.dynamicItemPrice(state, it, 100, c), 100);
+  assert.strictEqual(E.dynamicItemPrice(state, it, 100, d), 100);
+  // Linked to medicine: a shortage in one market barely moves it; a shortage everywhere does — for everyone alike.
+  it.economy = { good: 'medicine', sensitivity: 1 };
+  const before = E.dynamicItemPrice(state, it, 100, c);
+  for (const k of W.geo.marketKeys(state)) { const r = w.regions[k]; r.stock.medicine = Math.max(1, (r.targets.medicine || 10) * 0.3); E.updatePrices(state, k, W.common.emptyMods()); }
+  const after = E.dynamicItemPrice(state, it, 100, c);
+  assert.ok(after > before && after <= 125, `${before} → ${after}`);
+  c.location = '广东';
+  assert.strictEqual(E.dynamicItemPrice(state, it, 100, c), after, 'moving does not change the price');
   const ml = W.politics.policyDef(state, 'martial-law');
   assert.ok(W.common.policyStrength(ml, 30) < W.common.policyStrength(ml, 2));
 });
@@ -636,7 +624,7 @@ test('world: walls — base walls 0–10, City Walls add +1 per level, old saves
   W.state.normalizeWorld(state);
   assert.strictEqual(w.buildingTypes.find((t) => t.id === 'walls').maxLevel, 3);
   assert.ok(!w.settings.shopTiers && !w.factions[0].shop);
-  assert.strictEqual(w.policies.find((p) => p.id === 'closed-gates').outsiderMarkup, 25);
+  assert.ok(!('shopAccess' in w.policies.find((p) => p.id === 'closed-gates')) && !('outsiderMarkup' in w.policies.find((p) => p.id === 'closed-gates')));
 });
 
 test('world: diplomacy — agreements, alliances call allies to war, marriage needs consent', () => {

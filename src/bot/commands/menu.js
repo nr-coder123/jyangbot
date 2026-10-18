@@ -303,10 +303,8 @@ function buyEntry(i, ctx, key, qty) {
   if (!entry) throw new UserError('That is no longer for sale.');
   if (entry.kind === 'S') {
     const r = economy.buyFromShop(state, c, entry.it, qty, entry.price);
-    const tax = world.economy.shopSaleTax(state, c, r.cost);
-    const ruler = entry.quote?.ctx?.ruler;
-    store.log(actor(i), 'shop.buy', `${c.name} bought ${r.qty}× ${entry.it.name} for ${r.cost}${tax ? ` (${tax} tax to ${ruler?.name})` : ''}`);
-    return `🛒 Bought ${r.qty}× **${entry.it.name}** for ${ui.emoji(state, 'nyang')} ${fmt(r.cost)}. Purse: ${fmt(c.nyang)}.${tax ? `\n-# ${fmt(tax)} of it went to ${ruler?.name} as sales tax.` : ''}`;
+    store.log(actor(i), 'shop.buy', `${c.name} bought ${r.qty}× ${entry.it.name} for ${r.cost}`);
+    return `🛒 Bought ${r.qty}× **${entry.it.name}** for ${ui.emoji(state, 'nyang')} ${fmt(r.cost)}. Purse: ${fmt(c.nyang)}.`;
   }
   const r = economy.buyFromMarket(state, c, entry.listing, qty);
   store.log(actor(i), 'market.buy', `${c.name} bought ${qty}× ${entry.it.name} from ${r.seller?.name} for ${r.cost}`);

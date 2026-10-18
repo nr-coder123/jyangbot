@@ -1106,12 +1106,8 @@ function worldSettings() {
     { k: 'factionCaravanTurns', label: 'Faction caravan travel (turns, 0 = by distance)', t: 'number' },
     { k: 'caravanCapacity', label: 'Caravan capacity', t: 'number' }, { k: 'escortCost', label: 'Escort cost (share of cargo)', t: 'number', step: 0.01 },
     { k: 'underdogBonus', label: 'Join bonus for recommended sects', t: 'number', help: 'Extra Nyang for new characters joining a sect the Balance tab recommends' },
-    { section: 'The shop, priced where you stand' },
-    { k: 'localPrices.home', label: 'Ruler\'s own members %', t: 'number', help: 'Shopping in your own faction\'s lands' }, { k: 'localPrices.friend', label: 'Open-market partners %', t: 'number', help: 'Agreement or alliance with "Open markets"' },
-    { k: 'localPrices.neutral', label: 'Everyone else %', t: 'number' }, { k: 'localPrices.enemy', label: 'Enemies at war with the ruler %', t: 'number' },
-    { k: 'shopSalesTax', label: 'Sales tax to the ruler %', t: 'number', help: 'Share of every shop purchase paid to the faction that rules the region' },
-    { k: 'madeHereDiscount', label: 'Made here: % cheaper per building level', t: 'number', help: 'If the region has a working building that makes the item\'s linked good' },
-    { k: 'shopSwingMax', label: 'Max shop price swing %', t: 'number', help: 'Items linked to a good never move more than this with its local price' },
+    { section: 'The shop' },
+    { k: 'shopSwingMax', label: 'Max shop price swing %', t: 'number', help: 'Shop items linked to a trade good follow its average price across the realm (the same for everyone), never more than this' },
     { section: 'Buildings' },
     { k: 'buildingRazeChance', label: 'Chance each building is razed when a region is taken (0–1)', t: 'number', step: 0.05 },
     { k: 'battleBuildingDamage', label: 'Battle damage to buildings ×', t: 'number', step: 0.1 },
@@ -1271,7 +1267,6 @@ VIEWS.politics = async () => {
           { k: 'scope', label: 'Applies to', t: 'select', opts: [['faction', 'All the faction\'s land'], ['region', 'One region']] },
           { k: 'cost.treasury', label: 'Cost to adopt', t: 'number' }, { k: 'upkeep.treasury', label: 'Upkeep / turn', t: 'number' },
           { k: 'fatigue', label: 'Fatigue / turn (0–1)', t: 'number', step: 0.01, help: 'Weakens every turn after the grace period' }, { k: 'grace', label: 'Grace (turns)', t: 'number' }, { k: 'floor', label: 'Never below', t: 'number', step: 0.05 }, { k: 'minTurns', label: 'Minimum turns', t: 'number' },
-          { k: 'outsiderMarkup', label: 'Shop: outsiders pay +% in this faction\'s lands', t: 'number', help: 'Faction policies only. Closed Gates: +25' },
           { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (regionTick)', t: 'select', opts: scriptOpts },
         ], (p) => `${p.name} — ${p.scope} · ${p.cost?.treasury || 0}${p.upkeep?.treasury ? ` · ${p.upkeep.treasury}/turn` : ''}`, { json: [['effects', 'Effects per turn (treasury goes to the faction once; the rest to each region)', 6], ['kinds', 'Faction kinds allowed (empty = all)', 2], ['exclusive', 'Can\'t combine with (policy ids)', 2]] }),
         listEditorCard('Buildings', 'buildingTypes', [
@@ -1297,7 +1292,7 @@ function alliancesCard() {
 }
 function editAlliance(a) {
   const w = W_();
-  const v = a ? clone(a) : { name: '', hanzi: '', color: '#b3261e', members: [], leader: '', terms: Object.fromEntries((WD.perks || []).map((p) => [p.id, ['militaryAccess', 'freeTrade', 'sharedShops', 'nonAggression', 'defensive'].includes(p.id)])), tribute: 0, note: '', style: { width: 5, fill: 'hatched' }, showOnMap: true, scriptId: '' };
+  const v = a ? clone(a) : { name: '', hanzi: '', color: '#b3261e', members: [], leader: '', terms: Object.fromEntries((WD.perks || []).map((p) => [p.id, ['militaryAccess', 'freeTrade', 'nonAggression', 'defensive'].includes(p.id)])), tribute: 0, note: '', style: { width: 5, fill: 'hatched' }, showOnMap: true, scriptId: '' };
   const f = buildForm([
     { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字' }, { k: 'color', label: 'Colour', t: 'color' },
     { k: 'leader', label: 'Leader', t: 'select', opts: () => factionOpts('— none —') },
@@ -1450,7 +1445,7 @@ function openRealm(f, start = 'overview') {
       { k: 'active', label: 'Active', t: 'check' }, { k: 'npc', label: 'Run by staff (not a player sect)', t: 'check' }, { k: 'tradeCharter', label: 'Trade charter (sends caravans like a guild)', t: 'check' },
       { k: 'treasury', label: 'Treasury', t: 'number' },
       { k: 'icon', label: 'Icon in Discord menus (optional)' },
-      { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (factionTick, regionTick, diplomacy, battleRound, shopPrice)', t: 'select', opts: scriptOpts, wide: true },
+      { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (factionTick, regionTick, diplomacy, battleRound)', t: 'select', opts: scriptOpts, wide: true },
     ], v);
     const al = allianceOfF(f.id);
     return [

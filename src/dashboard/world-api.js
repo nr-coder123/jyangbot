@@ -76,8 +76,7 @@ function mount(app, { wrap, bot, diff }) {
     next.turnsPerSeason = Math.max(1, Math.floor(next.turnsPerSeason));
     next.championRealmMult = arr(next.championRealmMult).map((x) => num(x, 1));
     delete next.shopTiers;
-    next.localPrices = Object.fromEntries(Object.entries({ ...W.defaults.DEFAULT_WORLD_SETTINGS.localPrices, ...before.localPrices, ...(next.localPrices || {}) }).map(([k, v]) => [k, Math.max(-90, Math.min(500, num(v)))]));
-    next.shopSalesTax = Math.max(0, Math.min(100, num(next.shopSalesTax)));
+    for (const k of ['localPrices', 'shopSalesTax', 'madeHereDiscount']) delete next[k];
     next.powerWeights = Object.fromEntries(Object.entries({ ...before.powerWeights, ...(next.powerWeights || {}) }).map(([k, v]) => [k, Math.max(0, num(v))]));
     next.representativeRoleIds = arr(next.representativeRoleIds).map(String).filter(Boolean);
     next.travelMode = 'channel';
