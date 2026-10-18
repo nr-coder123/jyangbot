@@ -65,7 +65,11 @@ function tickFactions(state, ledger) {
   const notes = [];
   for (const f of w.factions) {
     if (!f.active) continue;
-    const inc = { taxes: r2(ledger.factionTax[f.id] || 0), policies: 0, upkeep: 0, armies: 0, tribute: 0, buildings: 0 };
+    // Taxes wait in a pending purse and reach the treasury every `taxEveryTurns` turns.
+    const every = Math.max(1, Math.floor(num(w.settings.taxEveryTurns, 1)));
+    let taxes = 0;
+    if (w.turn % every === 0) { taxes = r2(num(f.taxPending)); f.treasury = r2(f.treasury + taxes); f.taxPending = 0; }
+    const inc = { taxes, policies: 0, upkeep: 0, armies: 0, tribute: 0, buildings: r2(ledger.buildings?.[f.id] || 0) };
     // Policy upkeep and faction-wide policy income
     for (const { def, region, since } of factionPolicies(state, f)) {
       const strength = C.policyStrength(def, w.turn - num(since));
@@ -104,7 +108,7 @@ function tickAgreements(state, ledger) {
   const pay = (payerId, recvId, percent, fixed) => {
     const payer = C.faction(state, payerId); const recv = C.faction(state, recvId);
     if (!payer || !recv) return;
-    const amount = r2(Math.min(Math.max(0, payer.treasury), num(fixed) + num(ledger.factionTax[payer.id]) * num(percent) / 100));
+    const amount = r2(Math.min(Math.max(0, payer.treasury), num(fixed) + num(payer.lastIncome?.taxes) * num(percent) / 100));
     if (!(amount > 0)) return;
     payer.treasury = r2(payer.treasury - amount); recv.treasury = r2(recv.treasury + amount);
     if (payer.lastIncome) payer.lastIncome.tribute = r2(num(payer.lastIncome.tribute) - amount);

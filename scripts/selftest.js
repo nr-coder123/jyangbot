@@ -640,13 +640,14 @@ test('world: representative ranks — free, staff approval, spending limit; buil
   f.repRanks[c.id] = 'steward';
   T.paint(state, ['陕西'], f.id);
   f.treasury = 10000;
+  const preset = state.world.regions['陕西'].buildings.length;
   const ok = R.perform(state, 'build', f, { region: '陕西', typeId: 'granary' }, { char: c });
   assert.ok(ok.done, 'steward builds on the spot under the limit');
   const big = R.perform(state, 'build', f, { region: '陕西', typeId: 'walls' }, { char: c });
   assert.ok(big.pending, 'over the spending limit → staff');
   R.approveRequest(state, big.pending.id, { name: 'staff' });
   const r = state.world.regions['陕西'];
-  assert.strictEqual(r.buildings.length, 2);
+  assert.strictEqual(r.buildings.length, preset + 2);
   state.world.turn += 10; R.tickBuildings(state);
   assert.ok(r.buildings.every((b) => b.status === 'ready'));
   assert.ok(W.common.wallsOf(state, '陕西') === r.fort + 1, 'walls add a fort level');
@@ -675,6 +676,64 @@ test('world: a trade guild runs caravans where it has trade rights', () => {
   assert.strictEqual(done.length, 1);
   assert.ok(done[0].result.earned > 0);
   assert.throws(() => R.sendFactionCaravan(state, sect, { from: '四川', to: '河南', good: 'tea', qty: 5 }), /doesn't run trade caravans/);
+});
+
+test('world: normal market — border tariffs, free trade, embargo and war', () => {
+  const { state } = worldFresh();
+  const E = W.economy; const T = W.territory;
+  const [f, g] = state.world.factions;
+  T.paint(state, ['河南'], f.id); T.paint(state, ['湖北'], g.id);
+  const t0 = E.border(state, '河南', '湖北');
+  assert.ok(!t0.blocked && t0.tariff === 0.05 && t0.payee === g.id, 'goods into another ruler\'s land pay a tariff to them');
+  assert.strictEqual(E.border(state, '河南', '四川').tariff, 0, 'unclaimed land charges nothing');
+  W.diplomacy.makeAgreement(state, { parties: [f.id, g.id], perks: { freeTrade: true } });
+  assert.strictEqual(E.border(state, '河南', '湖北').tariff, 0, 'free trade removes the tariff');
+  g.embargoes = [f.id];
+  assert.ok(E.border(state, '河南', '湖北').blocked && E.border(state, '湖北', '河南').blocked, 'an embargo stops trade both ways');
+  g.embargoes = [];
+  W.diplomacy.declareWar(state, f.id, g.id, { force: true, silent: true });
+  assert.ok(E.border(state, '河南', '湖北').blocked, 'no trade in war');
+});
+
+test('world: free-trade partners trade automatically; taxes can come every 2 turns', () => {
+  const { state } = worldFresh();
+  const R = W.realm; const T = W.territory;
+  const [f, g] = state.world.factions;
+  T.paint(state, ['河南', '山东'], f.id); T.paint(state, ['四川', '云南'], g.id);
+  f.treasury = 20000; g.treasury = 20000;
+  const lands = (id) => Object.keys(state.world.regions).filter((k) => state.world.regions[k].controller === id);
+  const cross = () => state.world.caravans.filter((c) => c.auto && c.owner.id === f.id && lands(g.id).includes(c.to));
+  for (let i = 0; i < 3; i++) R.autoTrade(state);
+  assert.strictEqual(cross().length, 0, 'without a trade deal merchants only work their own lands (the normal market still crosses borders)');
+  W.diplomacy.makeAgreement(state, { parties: [f.id, g.id], perks: { freeTrade: true } });
+  for (let i = 0; i < 8; i++) W.tick.runTurn(state);
+  assert.ok(state.world.caravans.some((c) => c.auto && (c.owner.id === f.id || c.owner.id === g.id) && (lands(g.id).includes(c.to) !== lands(g.id).includes(c.from))), 'free-trade partners send caravans to each other on their own');
+  state.world.settings.taxEveryTurns = 2;
+  const paid = [];
+  for (let i = 0; i < 4; i++) { W.tick.runTurn(state); paid.push(f.lastIncome.taxes || 0); }
+  assert.strictEqual(paid.filter((x) => x > 0).length, 2, `taxes paid on every second turn (${paid})`);
+});
+
+test('world: preset buildings and old workshops become buildings', () => {
+  const { state, c } = worldFresh();
+  const all = Object.values(state.world.regions).flatMap((r) => r.buildings || []);
+  assert.ok(all.length >= 20, 'the map starts with buildings');
+  assert.ok(all.some((b) => b.typeId === 'brewery'));
+  // A save from before: a player-owned workshop is refunded and converted.
+  const w = state.world;
+  w.version = 3; w.workshopTypes = [{ id: 'teahouse', cost: 400 }];
+  w.regions['河南'].buildings = []; w.regions['河南'].workshops = [{ typeId: 'teahouse', level: 2, owner: { type: 'character', id: c.id } }];
+  const before = c.nyang;
+  W.state.normalizeWorld(state);
+  assert.strictEqual(c.nyang, before + 800, 'refunded');
+  assert.ok(w.regions['河南'].buildings.some((b) => b.typeId === 'inn'));
+  assert.ok(!w.workshopTypes && !w.regions['河南'].workshops);
+  assert.ok(w.unitTypes.some((u) => u.id === 'scouts'));
+  // Scouts make an army march faster.
+  const M = W.military;
+  const slow = M.slowestSpeed(state, { units: { infantry: 1000 } });
+  const fast = M.slowestSpeed(state, { units: { infantry: 1000, scouts: 200 } });
+  assert.ok(fast > slow);
 });
 
 test('world: EU4-style battles — numbers, duel dice, generals, terrain, custom code', () => {
@@ -716,9 +775,10 @@ test('world: balance report adds up and recommends playable sects', () => {
 test('world: custom code can change a region every turn', () => {
   const { state } = worldFresh();
   state.scripts.push({ id: 'boom', name: 'Boomtown', enabled: true, code: 'hooks.regionTick = (ctx, m) => { m.prosperity += 5; m.notes = ["boom in " + ctx.region.name]; return m; };' });
+  const base = W.common.regionMods(state, '河南').prosperity;
   state.world.regions['河南'].scriptId = 'boom';
   const m = W.common.regionMods(state, '河南');
-  assert.strictEqual(m.prosperity, 5);
+  assert.strictEqual(Math.round((m.prosperity - base) * 100) / 100, 5);
   assert.ok(m.notes[0].includes('Henan'));
 });
 

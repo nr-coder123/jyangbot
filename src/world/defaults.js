@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Default world content: goods, workshops, terrain, province economies, factions, events, policies,
+ * Default world content: goods, buildings, terrain, province economies, factions, events, policies,
  * diplomacy actions, treaty types, troops, formations and tactics. Everything here can be edited
  * in the dashboard; these are only starting values.
  *
@@ -64,24 +64,6 @@ const GOODS = [
 ];
 const GOOD_CATEGORIES = ['food', 'staple', 'raw', 'refined', 'medicine', 'military', 'luxury', 'rare'];
 
-// ─────────────────────────── Workshops ───────────────────────────
-// Per level-1 workshop per turn. Levels: ×1, ×1.8, ×2.5. Output is scaled by the region's prosperity.
-// Balanced so a workshop earns about 1.2% of its cost per turn at base prices and prosperity 50
-// (it pays for itself in roughly 3–4 weeks of 6-hour turns; shortages and booms change that).
-// service: coin earned per turn at population 20 instead of making goods (grows with population, max ×1.6).
-const WORKSHOP_TYPES = [
-  { id: 'brewery', name: 'Brewery', emoji: '🍶', inputs: { grain: 30 }, outputs: { wine: 10 }, cost: 900, upkeep: 30, requires: {}, description: 'Turns grain into wine. Drinks up grain in famines.' },
-  { id: 'smithy', name: 'Smithy & Armoury', emoji: '⚒️', inputs: { iron: 10, timber: 4 }, outputs: { arms: 3.7 }, cost: 1400, upkeep: 40, requires: {}, description: 'Forges arms. Needed by every army that recruits.' },
-  { id: 'apothecary', name: 'Apothecary', emoji: '🏥', inputs: { herbs: 9 }, outputs: { medicine: 5.4 }, cost: 1100, upkeep: 30, requires: {}, description: 'Prepares medicine from herbs.' },
-  { id: 'alchemy', name: 'Alchemy Furnace', emoji: '⚗️', inputs: { herbs: 4, spiritherbs: 0.8, cinnabar: 0.6 }, outputs: { elixirs: 2.2 }, cost: 2600, upkeep: 60, requires: {}, description: 'Refines elixir stock. Sect shops with pills linked to Elixir Stock depend on it.' },
-  { id: 'weavery', name: 'Silk Weavery', emoji: '🧵', inputs: { rawsilk: 12 }, outputs: { silk: 5.5 }, cost: 1600, upkeep: 35, requires: { anyProduction: ['rawsilk'] }, description: 'Weaves raw silk into silk.' },
-  { id: 'kiln', name: 'Porcelain Kiln', emoji: '🏺', inputs: { timber: 8 }, outputs: { porcelain: 3.1 }, cost: 1500, upkeep: 35, requires: {}, description: 'Fires porcelain; burns a lot of timber.' },
-  { id: 'papermill', name: 'Paper Mill', emoji: '📜', inputs: { timber: 10 }, outputs: { paper: 8 }, cost: 800, upkeep: 20, requires: {}, description: 'Paper and ink for scholars, officials and sect libraries.' },
-  { id: 'ranch', name: 'Horse Ranch', emoji: '🐎', inputs: { grain: 24 }, outputs: { horses: 2.3 }, cost: 2000, upkeep: 40, requires: { terrains: ['steppe', 'highland', 'plains'] }, description: 'Breeds horses on grain. Best on the steppe.' },
-  { id: 'teahouse', name: 'Teahouse & Inn', emoji: '🏮', inputs: { tea: 3, wine: 2.5 }, outputs: {}, service: 125, cost: 1000, upkeep: 25, requires: {}, description: 'Serves travellers. Earns coin from the region\'s prosperity instead of making goods. A good rumour mill for RP.' },
-  { id: 'escort', name: 'Escort Agency', emoji: '🚩', inputs: {}, outputs: {}, service: 67, security: 3, caravanRisk: -0.06, cost: 1800, upkeep: 45, requires: {}, description: 'Guards caravans through the region (lower raid risk, more security) and earns protection fees.' },
-];
-
 // ─────────────────────────── Terrain ───────────────────────────
 const TERRAINS = {
   // attackerPenalty: dice taken from an attacker fighting here (EU4-style); width: thousands of men who can fight at once.
@@ -138,8 +120,8 @@ const PROVINCES = {
   '香港': P('coast', 5, 1, 'grain:2.5,spices:4.2,pearls:0.62'),
   '澳门': P('coast', 3, 1, 'grain:1.2,spices:5.6'),
 };
-// Starting workshops (owned by the region unless an owner is given). [region, type, level, ownerFaction]
-const START_WORKSHOPS = [
+// Buildings standing when the world begins. [region, building, level]. They belong to whoever comes to rule the region.
+const START_BUILDINGS = [
   ['浙江', 'weavery', 3], ['江苏', 'weavery', 3], ['四川', 'weavery', 2], ['广东', 'weavery', 1],
   ['江西/景德镇', 'kiln', 3], ['河北', 'kiln', 1], ['浙江', 'kiln', 2], ['湖南', 'kiln', 1], ['福建', 'kiln', 2], ['河南', 'kiln', 1],
   ['安徽', 'papermill', 2], ['四川', 'papermill', 1], ['浙江', 'papermill', 1], ['福建', 'papermill', 1], ['江西', 'papermill', 1], ['北京', 'papermill', 1], ['江苏', 'papermill', 1], ['湖北', 'papermill', 1],
@@ -148,9 +130,16 @@ const START_WORKSHOPS = [
   ['山西', 'smithy', 1], ['河北', 'smithy', 1], ['北京', 'smithy', 2], ['四川', 'smithy', 1],
   ['湖北/十堰', 'alchemy', 1], ['河南/郑州', 'alchemy', 1], ['四川/成都', 'alchemy', 1], ['陕西/渭南', 'alchemy', 1], ['云南/西双版纳', 'alchemy', 1],
   ['内蒙古', 'ranch', 1], ['甘肃', 'ranch', 1],
-  ['河南/洛阳', 'teahouse', 1], ['浙江/杭州', 'teahouse', 1], ['陕西/西安', 'teahouse', 1], ['江苏/扬州', 'teahouse', 1],
+  ['河南/洛阳', 'inn', 1], ['浙江/杭州', 'inn', 1], ['陕西/西安', 'inn', 1], ['江苏/扬州', 'inn', 1],
   ['河北/沧州', 'escort', 1], ['河南/开封', 'escort', 1], ['湖北/武汉', 'escort', 1],
+  ['河南/洛阳', 'market-hall', 1], ['河南/开封', 'market-hall', 1], ['江苏/扬州', 'market-hall', 1], ['浙江/杭州', 'market-hall', 1], ['广东/广州', 'market-hall', 1], ['陕西/西安', 'market-hall', 1], ['北京', 'market-hall', 1],
+  ['北京', 'walls', 1], ['陕西/西安', 'walls', 1], ['河南/洛阳', 'walls', 1], ['甘肃/酒泉', 'walls', 1], ['江苏/扬州', 'walls', 1],
+  ['河南', 'granary', 1], ['山东', 'granary', 1], ['江苏', 'granary', 1], ['湖南', 'granary', 1], ['四川', 'granary', 1],
+  ['河北/沧州', 'post-stations', 1], ['湖北/武汉', 'post-stations', 1], ['陕西', 'post-stations', 1], ['甘肃', 'post-stations', 1],
+  ['四川/成都', 'herb-gardens', 1], ['云南', 'herb-gardens', 1], ['安徽/亳州', 'herb-gardens', 1],
 ];
+// Old workshop ids → building ids (for saves from before workshops became buildings).
+const WORKSHOP_TO_BUILDING = { brewery: 'brewery', smithy: 'smithy', apothecary: 'apothecary', alchemy: 'alchemy', weavery: 'weavery', kiln: 'kiln', papermill: 'papermill', ranch: 'ranch', teahouse: 'inn', escort: 'escort', smithies: 'smithy', 'alchemy-hall': 'alchemy', inns: 'inn' };
 // Special prefectures: each is its own market. [key, population share taken from the province, note]
 const SPECIAL = [
   ['湖北/十堰', 0.12, 'Mount Wudang. Home of the Wudang Sect.'],
@@ -340,18 +329,27 @@ const REP_RANKS = [
 
 // Buildings a faction can raise in regions it rules. effects use the same keys as events and policies, per turn.
 // fort: + walls in battle. Taking a region can raze its buildings; battles fought there damage them.
-const B = (id, name, hanzi, cost, turns, upkeep, o = {}) => ({ id, name, hanzi, emoji: '', cost, turns, upkeep, fort: 0, effects: {}, description: '', scriptId: '', ...o });
+// Production buildings turn local goods into others every turn (inputs → outputs, × level: 1, 1.8, 2.5, × prosperity);
+// the market buys the output and the profit goes to the region's ruler. service: coin from customers instead of goods.
+const B = (id, name, hanzi, cost, turns, upkeep, o = {}) => ({ id, name, hanzi, emoji: '', cost, turns, upkeep, fort: 0, maxLevel: 1, inputs: {}, outputs: {}, service: 0, effects: {}, description: '', scriptId: '', ...o });
 const BUILDING_TYPES = [
   B('granary', 'Granary', '常平倉', 1200, 4, 6, { effects: { stockLoss: { grain: -0.02 }, prosperity: 0.1, price: { grain: 0.92 } }, description: 'Stores grain against bad years: food keeps longer and prices stay calmer.' }),
   B('market-hall', 'Market Hall', '市廛', 1800, 5, 8, { effects: { tax: 1.15, income: 1.05, prosperity: 0.1 }, description: 'A covered market: more trade and more taxes.' }),
   B('walls', 'City Walls', '城牆', 2500, 8, 10, { fort: 1, effects: { security: 0.4 }, description: '+1 walls when defending here, and safer streets.' }),
   B('post-stations', 'Post Stations', '驛站', 1000, 3, 5, { effects: { caravanRisk: -0.05, security: 0.3, supply: 2 }, description: 'Relay stations on the roads: safer caravans, better army supply.' }),
   B('training-grounds', 'Training Grounds', '演武場', 1500, 4, 8, { effects: { recruitCost: 0.85 }, description: 'Troops raised here cost less.' }),
-  B('alchemy-hall', 'Alchemy Hall', '丹房', 2200, 6, 10, { effects: { production: { medicine: 1.3, elixirs: 1.25 } }, description: 'More medicine and elixir stock from the region.' }),
   B('herb-gardens', 'Herb Gardens', '藥圃', 900, 3, 4, { effects: { production: { herbs: 1.3, spiritherbs: 1.15 } }, description: 'Cultivated herb terraces.' }),
-  B('smithies', 'Smithy Quarter', '鐵坊', 1600, 4, 7, { effects: { production: { iron: 1.15, arms: 1.3 } }, description: 'More iron worked and more arms forged.' }),
   B('branch-hall', 'Branch Hall', '分舵', 1400, 4, 6, { effects: { security: 0.5, prosperity: 0.05 }, description: 'A branch of the sect keeps order and watches the roads.' }),
-  B('inns', 'Inns & Teahouses', '客棧', 800, 2, 3, { effects: { income: 1.05, prosperity: 0.05 }, description: 'Travellers stop and spend.' }),
+  B('brewery', 'Brewery', '酒坊', 900, 3, 30, { maxLevel: 3, inputs: { grain: 30 }, outputs: { wine: 10 }, description: 'Turns grain into wine. Drinks up grain in famines.' }),
+  B('smithy', 'Smithy & Armoury', '鐵坊', 1400, 4, 40, { maxLevel: 3, inputs: { iron: 10, timber: 4 }, outputs: { arms: 3.7 }, description: 'Forges arms. Every army that recruits needs them.' }),
+  B('apothecary', 'Apothecary', '藥鋪', 1100, 3, 30, { maxLevel: 3, inputs: { herbs: 9 }, outputs: { medicine: 5.4 }, description: 'Prepares medicine from herbs.' }),
+  B('alchemy', 'Alchemy Hall', '丹房', 2600, 6, 60, { maxLevel: 3, inputs: { herbs: 4, spiritherbs: 0.8, cinnabar: 0.6 }, outputs: { elixirs: 2.2 }, description: 'Refines elixir stock. Pills linked to Elixir Stock follow its price.' }),
+  B('weavery', 'Silk Weavery', '織坊', 1600, 4, 35, { maxLevel: 3, inputs: { rawsilk: 12 }, outputs: { silk: 5.5 }, requires: { anyProduction: ['rawsilk'] }, description: 'Weaves raw silk into silk.' }),
+  B('kiln', 'Porcelain Kiln', '窯', 1500, 4, 35, { maxLevel: 3, inputs: { timber: 8 }, outputs: { porcelain: 3.1 }, description: 'Fires porcelain; burns a lot of timber.' }),
+  B('papermill', 'Paper Mill', '紙坊', 800, 3, 20, { maxLevel: 3, inputs: { timber: 10 }, outputs: { paper: 8 }, description: 'Paper and ink for officials and sect libraries.' }),
+  B('ranch', 'Horse Ranch', '馬場', 2000, 5, 40, { maxLevel: 3, inputs: { grain: 24 }, outputs: { horses: 2.3 }, requires: { terrains: ['steppe', 'highland', 'plains'] }, description: 'Breeds horses on grain. Best on the steppe.' }),
+  B('inn', 'Inns & Teahouses', '客棧', 1000, 3, 25, { maxLevel: 3, inputs: { tea: 3, wine: 2.5 }, service: 125, effects: { prosperity: 0.05 }, description: 'Serves travellers: earns coin from the region\'s trade, and a rumour mill for RP.' }),
+  B('escort', 'Escort Agency', '鏢局', 1800, 4, 45, { maxLevel: 3, service: 67, effects: { security: 0.3, caravanRisk: -0.06 }, description: 'Guards caravans through the region and earns protection fees.' }),
 ];
 
 // Unrest, corruption, influence and relations were removed (the people of the Murim are no match for cultivators,
@@ -378,13 +376,15 @@ const UNIT_TYPES = [
   // EU4-style pips: fire = ranged phase, shock = melee phase; off = damage dealt, def = damage resisted (0–5).
   // morale: × the army's morale; counters: × damage against armies made of that role.
   // power: how many ordinary soldiers one of these is worth (hits harder, takes more to kill). Default 1.
+  // marchBonus: if at least 5% of an army are these, the whole army marches that much faster (guides, qinggong runners).
   { id: 'militia', name: 'Militia', emoji: '', role: 'infantry', fireOff: 0, fireDef: 0, shockOff: 1, shockDef: 1, morale: 0.8, attack: 1, defense: 1, speed: 1, cost: 20, upkeep: 1, needs: { arms: 0.5 }, counters: {} },
   { id: 'spearmen', name: 'Spearmen', emoji: '', role: 'spear', fireOff: 0, fireDef: 1, shockOff: 1, shockDef: 3, morale: 1, attack: 2, defense: 3, speed: 1, cost: 45, upkeep: 2, needs: { arms: 1.5 }, counters: { cavalry: 1.5 } },
   { id: 'swordsmen', name: 'Shield & Sabre', emoji: '', role: 'infantry', fireOff: 0, fireDef: 2, shockOff: 2, shockDef: 2, morale: 1, attack: 3, defense: 3, speed: 1, cost: 55, upkeep: 2.5, needs: { arms: 2 }, counters: {} },
   { id: 'crossbows', name: 'Crossbowmen', emoji: '', role: 'ranged', fireOff: 3, fireDef: 1, shockOff: 0, shockDef: 0, morale: 0.9, attack: 3, defense: 1, speed: 1, cost: 60, upkeep: 2.5, needs: { arms: 2 }, counters: {} },
   { id: 'light-cav', name: 'Light Cavalry', emoji: '', role: 'cavalry', power: 1.3, fireOff: 1, fireDef: 1, shockOff: 3, shockDef: 1, morale: 1.1, attack: 3, defense: 2, speed: 2, cost: 80, upkeep: 4, needs: { arms: 1, horses: 1 }, counters: { ranged: 1.5 }, pursuit: 1.5 },
   { id: 'heavy-cav', name: 'Armoured Cavalry', emoji: '', role: 'cavalry', power: 1.8, fireOff: 0, fireDef: 1, shockOff: 4, shockDef: 2, morale: 1.2, attack: 5, defense: 4, speed: 1.5, cost: 140, upkeep: 6, needs: { arms: 3, horses: 1 }, counters: { ranged: 1.3, infantry: 1.15 }, pursuit: 1.2 },
-  { id: 'disciples', name: 'Sect Disciples', emoji: '', role: 'martial', power: 5, fireOff: 2, fireDef: 2, shockOff: 5, shockDef: 3, morale: 1.4, attack: 9, defense: 7, speed: 1.6, cost: 300, upkeep: 8, needs: { arms: 1, medicine: 1 }, counters: {}, kinds: ['sect', 'clan', 'palace', 'cult'], description: 'Trained martial artists of the Third and Second Rate. Few, but each is worth a squad.' },
+  { id: 'disciples', name: 'Sect Disciples', emoji: '', role: 'martial', power: 5, fireOff: 2, fireDef: 2, shockOff: 5, shockDef: 3, morale: 1.4, attack: 9, defense: 7, speed: 1.6, cost: 300, upkeep: 8, needs: { arms: 1, medicine: 1 }, counters: {}, marchBonus: 0.25, kinds: ['sect', 'clan', 'palace', 'cult'], description: 'Trained martial artists of the Third and Second Rate. Few, but each is worth a squad; their light-foot skills speed the march.' },
+  { id: 'scouts', name: 'Pathfinder Scouts', emoji: '', role: 'infantry', power: 0.8, fireOff: 1, fireDef: 0, shockOff: 0, shockDef: 0, morale: 0.9, attack: 1, defense: 1, speed: 2, marchBonus: 0.5, cost: 50, upkeep: 2, needs: { horses: 0.3 }, counters: {}, description: 'Guides who know every mountain path: the army marches 50% faster.' },
   { id: 'engineers', name: 'Siege Engineers', emoji: '', role: 'siege', fireOff: 1, fireDef: 0, shockOff: 0, shockDef: 0, morale: 0.7, attack: 1, defense: 1, speed: 0.6, cost: 90, upkeep: 3, needs: { timber: 4, iron: 1 }, counters: {}, siege: 0.25, description: 'Ignore part of the defender\'s walls.' },
 ];
 // Formations (EU4-style modifiers). fire / shock: × damage dealt in that phase. defense: damage taken is divided by it.
@@ -438,8 +438,6 @@ const DEFAULT_WORLD_SETTINGS = {
   maxPlayerCaravans: 2,
   caravanCapacity: 120,
   escortCost: 0.08,
-  maxWorkshopsPerCharacter: 2,
-  workshopSlotsBase: 2,
   npcCaravansPerTurn: 20,
   peddlerRate: 0.5,
   supplyResponse: 0.4,
@@ -486,6 +484,16 @@ const DEFAULT_WORLD_SETTINGS = {
   playerCaravans: false,
   factionCaravans: 'guilds', // 'guilds' (factions of kind guild), 'all', 'none'
   factionCaravanTurns: 0, // 0 = by distance
+  taxEveryTurns: 1, // taxes are collected into the treasury every N turns
+  borderTariff: 5, // % merchants pay to a ruler when goods cross into its land from another faction's (0 with free trade)
+  autoTrade: true, // factions' merchant houses trade by themselves in their own lands and with free-trade partners
+  autoTradeCaravans: 2, // caravans per faction per turn (+1 per free-trade partner, max 6)
+  autoTradeInvest: 0.08, // at most this share of the treasury in one caravan
+  autoTradeMinMargin: 0.15,
+  // Power Index: what a member is worth by realm, in sect-disciple equivalents (3rd Rate first),
+  // and how many unnamed disciples every sect is assumed to have.
+  realmWorth: [1, 2, 5, 12, 30, 75, 180, 400, 900, 2000, 4500, 10000],
+  baseDisciples: 300,
   buildingRazeChance: 0.5,
   battleBuildingDamage: 1,
   buildingRepairShare: 0.6,
@@ -499,7 +507,7 @@ const DEFAULT_WORLD_SETTINGS = {
 };
 
 module.exports = {
-  GOODS, GOOD_CATEGORIES, WORKSHOP_TYPES, TERRAINS, PROVINCES, START_WORKSHOPS, SPECIAL, ROUTES,
+  GOODS, GOOD_CATEGORIES, TERRAINS, PROVINCES, START_BUILDINGS, WORKSHOP_TO_BUILDING, SPECIAL, ROUTES,
   FACTION_SEEDS, EXTRA_FACTIONS, EVENTS, POLICIES, PERKS, ALLIANCE_TERMS, POWERS, REP_RANKS, BUILDING_TYPES, cleanEvent, cleanPolicy, DROPPED_EVENTS, DROPPED_POLICIES, LEGACY_KEYS, UNIT_TYPES, FORMATIONS, TACTICS,
   SEASONS, SEASON_EMOJI, DEFAULT_WORLD_SETTINGS,
 };

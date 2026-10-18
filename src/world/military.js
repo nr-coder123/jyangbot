@@ -110,15 +110,23 @@ function marchTo(state, a, to) {
   // Armies may cross anyone's land; without Military Access (or war) they lose supply there (see tickArmies).
   a.march = { path: rt.path, step: 0, progress: 0 };
   a.status = 'marching';
-  C.wlog(state, 'army', `🚩 **${a.name}** marches from ${geo.label(state, a.region)} to **${geo.label(state, to)}** (${rt.hops} stage${rt.hops > 1 ? 's' : ''}).`);
+  rt.turns = Math.ceil(rt.hops / Math.max(0.1, slowestSpeed(state, a)));
+  C.wlog(state, 'army', `🚩 **${a.name}** marches from ${geo.label(state, a.region)} to **${geo.label(state, to)}** (${rt.hops} stage${rt.hops > 1 ? 's' : ''}, about ${rt.turns} turn${rt.turns > 1 ? 's' : ''}).`);
   return rt;
 }
 
+/** March speed (map stages per turn): the slowest troops set the pace; guides and qinggong runners speed it up. */
 function slowestSpeed(state, a) {
-  let s = 2;
-  for (const [id, n] of Object.entries(a.units)) if (num(n) > 0) s = Math.min(s, num(unitType(state, id)?.speed, 1));
+  let s = 2; let bonus = 0;
+  const total = men(a) || 1;
+  for (const [id, n] of Object.entries(a.units)) {
+    if (num(n) <= 0) continue;
+    const u = unitType(state, id);
+    s = Math.min(s, num(u?.speed, 1));
+    if (num(n) / total >= 0.05) bonus = Math.max(bonus, num(u?.marchBonus));
+  }
   const f = formation(state, a.formationId);
-  return s * num(f?.speed, 1);
+  return s * (1 + bonus) * num(f?.speed, 1);
 }
 
 // ─────────── each turn ───────────
@@ -543,6 +551,6 @@ function simulate(state, spec, runs = 200) {
 
 module.exports = {
   unitType, formation, army, men, composition, armyStrength, championPower, canCommand,
-  recruitCost, recruit, marchTo, canEnter, tickArmies, openBattle, battle, sideOf, setPlan, sideUnits, formationProblem,
+  recruitCost, recruit, marchTo, canEnter, slowestSpeed, tickArmies, openBattle, battle, sideOf, setPlan, sideUnits, formationProblem,
   joinAsChampion, recordDuel, resolveBattle, resolveDue, simulate, generalPips, isNonCombatant,
 };

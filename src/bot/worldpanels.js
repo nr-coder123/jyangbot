@@ -28,14 +28,8 @@ function spark(list) {
 const factionLabel = (f) => (f ? `${f.icon || ''} ${f.name}`.trim() : '—');
 const regionName = (key) => geo.label(st(), key);
 
-function youLine(c, key) {
-  if (!c) return '';
-  if (E.isTravelling(c)) return `🧭 On the road to **${regionName(c.travel.to)}** — arrive <t:${Math.floor(Date.parse(c.travel.arriveAt) / 1000)}:R>.`;
-  const loc = geo.marketOf(st(), E.locationOf(st(), c));
-  if (loc === key) return `📍 **${c.name}** is here.`;
-  if (T.channelMode(st())) { const trip = key ? T.rpTravel(st(), loc, key) : null; return `📍 **${c.name}** is in **${regionName(loc)}**${trip ? ` — ${trip.text}` : ''}.`; }
-  return `📍 **${c.name}** is in **${regionName(loc)}**${key ? ` (${Math.round(num(E.travelInfo(st(), c, key).hours) * 10) / 10} h away)` : ''}.`;
-}
+// Where a character stands is kept quietly (for markets); the panels don't talk about travel.
+function youLine() { return ''; }
 
 function regionPanel(key, c) {
   const state = st();
@@ -53,7 +47,7 @@ function regionPanel(key, c) {
   const armies = w.armies.filter((a) => a.region === key && a.status !== 'disbanded').map((a) => `${factionLabel(C.faction(state, a.factionId))}: **${big(M.men(a))}** men${a.status === 'marching' ? ' (marching)' : a.status === 'battle' ? ' (in battle)' : ''}`);
   const t = w.terrains[r.terrain] || {};
   const dP = num(r.last?.dP);
-  const buildings = (r.buildings || []).map((b) => { const bt = R.buildingType(state, b.typeId); return `${bt?.name || b.typeId}${b.status === 'building' ? ` (ready turn ${b.readyTurn})` : b.hp < 100 ? ` (${Math.round(b.hp)}%)` : ''}`; });
+  const buildings = (r.buildings || []).map((b) => { const bt = R.buildingType(state, b.typeId); return `${bt?.name || b.typeId}${b.level > 1 ? ` Lv ${b.level}` : ''}${b.status === 'building' ? ` (ready turn ${b.readyTurn})` : b.hp < 100 ? ` (${Math.round(b.hp)}%)` : ''}`; });
   return msg('worldRegion', {
     region: geo.label(state, key), province: key.includes('/') ? regionName(geo.provinceOf(key)) : (g?.historicalName || ''), hanzi: g?.hanzi || '',
     controller: factionLabel(f) + occ, terrain: `${t.emoji || ''} ${t.label || r.terrain}`, population: fmt(r2(r.population)), prosperity: fmt(Math.round(r.prosperity)),
@@ -133,32 +127,6 @@ function caravansPanel(c) {
   return { embeds: [e] };
 }
 
-function workshopsPanel(key, c) {
-  const state = st();
-  const r = state.world.regions[key];
-  const mine = E.ownedWorkshops(state, c);
-  const t = (id) => state.world.workshopTypes.find((x) => x.id === id);
-  const owner = (ws) => (ws.owner.type === 'character' ? (state.characters.find((x) => x.id === ws.owner.id)?.name || '?') : ws.owner.type === 'faction' ? C.faction(state, ws.owner.id)?.name || '?' : 'the town');
-  const e = new EmbedBuilder().setTitle(`🏭 Workshops — ${regionName(key)}`).setColor(0xc0a062).setDescription([
-    `**Yours** (${mine.length}/${state.world.settings.maxWorkshopsPerCharacter})`,
-    mine.map(({ key: k, ws }) => `${t(ws.typeId)?.emoji || ''} **${t(ws.typeId)?.name}** Lv ${ws.level} in ${regionName(k)} · last turn ${ws.lastProfit >= 0 ? '+' : ''}${fmt(ws.lastProfit)} · total ${fmt(ws.totalProfit)}${ws.throttled ? ' · ⚠️ running slow (unprofitable)' : ws.idle ? ' · 💤 idle (no inputs)' : ''}`).join('\n') || '*You own none.*',
-    '',
-    `**Here** (${(r.workshops || []).length}/${E.workshopSlots(state, r)} plots)`,
-    (r.workshops || []).map((ws) => `${t(ws.typeId)?.emoji || ''} ${t(ws.typeId)?.name} Lv ${ws.level} — ${owner(ws)}`).join('\n') || '*None.*',
-    '',
-    '-# A workshop buys its inputs from this market and sells its output back every turn. Profit (or loss) goes to its owner. Build where inputs are cheap and the output sells well.',
-  ].join('\n'));
-  return { embeds: [e] };
-}
-
-function workshopTypeLine(state, t, key) {
-  const r = state.world.regions[key];
-  const cost = Math.round(t.cost * (0.7 + r.prosperity / 100 * 0.6));
-  const ins = Object.entries(t.inputs || {}).map(([g, q]) => `${q} ${E.good(state, g)?.name}`).join(' + ') || 'nothing';
-  const outs = t.service ? 'coin from customers' : Object.entries(t.outputs || {}).map(([g, q]) => `${q} ${E.good(state, g)?.name}`).join(' + ');
-  return { cost, text: `${ins} → ${outs}` };
-}
-
 const powerWord = { free: 'on your own', staff: 'with staff approval', none: 'not allowed' };
 const sideNames = (state, list) => list.map((id) => C.faction(state, id)?.name || '?').join(', ');
 const perkLine = (t) => D.perkText(t) || 'terms agreed in role-play';
@@ -185,7 +153,8 @@ function realmPanel(c, member) {
   const net = Object.entries(inc).reduce((a, [, v]) => a + num(v), 0);
   const lines = [
     `**Leader** ${nameOf(f.leaderCharId) || '—'}${council.length ? ` · **Council** ${council.join(', ')}` : ''}`,
-    `**Treasury** ${nyang()} ${big(f.treasury)} *(${net >= 0 ? '+' : ''}${fmt(r2(net))} last turn)*${num(f.stipendRate) ? ` · stipends ${fmt(f.stipendRate)}%` : ''}`,
+    `**Treasury** ${nyang()} ${big(f.treasury)} *(${net >= 0 ? '+' : ''}${fmt(r2(net))} last turn)*${num(f.taxPending) > 0 ? ` · taxes due ${big(f.taxPending)}` : ''}${num(f.stipendRate) ? ` · stipends ${fmt(f.stipendRate)}%` : ''}`,
+    (() => { const partners = w.factions.filter((o) => o.id !== f.id && C.hasPerk(state, f.id, o.id, 'freeTrade')).map((o) => o.name); const cv = w.caravans.filter((x) => x.auto && x.owner?.id === f.id && x.status === 'travelling').length; return `**Trade** ${partners.length ? `free trade with ${partners.join(', ')}` : 'no free-trade partners (merchants still trade, paying tariffs)'}${cv ? ` · ${cv} caravan${cv === 1 ? '' : 's'} on the road` : ''}${f.embargoes?.length ? ` · embargo on ${f.embargoes.map((id) => C.faction(state, id)?.name).filter(Boolean).join(', ')}` : ''}`; })(),
     `**Lands** ${lands.map((r) => regionName(r.key)).join(', ') || '*none — a wandering sect*'}`,
     builds.length ? `**Buildings** ${builds.map(({ r, b }) => `${R.buildingType(state, b.typeId)?.name || b.typeId}${b.status === 'building' ? ' (building)' : b.hp < 100 ? ` (${Math.round(b.hp)}%)` : ''} in ${regionName(r.key)}`).join(' · ')}` : '',
     `**Alliance** ${al ? `**${al.name}** — ${sideNames(state, al.members.filter((m) => m !== f.id)) || 'no other members yet'}` : '*none*'}`,
@@ -237,11 +206,11 @@ function alliancePanel(c, f) {
 function buildPanel(c, f) {
   const state = st();
   const lands = C.controlled(state, f.id);
-  const lines = lands.map((r) => `**${regionName(r.key)}** — ${(r.buildings || []).map((b) => `${R.buildingType(state, b.typeId)?.name || b.typeId}${b.status === 'building' ? ` (ready turn ${b.readyTurn})` : b.hp < 100 ? ` (${Math.round(b.hp)}%)` : ''}`).join(', ') || '*nothing built*'}`);
-  const types = state.world.buildingTypes.map((t) => `**${t.name}**${t.hanzi ? ` ${t.hanzi}` : ''} — ${big(t.cost)}, ${t.turns} turns, ${fmt(t.upkeep)}/turn · ${t.description}`);
+  const lines = lands.map((r) => `**${regionName(r.key)}** — ${(r.buildings || []).map((b) => { const t = R.buildingType(state, b.typeId); return `${t?.name || b.typeId}${num(t?.maxLevel, 1) > 1 ? ` Lv ${b.level}` : ''}${b.status === 'building' ? ` (ready turn ${b.readyTurn})` : b.hp < 100 ? ` (${Math.round(b.hp)}%)` : ''}${b.lastProfit ? ` · ${b.lastProfit > 0 ? '+' : ''}${fmt(b.lastProfit)}/turn` : ''}`; }).join(', ') || '*nothing built*'}`);
+  const types = state.world.buildingTypes.map((t) => `**${t.name}**${t.hanzi ? ` ${t.hanzi}` : ''} — ${big(t.cost)}, ${t.turns} turns${E.isProducer(t) ? `, makes ${Object.entries(t.outputs || {}).map(([g, q]) => `${q} ${E.good(state, g)?.name}`).join(' + ') || 'coin'}${Object.keys(t.inputs || {}).length ? ` from ${Object.entries(t.inputs).map(([g, q]) => `${q} ${E.good(state, g)?.name}`).join(' + ')}` : ''}` : `, ${fmt(t.upkeep)}/turn`} · ${t.description}`);
   const e = new EmbedBuilder().setTitle(`Buildings — ${f.name}`).setColor(0x8d6e63).setDescription(truncate([
     lines.join('\n') || '*You rule no land to build on.*', '', types.join('\n'), '',
-    `-# Paid from the treasury (${big(f.treasury)}). Upkeep is due every turn. If a region is taken, its buildings may be razed; battles fought there damage them.`,
+    `-# Paid from the treasury (${big(f.treasury)}). Production buildings earn (or lose) every turn; others cost upkeep. If a region is taken, its buildings may be razed; battles fought there damage them.`,
   ].join('\n'), 4000));
   return { embeds: [e], lands };
 }
@@ -375,4 +344,4 @@ function requestPost(q) {
   return { content: truncate(lines.join('\n'), 1900) };
 }
 
-module.exports = { youLine, bar, spark, regionPanel, marketPanel, goodPanel, caravansPanel, workshopsPanel, workshopTypeLine, realmPanel, relationsWith, alliancePanel, buildPanel, tradePanel, requestPost, warPanel, armyPanel, battlePost, battleVars, battleReport, proposalPost, regionName, factionLabel, big };
+module.exports = { youLine, bar, spark, regionPanel, marketPanel, goodPanel, caravansPanel, realmPanel, relationsWith, alliancePanel, buildPanel, tradePanel, requestPost, warPanel, armyPanel, battlePost, battleVars, battleReport, proposalPost, regionName, factionLabel, big };

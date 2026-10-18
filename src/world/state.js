@@ -31,6 +31,8 @@ function normalizeFaction(f = {}) {
     hq: f.hq || '',
     npc: !!f.npc,
     tradeCharter: !!f.tradeCharter, // may run trade caravans even if not a guild
+    embargoes: arr(f.embargoes).map(String), // factions whose merchants may not trade with this one's lands
+    taxPending: r2(Math.max(0, num(f.taxPending))),
     active: f.active !== false,
     treasury: r2(num(f.treasury, 2000)),
     leaderCharId: f.leaderCharId || '',
@@ -85,7 +87,6 @@ function normalizeRegion(key, r = {}) {
       targets: isPlainObject(r.targets) ? r.targets : {},
       priceMods: isPlainObject(r.priceMods) ? r.priceMods : {},
       priceHistory: isPlainObject(r.priceHistory) ? r.priceHistory : {},
-      workshops: arr(r.workshops).filter((w) => w && w.typeId).map((w) => ({ id: w.id || `ws-${Math.random().toString(36).slice(2, 8)}`, typeId: w.typeId, level: Math.max(1, Math.min(3, num(w.level, 1))), owner: w.owner && w.owner.type ? { type: w.owner.type, id: String(w.owner.id || '') } : { type: 'region', id: '' }, name: w.name || '', lastProfit: num(w.lastProfit), lastRun: num(w.lastRun, 1), totalProfit: num(w.totalProfit), idle: !!w.idle })),
       policies: arr(r.policies).filter((p) => p && p.policyId).map((p) => ({ policyId: p.policyId, factionId: p.factionId || '', since: num(p.since) })),
       buildings: arr(r.buildings).filter((b) => b && b.typeId).map(normalizeBuilding),
       occupiedBy: r.occupiedBy || null,
@@ -97,7 +98,51 @@ function normalizeRegion(key, r = {}) {
   return out;
 }
 
-const WORLD_VERSION = 3;
+const WORLD_VERSION = 4;
+/** Put the preset buildings into regions that don't have them yet. */
+function seedBuildings(regions) {
+  for (const [key, typeId, level] of W.START_BUILDINGS) {
+    const r = regions[key];
+    if (!r || !Array.isArray(r.buildings)) continue;
+    const have = r.buildings.find((b) => b.typeId === typeId);
+    if (have) { have.level = Math.max(num(have.level, 1), level); continue; }
+    r.buildings.push(normalizeBuilding({ id: `bd-${slug(key)}-${typeId}`, typeId, level, factionId: r.controller || '', status: 'ready' }));
+  }
+}
+/** v3 → v4 (on raw regions, before they are normalized): workshops become buildings; players are refunded what theirs cost. */
+function migrateV4(state, w) {
+  const oldTypes = arr(w.workshopTypes);
+  for (const [k, r] of Object.entries(isPlainObject(w.regions) ? w.regions : {})) {
+    const list = arr(r.workshops);
+    if (!list.length) { delete r.workshops; continue; }
+    r.buildings = arr(r.buildings);
+    for (const ws of list) {
+      if (ws.owner?.type === 'character') {
+        const c = (state.characters || []).find((x) => x.id === ws.owner.id);
+        const t = oldTypes.find((x) => x.id === ws.typeId);
+        if (c && t) c.nyang = r2(num(c.nyang) + num(t.cost) * num(ws.level, 1));
+      }
+      const typeId = W.WORKSHOP_TO_BUILDING[ws.typeId];
+      if (!typeId) continue;
+      const have = r.buildings.find((b) => b.typeId === typeId);
+      if (have) { have.level = Math.max(num(have.level, 1), num(ws.level, 1)); continue; }
+      r.buildings.push({ id: ws.id || undefined, typeId, level: num(ws.level, 1), factionId: r.controller || '', status: 'ready', hp: 100 });
+    }
+    delete r.workshops;
+  }
+  delete w.workshopTypes;
+  // New buildings join the list; renamed old ones go.
+  const bt = arr(w.buildingTypes).filter((t) => !['smithies', 'alchemy-hall', 'inns'].includes(t.id));
+  for (const d of W.BUILDING_TYPES) { const i = bt.findIndex((t) => t.id === d.id); if (i < 0) bt.push(clone(d)); else bt[i] = { ...clone(d), ...bt[i], inputs: bt[i].inputs || d.inputs, outputs: bt[i].outputs || d.outputs, maxLevel: bt[i].maxLevel || d.maxLevel, service: bt[i].service ?? d.service }; }
+  w.buildingTypes = bt;
+  // Pathfinder scouts and the disciples' quicker march.
+  if (Array.isArray(w.unitTypes)) {
+    if (!w.unitTypes.some((u) => u.id === 'scouts')) w.unitTypes.splice(Math.max(0, w.unitTypes.findIndex((u) => u.id === 'engineers')), 0, clone(W.UNIT_TYPES.find((u) => u.id === 'scouts')));
+    const d = w.unitTypes.find((u) => u.id === 'disciples'); if (d && d.marchBonus === undefined) d.marchBonus = 0.25;
+  }
+  if (w.settings) delete w.settings.maxWorkshopsPerCharacter;
+  w.needsBuildingSeed = true;
+}
 const DEFAULT_SPLIT = ['河南', '陕西', '四川', '湖北'];
 // What version 1 preset (removed in version 2 — staff now decide everything). Used only to clean old saves.
 const LEGACY_SEEDS = {"Wudang Sect":{"hq":"湖北/十堰","icon":"☯️","control":["湖北"]},"Shaolin Sect":{"hq":"河南/郑州","icon":"🪷","control":["河南"]},"Mount Hua Sect":{"hq":"陕西/渭南","icon":"🌸","control":["陕西"]},"Beggar Sect":{"hq":"湖南/岳阳","icon":"🥢","control":[]},"Jaegal Clan":{"hq":"山东/临沂","icon":"📜","control":["山东"]},"Tang Clan":{"hq":"四川/成都","icon":"🧪","control":["四川"]},"Peng Clan":{"hq":"河北/保定","icon":"🪓","control":["河北"]},"Namgoong Clan":{"hq":"安徽/合肥","icon":"🗡️","control":["安徽"]},"Moyong Clan":{"hq":"","icon":"🕯️","control":[]},"The 72 Strongholds":{"hq":"山西/长治","icon":"🏴","control":[]},"Ice Palace":{"hq":"黑龙江/黑河","icon":"❄️","control":["黑龙江"]},"Sun Palace":{"hq":"浙江/舟山","icon":"☀️","control":[]},"Sword Palace":{"hq":"新疆/伊犁","icon":"⚔️","control":["新疆"]},"Beast Palace":{"hq":"云南/西双版纳","icon":"🐅","control":["云南"]},"Hao Sect":{"hq":"贵州/遵义","icon":"🦂","control":["贵州"]},"Blood Cult":{"hq":"青海/海西","icon":"🩸","control":["青海"]},"Demon Cult":{"hq":"","icon":"👁️","control":[]}};
@@ -155,7 +200,7 @@ function migrateV2(state, w) {
 }
 
 function normalizeBuilding(b) {
-  return { id: b.id || `bd-${Math.random().toString(36).slice(2, 8)}`, typeId: String(b.typeId), factionId: b.factionId || '', hp: r2(Math.max(0, Math.min(100, num(b.hp, 100)))), status: b.status === 'building' ? 'building' : 'ready', readyTurn: num(b.readyTurn), builtTurn: num(b.builtTurn), name: b.name || '' };
+  return { id: b.id || `bd-${Math.random().toString(36).slice(2, 8)}`, typeId: String(W.WORKSHOP_TO_BUILDING[b.typeId] && !['granary', 'walls'].includes(b.typeId) ? W.WORKSHOP_TO_BUILDING[b.typeId] : b.typeId), factionId: b.factionId || '', level: Math.max(1, Math.min(3, num(b.level, 1))), hp: r2(Math.max(0, Math.min(100, num(b.hp, 100)))), status: b.status === 'building' ? 'building' : 'ready', readyTurn: num(b.readyTurn), builtTurn: num(b.builtTurn), name: b.name || '', lastProfit: r2(num(b.lastProfit)), lastRun: r2(num(b.lastRun, 1)) };
 }
 function normalizeAlliance(a = {}) {
   return {
@@ -269,11 +314,7 @@ function createWorld(state) {
   const factions = seedFactions(state);
   const regions = seedRegions(state);
   // No land, seats, relations or treaties are preset: staff paint the map and decide everything.
-  for (const [key, typeId, level] of W.START_WORKSHOPS) {
-    const r = regions[key];
-    if (!r || !r.workshops) continue;
-    r.workshops.push({ id: `ws-${slug(key)}-${typeId}-${r.workshops.length}`, typeId, level, owner: { type: 'region', id: '' }, lastProfit: 0, lastRun: 1, totalProfit: 0, idle: false, name: '' });
-  }
+  seedBuildings(regions);
   const world = {
     version: WORLD_VERSION,
     turn: 0,
@@ -282,7 +323,6 @@ function createWorld(state) {
     settings: clone(W.DEFAULT_WORLD_SETTINGS),
     map: { title: '武林乾坤全圖 · Great Murim Realm', subtitle: 'Provinces, Major Rivers & Martial Borders of the Central Plains', era: 'Jianwen Era', lang: 'english', layers: {}, landmarks: [], frontiers: [], split: [...DEFAULT_SPLIT] },
     goods: clone(W.GOODS),
-    workshopTypes: clone(W.WORKSHOP_TYPES),
     terrains: clone(W.TERRAINS),
     events: clone(W.EVENTS),
     policies: clone(W.POLICIES),
@@ -324,7 +364,7 @@ function normalizeWorld(state) {
   w.map = { title: '', subtitle: '', era: '', lang: 'english', layers: {}, landmarks: [], frontiers: [], ...(w.map || {}) };
   w.map.landmarks = arr(w.map.landmarks); w.map.frontiers = arr(w.map.frontiers);
   w.map.split = Array.isArray(w.map.split) ? w.map.split.filter((k) => geo.isProvince(k)) : [...DEFAULT_SPLIT];
-  for (const [k, def] of [['goods', W.GOODS], ['workshopTypes', W.WORKSHOP_TYPES], ['events', W.EVENTS], ['policies', W.POLICIES], ['buildingTypes', W.BUILDING_TYPES], ['unitTypes', W.UNIT_TYPES], ['formations', W.FORMATIONS], ['routes', W.ROUTES]]) {
+  for (const [k, def] of [['goods', W.GOODS], ['events', W.EVENTS], ['policies', W.POLICIES], ['buildingTypes', W.BUILDING_TYPES], ['unitTypes', W.UNIT_TYPES], ['formations', W.FORMATIONS], ['routes', W.ROUTES]]) {
     if (!Array.isArray(w[k])) w[k] = clone(def);
   }
   if (!isPlainObject(w.terrains)) w.terrains = clone(W.TERRAINS);
@@ -338,12 +378,15 @@ function normalizeWorld(state) {
       w.factions.push(normalizeFaction({ id: factionIdForSect(s.name), name: s.name, sect: s.name, kind: kindOfSect(s.name), alignment: s.alignment, color: seed.color, hanzi: seed.hanzi, treasury: 2500, description: s.description }));
     }
   }
+  if (w.version < 4 && w.version >= 1) migrateV4(state, w);
   const regions = {};
   for (const [k, r] of Object.entries(isPlainObject(w.regions) ? w.regions : {})) if (geo.get(k)) regions[k] = normalizeRegion(k, r);
   for (const p of geo.provinces()) if (!regions[p.key]) regions[p.key] = normalizeRegion(p.key, { ...(W.PROVINCES[p.key] || {}), controller: null });
   w.regions = regions;
   if (w.version < 2) { migrateV2(state, w); w.version = 2; }
   if (w.version < 3) { migrateV3(state, w); w.version = 3; }
+  if (w.version < 4) { w.version = 4; }
+  if (w.needsBuildingSeed) { seedBuildings(w.regions); delete w.needsBuildingSeed; }
   w.factions = w.factions.map(normalizeFaction);
   const fids = new Set(w.factions.map((f) => f.id));
   w.alliances = w.alliances.map(normalizeAlliance).map((a) => ({ ...a, members: a.members.filter((m) => fids.has(m)) }));
@@ -377,7 +420,7 @@ function setSpecial(state, key, on, share = 0.12) {
     for (const [k, v] of Object.entries(cur.production || {})) prov.production[k] = r2((prov.production[k] || 0) + v);
     for (const [k, v] of Object.entries(cur.stock || {})) prov.stock[k] = r2((prov.stock[k] || 0) + v);
     prov.coffers = r2(prov.coffers + cur.coffers);
-    for (const ws of cur.workshops || []) prov.workshops.push(ws);
+    for (const b of cur.buildings || []) if (!prov.buildings.some((x) => x.typeId === b.typeId)) prov.buildings.push(b);
     w.regions[key] = normalizeRegion(key, { displayName: cur.displayName, controller: cur.controller, ownController: cur.ownController, categoryId: cur.categoryId, channelIds: cur.channelIds, notes: cur.notes, scriptId: cur.scriptId, special: false });
     for (const c of state.characters) if (c.location === key) c.location = g.province;
     for (const a of w.armies) if (a.region === key) a.region = g.province;

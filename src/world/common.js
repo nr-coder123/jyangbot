@@ -40,6 +40,8 @@ function warBetween(state, a, b) {
   return (state.world.wars || []).find((x) => (x.attackers.includes(a) && x.defenders.includes(b)) || (x.attackers.includes(b) && x.defenders.includes(a))) || null;
 }
 const atWar = (state, a, b) => !!warBetween(state, a, b);
+/** Has either side closed its markets to the other? */
+const embargo = (state, a, b) => { const A = faction(state, a); const B = faction(state, b); return !!(A && B && (A.embargoes?.includes(b) || B.embargoes?.includes(a))); };
 const agreementsBetween = (state, a, b) => (state.world.agreements || []).filter((t) => t.parties.includes(a) && t.parties.includes(b));
 /** Does a perk (militaryAccess, freeTrade, sharedShops, nonAggression, defensive, callToArms) hold between a and b? */
 function hasPerk(state, a, b, perk) {
@@ -233,7 +235,7 @@ function wlog(state, kind, text, extra = {}) {
 
 module.exports = {
   calendar, faction, factionOfSect, factionOfChar, members, isRepresentative, controlled,
-  allianceOf, sameAlliance, warsOf, warBetween, atWar, agreementsBetween, hasPerk, stance, STANCE_LABEL, wallsOf,
+  allianceOf, sameAlliance, warsOf, warBetween, atWar, embargo, agreementsBetween, hasPerk, stance, STANCE_LABEL, wallsOf,
   emptyMods, applyEffects, mulFor, addFor, policyStrength, regionMods, activePolicyIds, regionSummary, factionSummary, worldCtx, runHooks, wlog,
   ADD_KEYS, MUL_KEYS, MAP_KEYS,
 };

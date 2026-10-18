@@ -58,6 +58,9 @@ const ACTIONS = {
   revoke: { power: 'policies', run: (s, f, p) => { require('./politics').revokePolicy(s, f, p.policyId, p.region || ''); return 'Policy revoked.'; }, describe: (s, f, p) => `revoke ${s.world.policies.find((x) => x.id === p.policyId)?.name || p.policyId}` },
   build: { power: 'build', cost: (s, f, p) => num(buildingType(s, p.typeId)?.cost), run: (s, f, p) => { const b = startBuilding(s, f, p.region, p.typeId); return `Construction of the ${buildingType(s, b.typeId).name} in ${geo.label(s, p.region)} has begun (ready on turn ${b.readyTurn}).`; }, describe: (s, f, p) => `build a ${buildingType(s, p.typeId)?.name || p.typeId} in ${geo.label(s, p.region)} (${fmt(buildingType(s, p.typeId)?.cost)})` },
   repair: { power: 'build', cost: (s, f, p) => repairCost(s, p.region, p.buildingId), run: (s, f, p) => { const c = repairBuilding(s, f, p.region, p.buildingId); return `Repaired for ${fmt(c)}.`; }, describe: (s, f, p) => `repair a building in ${geo.label(s, p.region)}` },
+  upgrade: { power: 'build', cost: (s, f, p) => upgradeCost(s, p.region, p.buildingId), run: (s, f, p) => { const b = upgradeBuilding(s, f, p.region, p.buildingId); return `Upgraded to level ${b.level}.`; }, describe: (s, f, p) => `upgrade a building in ${geo.label(s, p.region)} (${fmt(upgradeCost(s, p.region, p.buildingId))})` },
+  embargo: { power: 'diplomacy', run: (s, f, p) => { const to = C.faction(s, p.target); if (!to) throw new UserError('Unknown faction.'); if (!f.embargoes.includes(to.id)) f.embargoes.push(to.id); (s.world.announceQueue ||= []).push({ kind: 'diplomacy', text: `**${f.name}** closes its markets to **${to.name}**: no trade between their lands.` }); return `Embargo on ${to.name}.`; }, describe: (s, f, p) => `close your markets to ${C.faction(s, p.target)?.name} (embargo)` },
+  'lift-embargo': { power: 'diplomacy', run: (s, f, p) => { f.embargoes = f.embargoes.filter((x) => x !== p.target); (s.world.announceQueue ||= []).push({ kind: 'diplomacy', text: `**${f.name}** opens its markets to **${C.faction(s, p.target)?.name}** again.` }); return 'Embargo lifted.'; }, describe: (s, f, p) => `lift the embargo on ${C.faction(s, p.target)?.name}` },
   demolish: { power: 'build', run: (s, f, p) => { demolishBuilding(s, f, p.region, p.buildingId); return 'Pulled down.'; }, describe: (s, f, p) => `pull down a building in ${geo.label(s, p.region)}` },
   war: { power: 'war', run: (s, f, p) => { const x = require('./diplomacy').declareWar(s, f.id, p.target, { reason: p.reason }); return `War declared: ${x.name}.`; }, describe: (s, f, p) => `declare war on ${C.faction(s, p.target)?.name}${p.reason ? ` (“${p.reason}”)` : ''}` },
   offer: { power: (s, f, p) => require('./diplomacy').KINDS[p.kind]?.power || 'diplomacy', run: (s, f, p, by) => { const D = require('./diplomacy'); const pr = D.propose(s, { kind: p.kind, from: f.id, to: p.to, payload: p.payload, note: p.note, proposer: by.char, userId: by.userId }); (s.world.announceQueue ||= []).push({ kind: 'proposal', proposalId: pr.id }); return `Offer sent to ${C.faction(s, p.to)?.name}.`; }, describe: (s, f, p) => `offer ${C.faction(s, p.to)?.name}: ${require('./diplomacy').KINDS[p.kind]?.name || p.kind}${p.note ? ` (“${p.note}”)` : ''}` },
@@ -133,8 +136,9 @@ function startBuilding(state, f, key, typeId, { free = false } = {}) {
   if (r.controller !== f.id) throw new UserError(`${f.name} doesn't rule ${geo.label(state, key)}.`);
   if (r.buildings.some((b) => b.typeId === typeId)) throw new UserError(`${geo.label(state, key)} already has a ${t.name}.`);
   if (t.requires?.terrains?.length && !t.requires.terrains.includes(r.terrain)) throw new UserError(`${t.name} needs ${t.requires.terrains.join(' / ')} land.`);
+  if (t.requires?.anyProduction?.length && !t.requires.anyProduction.some((g) => num(r.production[g]) > 0)) throw new UserError(`${t.name} needs a region that produces ${t.requires.anyProduction.join(' or ')}.`);
   if (!free) { if (f.treasury < num(t.cost)) throw new UserError(`A ${t.name} costs ${fmt(t.cost)}; the treasury has ${fmt(f.treasury)}.`); f.treasury = r2(f.treasury - num(t.cost)); r.coffers = r2(r.coffers + num(t.cost) * 0.4); }
-  const b = { id: newId('bd-'), typeId, factionId: f.id, hp: 100, status: num(t.turns) > 0 ? 'building' : 'ready', readyTurn: w.turn + num(t.turns), builtTurn: w.turn, name: '' };
+  const b = { id: newId('bd-'), typeId, factionId: f.id, level: 1, hp: 100, status: num(t.turns) > 0 ? 'building' : 'ready', readyTurn: w.turn + num(t.turns), builtTurn: w.turn, name: '', lastProfit: 0, lastRun: 1 };
   r.buildings.push(b);
   C.wlog(state, 'build', `**${f.name}** begins a **${t.name}** in ${geo.label(state, key)}.`);
   return b;
@@ -157,6 +161,21 @@ function repairBuilding(state, f, key, id) {
   f.treasury = r2(f.treasury - cost); b.hp = 100;
   return cost;
 }
+function upgradeCost(state, key, id) {
+  const { b, t } = findBuilding(state, key, id);
+  if (b.level >= num(t?.maxLevel, 1)) return 0;
+  return r2(num(t?.cost) * (b.level === 1 ? 0.9 : 1.2));
+}
+function upgradeBuilding(state, f, key, id) {
+  const { r, b, t } = findBuilding(state, key, id);
+  if (f && r.controller !== f.id) throw new UserError('Not your region.');
+  if (b.level >= num(t?.maxLevel, 1)) throw new UserError(`${t?.name} is already at its highest level.`);
+  if (b.status !== 'ready') throw new UserError('Finish building it first.');
+  const cost = upgradeCost(state, key, id);
+  if (f) { if (f.treasury < cost) throw new UserError(`Upgrading costs ${fmt(cost)}.`); f.treasury = r2(f.treasury - cost); }
+  b.level += 1;
+  return b;
+}
 function demolishBuilding(state, f, key, id) {
   const { r, b, t } = findBuilding(state, key, id);
   if (f && r.controller !== f.id) throw new UserError('Not your region.');
@@ -178,10 +197,11 @@ function tickBuildings(state) {
         (w.announceQueue ||= []).push({ kind: 'build', text: `The **${t.name}** in **${geo.label(state, key)}** is finished${f ? ` — ${f.name} built it` : ''}.`, regions: [key] });
       }
       const f = C.faction(state, b.factionId);
-      const up = num(t.upkeep);
+      // Production buildings pay their workers out of what they make (economy.runBuilding); the rest cost upkeep.
+      const up = require('./economy').isProducer(t) ? 0 : num(t.upkeep);
       if (f && up > 0 && b.status === 'ready') {
         if (f.treasury >= up) { f.treasury = r2(f.treasury - up); if (f.lastIncome) f.lastIncome.buildings = r2(num(f.lastIncome.buildings) - up); } else b.hp = r2(Math.max(0, b.hp - 2));
-      } else if (!f && b.status === 'ready') b.hp = r2(Math.max(0, b.hp - 1)); // abandoned
+      }
       if (b.hp <= 0) { r.buildings = r.buildings.filter((x) => x !== b); C.wlog(state, 'build', `The neglected ${t.name} in ${geo.label(state, key)} has fallen to ruin.`); }
     }
   }
@@ -284,12 +304,77 @@ function settleFactionCaravans(state) {
     if (f) { f.treasury = r2(f.treasury + earned); if (f.lastIncome) f.lastIncome.trade = r2(num(f.lastIncome.trade) + earned - cv.cost); }
     cv.status = 'arrived'; cv.result = { lost: r2(lost), sold, earned, profit: r2(earned - cv.cost) };
     out.push(cv);
-    (w.announceQueue ||= []).push({ kind: 'trade', text: `**${f?.name || 'A caravan'}**'s caravan of ${cv.qty} ${cv.goodName || cv.good} reached **${geo.label(state, cv.to)}**${lost ? ` (bandits took ${Math.round(lost * 100)}%)` : ''}: sold for ${fmt(earned)}, profit **${fmt(r2(earned - cv.cost))}**.`, factions: f ? [f.id] : [] });
+    if (!cv.auto) (w.announceQueue ||= []).push({ kind: 'trade', text: `**${f?.name || 'A caravan'}**'s caravan of ${cv.qty} ${cv.goodName || cv.good} reached **${geo.label(state, cv.to)}**${lost ? ` (bandits took ${Math.round(lost * 100)}%)` : ''}: sold for ${fmt(earned)}, profit **${fmt(r2(earned - cv.cost))}**.`, factions: f ? [f.id] : [] });
   }
   return out;
 }
 
+/**
+ * Each turn every faction's merchant houses trade by themselves — no setup needed: they buy where goods are plentiful
+ * and sell where they are scarce, inside the faction's own lands and those of every faction it has **free trade** with
+ * (trade guilds also in unclaimed land). The treasury pays for the cargo (a small share at a time) and receives the sale.
+ */
+function autoTrade(state) {
+  const w = state.world;
+  const s = w.settings;
+  if (!s.autoTrade) return 0;
+  const E = require('./economy');
+  const markets = geo.marketKeys(state);
+  let sent = 0;
+  for (const f of w.factions) {
+    if (!f.active || f.treasury < 200) continue;
+    const partners = w.factions.filter((o) => o.id !== f.id && o.active && C.hasPerk(state, f.id, o.id, 'freeTrade')).map((o) => o.id);
+    const guild = canRunCaravans(state, f);
+    const M = markets.filter((k) => { const ruler = w.regions[k].controller; return ruler === f.id || partners.includes(ruler) || (guild && !ruler); });
+    if (M.length < 2) continue;
+    const n = Math.min(6, num(s.autoTradeCaravans, 2) + partners.length);
+    const offers = [];
+    for (const g of w.goods) {
+      const src = []; const dst = [];
+      for (const k of M) {
+        const r = w.regions[k];
+        const sur = num(r.stock[g.id]) - num(r.targets[g.id]) * 1.1;
+        const def = num(r.targets[g.id]) * 0.9 - num(r.stock[g.id]);
+        if (sur > 2) src.push({ k, r, sur });
+        if (def > 2) dst.push({ k, r, def });
+      }
+      for (const a of src) for (const d of dst) {
+        if (a.k === d.k) continue;
+        const rt = geo.route(state, a.k, d.k);
+        if (!rt || rt.hops > 6) continue;
+        const ps = num(a.r.prices[g.id], g.basePrice); const pd = num(d.r.prices[g.id], g.basePrice);
+        const margin = pd - ps * (1 + 0.04 * rt.hops);
+        if (margin < ps * num(s.autoTradeMinMargin, 0.15)) continue;
+        offers.push({ g, a, d, rt, ps, pd, score: margin * Math.min(a.sur, d.def) });
+      }
+    }
+    offers.sort((x, y) => y.score - x.score);
+    const used = new Set();
+    let made = 0;
+    for (const o of offers) {
+      if (made >= n) break;
+      const tag = `${o.a.k}|${o.g.id}`; const tag2 = `${o.d.k}|${o.g.id}`;
+      if (used.has(tag) || used.has(tag2)) continue;
+      const budget = f.treasury * num(s.autoTradeInvest, 0.08) / o.ps;
+      const cap = num(s.caravanCapacity, 120) * 5 / Math.max(0.5, num(o.g.weight, 1));
+      const qty = Math.floor(Math.min(o.a.sur, o.d.def, budget, cap, o.d.r.coffers / Math.max(0.01, o.pd)));
+      if (qty < 2) continue;
+      const cost = r2(qty * o.ps);
+      f.treasury = r2(f.treasury - cost);
+      o.a.r.stock[o.g.id] = r2(num(o.a.r.stock[o.g.id]) - qty);
+      o.a.r.coffers = r2(o.a.r.coffers + cost);
+      o.a.r.last.tradeValue = r2(num(o.a.r.last.tradeValue) + cost);
+      w.caravans.push({ id: newId('cv-'), npc: false, auto: true, owner: { type: 'faction', id: f.id }, from: o.a.k, to: o.d.k, path: o.rt.path, good: o.g.id, goodName: o.g.name, qty, cost, departTurn: w.turn, arriveTurn: w.turn + Math.max(1, Math.ceil(o.rt.distance / 150)), status: 'travelling' });
+      used.add(tag); used.add(tag2);
+      made++; sent++;
+    }
+    if (made) for (const k of new Set(offers.slice(0, made).map((o) => o.a.k))) E.updatePrices(state, k, C.regionMods(state, k));
+  }
+  return sent;
+}
+
 module.exports = {
+  autoTrade, upgradeCost, upgradeBuilding,
   ranks, rank, rankOf, powerLevel, powerSummary,
   ACTIONS, perform, request, findRequest, approveRequest, rejectRequest,
   buildingType, startBuilding, repairCost, repairBuilding, demolishBuilding, tickBuildings, razeOnCapture, battleDamage,

@@ -11,7 +11,7 @@ const { UserError, num, clone, arr, slug, norm, truncate, newId, isPlainObject, 
 
 const { geo, economy: E, events: EV, politics: P, diplomacy: D, military: M, power, common: C, territory: T, realm: R } = W;
 const MAPFILE = path.join(__dirname, '../world/mapdata.json');
-const LISTS = ['goods', 'workshopTypes', 'events', 'policies', 'buildingTypes', 'unitTypes', 'formations', 'routes'];
+const LISTS = ['goods', 'events', 'policies', 'buildingTypes', 'unitTypes', 'formations', 'routes'];
 
 const w = () => store.state.world;
 const region = (key) => { const r = w().regions[key]; if (!r) throw new UserError('Unknown region.'); return r; };
@@ -79,7 +79,10 @@ function mount(app, { wrap, bot, diff }) {
     for (const k of Object.keys(next.shopTiers)) next.shopTiers[k] = next.shopTiers[k] === null || next.shopTiers[k] === '' ? null : num(next.shopTiers[k]);
     next.powerWeights = Object.fromEntries(Object.entries({ ...before.powerWeights, ...(next.powerWeights || {}) }).map(([k, v]) => [k, Math.max(0, num(v))]));
     next.representativeRoleIds = arr(next.representativeRoleIds).map(String).filter(Boolean);
-    next.travelMode = next.travelMode === 'timed' ? 'timed' : 'channel';
+    next.travelMode = 'channel';
+    next.realmWorth = arr(next.realmWorth).map((x) => Math.max(0, num(x, 1)));
+    if (!next.realmWorth.length) next.realmWorth = clone(W.defaults.DEFAULT_WORLD_SETTINGS.realmWorth);
+    next.taxEveryTurns = Math.max(1, Math.floor(next.taxEveryTurns));
     next.repRanks = arr(next.repRanks).filter((x) => x && x.id).map((x) => ({ id: slug(x.id), name: String(x.name || x.id).slice(0, 40), hanzi: String(x.hanzi || '').slice(0, 20), spendLimit: Math.max(0, num(x.spendLimit)), description: String(x.description || '').slice(0, 300), powers: Object.fromEntries(W.defaults.POWERS.map((p) => [p.id, ['free', 'staff', 'none'].includes(x.powers?.[p.id]) ? x.powers[p.id] : 'none'])) }));
     if (!next.repRanks.length) next.repRanks = clone(W.defaults.REP_RANKS);
     next.factionCaravans = ['guilds', 'all', 'none'].includes(next.factionCaravans) ? next.factionCaravans : 'guilds';
@@ -110,7 +113,7 @@ function mount(app, { wrap, bot, diff }) {
     const b = { ...(req.body || {}) };
     if (b.controller && !C.faction(store.state, b.controller)) throw new UserError('Unknown faction.');
     if (b.scriptId) scriptOk(b.scriptId);
-    if (b.workshops) b.workshops = arr(b.workshops).map((x) => { if (!E.workshopType(store.state, x.typeId)) throw new UserError(`Unknown workshop type ${x.typeId}.`); return x; });
+    delete b.workshops;
     const newController = 'controller' in b ? (b.controller || null) : undefined;
     const follow = !!b.followProvince;
     delete b.controller; delete b.ownController; delete b.followProvince;
@@ -208,7 +211,7 @@ function mount(app, { wrap, bot, diff }) {
     return { plan };
   }));
 
-  // ----- lists (goods, workshops, events, policies, treaties, actions, troops, formations, tactics, routes) -----
+  // ----- lists (goods, buildings, events, policies, treaties, actions, troops, formations, tactics, routes) -----
   app.put('/api/world/list/:name', wrap(async (req) => {
     const name = req.params.name;
     if (!LISTS.includes(name)) throw new UserError('Unknown list.');
@@ -394,8 +397,16 @@ function mount(app, { wrap, bot, diff }) {
     const key = geo.marketOf(store.state, decodeURIComponent(req.params.key));
     const r = region(key);
     const b0 = req.body || {};
-    const f = faction(b0.factionId || r.controller);
-    const b = R.startBuilding(store.state, f, key, b0.typeId, { free: b0.free !== false });
+    let b;
+    if (!b0.factionId && !r.controller) {
+      // Staff placing a building in unclaimed land: it belongs to the town until someone takes the region.
+      const t = R.buildingType(store.state, b0.typeId);
+      if (!t) throw new UserError('Unknown building.');
+      if (r.buildings.some((x) => x.typeId === t.id)) throw new UserError(`${geo.label(store.state, key)} already has a ${t.name}.`);
+      b = WS.normalizeBuilding({ typeId: t.id, factionId: '', level: 1, hp: 100, status: 'ready', readyTurn: w().turn, builtTurn: w().turn });
+      r.buildings.push(b);
+    } else b = R.startBuilding(store.state, faction(b0.factionId || r.controller), key, b0.typeId, { free: b0.free !== false });
+    if (b0.level) { const t = R.buildingType(store.state, b.typeId); b.level = Math.max(1, Math.min(num(t?.maxLevel, 1), num(b0.level))); }
     if (b0.ready) { b.status = 'ready'; b.readyTurn = w().turn; }
     log(req, 'world.build', `${R.buildingType(store.state, b.typeId)?.name} in ${geo.label(store.state, key)} (${b0.free !== false ? 'free' : 'paid'})`);
     return { building: b };
@@ -406,6 +417,7 @@ function mount(app, { wrap, bot, diff }) {
     const b = r.buildings.find((x) => x.id === req.params.id);
     if (!b) throw new UserError('Building not found.');
     if (req.body?.hp !== undefined) b.hp = Math.max(0, Math.min(100, num(req.body.hp)));
+    if (req.body?.level !== undefined) { const t = R.buildingType(store.state, b.typeId); b.level = Math.max(1, Math.min(num(t?.maxLevel, 1), num(req.body.level))); }
     if (req.body?.status) { b.status = req.body.status === 'building' ? 'building' : 'ready'; if (b.status === 'ready') b.readyTurn = Math.min(b.readyTurn, w().turn); }
     log(req, 'world.build', `edited a building in ${geo.label(store.state, key)}`);
     return { building: b };

@@ -3,7 +3,7 @@
  * Map geometry and the travel graph.
  *
  * Every province is a region ("河南"). Prefectures are "河南/洛阳". Only provinces and the prefectures
- * staff mark as *special* are markets (they have their own stock, prices, coffers and workshops);
+ * staff mark as *special* are markets (they have their own stock, prices, coffers and buildings);
  * ordinary prefectures belong to their province.
  *
  * Distances are in map pixels between region centers (the dashboard map is 1400×920).

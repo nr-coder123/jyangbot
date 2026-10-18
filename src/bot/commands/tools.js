@@ -109,7 +109,7 @@ async function executeHelp(i) {
     `**Trading:** \`/trade\` items or ${s.currencyName} with a player (ask for nothing to make it a gift)`,
     '**Tools:** `/compare @player` · `/item` to read any item · `/purify` Feng Shui calculator',
     ...(store.state.world?.settings?.enabled ? [
-      '**The world:** `/world` — your region, its market (trade goods move with supply and demand), travel, caravans, workshops, politics and war. Sect shops are in `/market`.',
+      '**The world:** `/world` — your region, its market (prices move with supply and demand), your sect\'s realm (for its leader and representatives) and war. Sect shops are in `/market`.',
       (() => { try { const r = require('../../world').power.report(store.state).recommend; return r.length ? `-# Sects looking for disciples right now: ${r.map((x) => x.name).join(' · ')}` : ''; } catch { return ''; } })(),
     ].filter(Boolean) : []),
     '',

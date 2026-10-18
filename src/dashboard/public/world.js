@@ -21,6 +21,7 @@ async function loadWorld() {
   return WD;
 }
 const W_ = () => WD.world;
+const isProd = (t) => !!t && (Object.keys(t.outputs || {}).length > 0 || Number(t.service) > 0);
 const geoOf = (key) => MAPDATA?.byKey.get(key);
 const provinceOf = (key) => (key && key.includes('/') ? key.split('/')[0] : key);
 const isMarket = (key) => !key.includes('/') || !!W_().regions[key]?.special;
@@ -917,22 +918,28 @@ function regionDrawer(key, reload) {
         }) }, 'Save production')),
       ];
     },
-    workshops: () => {
+    buildings: () => {
       if (!mr) return [];
-      const list = clone(mr.workshops || []);
-      const wrap = h('div');
-      const draw = () => wrap.replaceChildren(table([
-        ['Workshop', (x) => { const s = select(w.workshopTypes.map((t) => [t.id, `${t.emoji} ${t.name}`]), x.typeId); s.onchange = () => (x.typeId = s.value); return s; }],
-        ['Lv', (x) => { const i = h('input', { type: 'number', min: 1, max: 3, value: x.level, style: 'width:48px' }); i.onchange = () => (x.level = Number(i.value)); return i; }],
-        ['Owner', (x) => { const s = select([['region|', 'the town'], ...w.factions.map((f) => [`faction|${f.id}`, f.name]), ...WD.characters.map((c) => [`character|${c.id}`, `👤 ${c.name}`])], `${x.owner.type}|${x.owner.id}`); s.onchange = () => { const [t, id] = s.value.split('|'); x.owner = { type: t, id }; }; return s; }],
-        ['Last turn', (x) => `${fmt(x.lastProfit)}${x.throttled ? ' ⚠️' : ''}`],
-        ['', (x) => h('button', { class: 'btn small danger', onclick: () => { list.splice(list.indexOf(x), 1); draw(); } }, '✕')],
-      ], list));
-      draw();
-      return [wrap, h('div', { class: 'toolbar', style: 'margin-top:8px' },
-        h('button', { class: 'btn', onclick: () => { list.push({ typeId: w.workshopTypes[0].id, level: 1, owner: { type: 'region', id: '' } }); draw(); } }, '+ Add'),
-        h('span', { class: 'grow' }), h('span', { class: 'muted small' }, `${list.length} of ~${2 + Math.floor((mr.population || 0) / 25) + Math.floor((mr.prosperity || 0) / 34)} plots`),
-        h('button', { class: 'btn primary', onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(market)}`, { method: 'PUT', body: { workshops: list } }); toast('Saved.'); reload(); }) }, 'Save'))];
+      const btype = (id) => w.buildingTypes.find((x) => x.id === id);
+      const typeSel = select(w.buildingTypes.filter((t) => !(mr.buildings || []).some((b) => b.typeId === t.id)).map((t) => [t.id, `${t.name} ${t.hanzi || ''}`]));
+      const lvl = h('input', { type: 'number', min: 1, max: 3, value: 1, style: 'width:56px' });
+      const redo = async () => reload();
+      const rows = (mr.buildings || []).map((b) => {
+        const t = btype(b.typeId);
+        const lv = h('input', { type: 'number', min: 1, max: t?.maxLevel || 1, value: b.level, style: 'width:56px' });
+        const hp = h('input', { type: 'number', min: 0, max: 100, value: Math.round(b.hp), style: 'width:64px' });
+        return h('tr', {}, h('td', {}, h('b', {}, t?.name || b.typeId), ' ', h('span', { class: 'muted small' }, t?.hanzi || '')),
+          h('td', {}, (t?.maxLevel || 1) > 1 ? lv : '—'), h('td', {}, hp),
+          h('td', {}, b.status === 'building' ? `building (turn ${b.readyTurn})` : isProd(t) ? `${fmt(b.lastProfit)}/turn${b.lastRun < 1 ? ` · ${Math.round(b.lastRun * 100)}% busy` : ''}` : 'in use'),
+          h('td', {}, h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(market)}/buildings/${b.id}`, { method: 'PUT', body: { level: Number(lv.value), hp: Number(hp.value), status: 'ready' } }); toast('Saved.'); await redo(); }) }, 'Save'), ' ',
+            h('button', { class: 'btn small danger', onclick: run(async () => { if (!confirm('Remove this building?')) return; await api(`/world/regions/${encodeURIComponent(market)}/buildings/${b.id}`, { method: 'DELETE' }); await redo(); }) }, '✕')));
+      });
+      return [
+        h('p', { class: 'muted small' }, `Buildings in ${rname(market)}. Production buildings (brewery, smithy…) buy their inputs here, sell their goods back and pay the profit to whoever rules the region; the rest give lasting bonuses. ${mr.controller ? `Owned by ${facName(mr.controller)}.` : 'Unclaimed: profits stay in the town\'s coffers until someone takes it.'}`),
+        rows.length ? h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Building', 'Level', 'Strength', 'Last turn', ''].map((x) => h('th', {}, x)))), h('tbody', {}, rows))) : h('p', { class: 'muted' }, 'Nothing built here.'),
+        h('div', { class: 'toolbar', style: 'margin-top:8px' }, typeSel, h('span', {}, 'level'), lvl,
+          h('button', { class: 'btn primary', onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(market)}/buildings`, { method: 'POST', body: { typeId: typeSel.value, free: true, ready: true, level: Number(lvl.value) } }); toast('Built (free, by staff).'); await redo(); }) }, '+ Add (free, finished)')),
+      ];
     },
     event: () => {
       const evSel = select(w.events.map((e) => [e.id, `${e.emoji} ${e.name}`]));
@@ -945,7 +952,7 @@ function regionDrawer(key, reload) {
       return [h('p', {}, h('b', {}, 'Characters here: '), here.map((c) => c.name).join(', ') || '—'), h('p', {}, h('b', {}, 'Armies: '), armies.map((a) => `${a.name} (${facName(a.factionId)}, ${fmtN(Object.values(a.units).reduce((s, n) => s + n, 0))} men)`).join('; ') || '—')];
     },
   };
-  const names = [['edit', 'Edit'], ...(mr ? [['market', 'Market'], ['workshops', 'Workshops'], ['event', 'Force event'], ['people', 'Who\'s here']] : [])];
+  const names = [['edit', 'Edit'], ...(mr ? [['market', 'Market'], ['buildings', 'Buildings'], ['event', 'Force event'], ['people', 'Who\'s here']] : [])];
   for (const [id, label] of names) tabs.append(h('button', { class: 'btn small', 'data-t': id, onclick: () => show(id) }, label));
   out.push(tabs, body);
   setTimeout(() => show('edit'), 0);
@@ -992,11 +999,6 @@ VIEWS.economy = async () => {
       { k: 'perish', label: 'Spoils / turn (0–1)', t: 'number', step: 0.005 }, { k: 'weight', label: 'Weight (caravans)', t: 'number' }, { k: 'winterDemand', label: 'Winter demand ×', t: 'number', step: 0.1 },
       { k: 'itemId', label: 'Item id for players' }, { k: 'description', label: 'Description', t: 'textarea', wide: true },
     ], (g) => `${g.emoji} ${g.name} — base ${g.basePrice} · ${g.category}`, { extra: h('button', { class: 'btn', onclick: run(async () => { const r = await api('/world/goods/items', { method: 'POST', body: {} }); toast(`Created ${r.created} trade-good item(s).`); await refresh(); }) }, '🎒 Create missing good items'), json: [['seasonal', 'Seasonal production (spring, summer, autumn, winter multipliers) or null']] }),
-    listEditorCard('Workshop types', 'workshopTypes', [
-      { k: 'id', label: 'Id' }, { k: 'name', label: 'Name' }, { k: 'emoji', label: 'Emoji' }, { k: 'cost', label: 'Build cost', t: 'number' }, { k: 'upkeep', label: 'Wages / turn', t: 'number' },
-      { k: 'service', label: 'Service income (pop 20)', t: 'number', help: 'Teahouses, escort agencies…' }, { k: 'security', label: '+ Security', t: 'number' }, { k: 'caravanRisk', label: 'Caravan risk ±', t: 'number', step: 0.01 },
-      { k: 'description', label: 'Description', t: 'textarea', wide: true },
-    ], (t) => `${t.emoji} ${t.name} — ${Object.entries(t.inputs || {}).map(([g, q]) => `${q} ${goodOf(g)?.name || g}`).join(' + ') || '—'} → ${t.service ? 'coin' : Object.entries(t.outputs || {}).map(([g, q]) => `${q} ${goodOf(g)?.name || g}`).join(' + ')}`, { json: [['inputs', 'Inputs per turn { goodId: qty }'], ['outputs', 'Outputs per turn { goodId: qty }'], ['requires', 'Requirements { terrains: [...], anyProduction: [goodIds] }']] }),
     economyFormulas(),
   ];
 };
@@ -1005,21 +1007,23 @@ function economyFormulas() {
   return h('div', { class: 'card ref' }, h('h3', {}, 'How the economy works'),
     h('details', {}, h('summary', {}, 'Prices, supply and demand'),
       h('p', {}, h('code', {}, 'price = base × (target ÷ stock)^elasticity'), ' — clamped between ×', W_().settings.minPriceMul, ' and ×', W_().settings.maxPriceMul, ', then × event/policy modifiers.'),
-      h('p', {}, h('code', {}, 'target = (people × eaten per pop × luxury factor × winter + workshop inputs + armies) × stock turns'), ` (stock turns = ${W_().settings.stockTurns}).`),
+      h('p', {}, h('code', {}, 'target = (people × eaten per pop × luxury factor × winter + building inputs + armies) × stock turns'), ` (stock turns = ${W_().settings.stockTurns}).`),
       h('p', {}, 'Producers answer prices: production × (price ÷ base)^', W_().settings.supplyResponse, ' (between ×0.55 and ×1.3). Gluts above 3× the target rot 5% a turn.')),
-    h('details', {}, h('summary', {}, 'Trade: peddlers, caravans, players'),
-      h('p', {}, 'Every turn peddlers move goods along each road from where a good is plentiful to where it is scarce, if the price gap pays for the trip (5% per road). The Merchant Guild sends up to ', W_().settings.npcCaravansPerTurn, ' big caravans to markets 2–4 roads away; it keeps ', Math.round(W_().settings.guildShare * 100), '% of the margin.'),
-      h('p', {}, `Trade factions (guilds, or any faction staff allow) send caravans from /world → Realm: they buy with the treasury where they have trade rights — unclaimed land, their own, or a ruler they have free trade with — and sell at the destination. ${W_().settings.playerMarketBuy ? 'Players may also buy at their market.' : 'Players don\'t buy from province markets'}${W_().settings.playerMarketSell !== false ? '; they can sell trade goods they own (each unit lowers the price, the market only pays what is in its coffers).' : '.'}`)),
+    h('details', {}, h('summary', {}, 'Trade: the normal market, trade deals and caravans'),
+      h('p', {}, h('b', {}, 'The normal market runs on its own. '), 'Every turn peddlers move goods along each road from where a good is plentiful to where it is scarce, if the price gap pays for the trip (5% per road). The Merchant Guild sends up to ', W_().settings.npcCaravansPerTurn, ' big caravans to markets 2–4 roads away; it keeps ', Math.round(W_().settings.guildShare * 100), '% of the margin. This trade crosses borders freely — nobody has to sign anything.'),
+      h('p', {}, h('b', {}, 'Borders. '), 'Goods crossing into another faction\'s land pay a ', W_().settings.borderTariff, '% tariff to the ruler they enter (it is added to their taxes). Factions at war don\'t trade at all, and a faction can declare an ', h('b', {}, 'embargo'), ' (/world → Realm → Diplomacy) to shut its borders to one other faction.'),
+      h('p', {}, h('b', {}, 'Trade agreements. '), 'A "free trade" agreement (or an alliance with free trade) removes the tariff between the two and opens their markets to each other\'s merchant houses. When automatic trade is on, every faction with two or more markets sends up to ', W_().settings.autoTradeCaravans, ' caravans a turn (+1 per free-trade partner, max 6) between its own and its partners\' markets, bought with the treasury (at most ', Math.round(W_().settings.autoTradeInvest * 100), '% of it a turn) where the margin is at least ', Math.round(W_().settings.autoTradeMinMargin * 100), '%. Guilds also trade in unclaimed land. Nobody has to send these caravans by hand; the profit shows as "trade" in the realm\'s income.'),
+      h('p', {}, `${W_().settings.playerMarketBuy ? 'Players may also buy at their market.' : 'Players don\'t buy from province markets'}${W_().settings.playerMarketSell !== false ? '; they can sell trade goods they own (each unit lowers the price, the market only pays what is in its coffers).' : '.'}`)),
     h('details', {}, h('summary', {}, 'Coffers and taxes'),
       h('p', {}, h('code', {}, 'coffers += (household spending × 0.9 + people × household income × prosperity factor) × income modifiers − taxes')),
-      h('p', {}, h('code', {}, 'taxes = that income × tax rate × tax modifiers'), ' — paid to the ruling (or occupying) faction. Factions pay ', W_().settings.adminCost, '% of their treasury each turn in retainers, so nobody hoards forever.')),
+      h('p', {}, h('code', {}, 'taxes = that income × tax rate × tax modifiers'), ' — owed to the ruling (or occupying) faction and paid every ', W_().settings.taxEveryTurns, ' turn(s). Factions pay ', W_().settings.adminCost, '% of their treasury each turn in retainers, so nobody hoards forever.')),
     h('details', {}, h('summary', {}, 'Prosperity'),
       h('p', {}, h('code', {}, 'growth = 3×(food − 0.85) + 1.5×(staples − 0.8) + 0.8×luxuries + trade + (security − 50) ÷ 25')),
       h('p', {}, h('code', {}, 'drag = 5×(prosperity ÷ 100)²')),
       h('p', {}, 'Δ prosperity = growth − drag + events + policies + buildings (± a little luck). A region settles where its food and trade can carry it; famine, war and disasters knock it down. Security (bandits on the roads) rises with walls and garrisons and falls with hunger.'),
-      h('p', {}, 'Production and workshop output scale with prosperity (×0.75 at 0, ×1 at 50, ×1.25 at 100). Population grows with food and prosperity but the land only feeds so many (its base population).')),
-    h('details', {}, h('summary', {}, 'Workshops'),
-      h('p', {}, 'A workshop buys its inputs from its market and sells its output back every turn; profit goes to its owner (player, faction or the town). It cuts back to 25% when the output is worth less than the inputs plus wages. Players can own up to ', W_().settings.maxWorkshopsPerCharacter, '.')),
+      h('p', {}, 'Production and building output scale with prosperity (×0.75 at 0, ×1 at 50, ×1.25 at 100). Population grows with food and prosperity but the land only feeds so many (its base population).')),
+    h('details', {}, h('summary', {}, 'Production buildings'),
+      h('p', {}, 'A brewery, smithy, apothecary… buys its inputs from its market and sells its output back every turn (× 1 / 1.8 / 2.5 at level 1 / 2 / 3, × prosperity). The profit goes to whoever rules the region; in unclaimed land it stays in the town\'s coffers. It cuts back when the output is worth less than the inputs plus wages. Every map starts with some preset buildings; factions build and upgrade more from their treasury.')),
   );
 }
 
@@ -1049,20 +1053,23 @@ function worldSettings() {
     { k: 'householdIncome', label: 'Household income / pop', t: 'number', step: 0.1 }, { k: 'spendingToCoffers', label: 'Spending → coffers', t: 'number', step: 0.05 }, { k: 'maxCoffersPerPop', label: 'Max coffers per pop', t: 'number' },
     { k: 'peddlerRate', label: 'Peddler trade rate', t: 'number', step: 0.05 }, { k: 'npcCaravansPerTurn', label: 'Merchant caravans / turn', t: 'number' }, { k: 'guildShare', label: 'Guild keeps (0–1)', t: 'number', step: 0.05 },
     { k: 'adminCost', label: 'Treasury upkeep % / turn', t: 'number', step: 0.1 },
+    { k: 'taxEveryTurns', label: 'Taxes reach the treasury every … turns', t: 'number', help: 'Taxes are collected every turn and paid out to the faction together. 2 = every second turn' },
+    { section: 'Trade between factions' },
+    { k: 'borderTariff', label: 'Border tariff %', t: 'number', help: 'Paid to the ruler when goods enter their land. Free trade removes it; war or an embargo stops trade' },
+    { k: 'autoTrade', label: 'Automatic trade caravans for free-trade partners (and guilds)', t: 'check', help: 'Factions with free trade send caravans between their markets on their own' },
+    { k: 'autoTradeCaravans', label: 'Automatic caravans / faction / turn', t: 'number', help: '+1 per free-trade partner, max 6' },
+    { k: 'autoTradeInvest', label: 'Share of the treasury they may invest / turn (0–1)', t: 'number', step: 0.01 },
+    { k: 'autoTradeMinMargin', label: 'Minimum margin for a caravan (0–1)', t: 'number', step: 0.05 },
     { k: 'shopSwingMax', label: 'Max shop price swing %', t: 'number', help: 'Items linked to a good never move more than this' },
     { section: 'Players' },
     { k: 'startRegion', label: 'Where new characters start', t: 'select', opts: marketOpts },
-    { k: 'travelMode', label: 'Travel', t: 'select', opts: [['channel', 'Text RP: you are where you post (instant)'], ['timed', 'Timed: travelling takes real hours']], help: 'In text RP mode, posting in a region\'s channel (or /world there) moves your character; distances are only shown as RP info' },
-    { k: 'kmPerPx', label: 'Km per map unit', t: 'number', step: 0.1, help: 'Used for the RP travel info (Beijing→Luoyang ≈ 860 km)' },
-    { k: 'travelHoursPer100', label: 'Timed travel: hours per 100 map px', t: 'number', step: 0.1, help: 'Only in Timed mode' },
     { k: 'maxTradePerTurn', label: 'Max market trade per character per turn', t: 'number', help: 'Stops arbitrage farming. 0 = no limit' },
     { k: 'playerMarketBuy', label: 'Players may buy trade goods at province markets', t: 'check', help: 'Off by default: markets sell to merchants and caravans' },
     { k: 'playerMarketSell', label: 'Players may sell trade goods they own', t: 'check' },
     { k: 'playerCaravans', label: 'Players may send their own caravans', t: 'check', help: 'Off by default: caravans are run by trade factions' },
     { k: 'factionCaravans', label: 'Which factions run trade caravans', t: 'select', opts: [['guilds', 'Guilds (and factions with a trade charter)'], ['all', 'Every faction'], ['none', 'None']] },
     { k: 'factionCaravanTurns', label: 'Faction caravan travel (turns, 0 = by distance)', t: 'number' },
-    { k: 'caravanHoursPer100', label: 'Caravan hours per 100 px', t: 'number', step: 0.1 }, { k: 'maxPlayerCaravans', label: 'Caravans per character', t: 'number' }, { k: 'caravanCapacity', label: 'Caravan capacity', t: 'number' },
-    { k: 'escortCost', label: 'Escort cost (share of cargo)', t: 'number', step: 0.01 }, { k: 'maxWorkshopsPerCharacter', label: 'Workshops per character', t: 'number' }, { k: 'workshopSlotsBase', label: 'Workshop plots (base)', t: 'number' },
+    { k: 'caravanCapacity', label: 'Caravan capacity', t: 'number' }, { k: 'escortCost', label: 'Escort cost (share of cargo)', t: 'number', step: 0.01 },
     { k: 'shopTiers.member', label: 'Sect shop: members %', t: 'number' }, { k: 'shopTiers.ally', label: 'Sect shop: allies (shared shops) %', t: 'number' }, { k: 'shopTiers.neutral', label: 'Sect shop: everyone else %', t: 'number' },
     { k: 'underdogBonus', label: 'Join bonus for recommended sects', t: 'number', help: 'Extra Nyang for new characters joining a sect the Balance tab recommends' },
     { section: 'Buildings' },
@@ -1087,12 +1094,15 @@ function worldSettings() {
     { section: 'Balance' },
     { k: 'powerWeights.military', label: 'Weight: military', t: 'number', step: 0.05 }, { k: 'powerWeights.economy', label: 'Weight: economy', t: 'number', step: 0.05 }, { k: 'powerWeights.politics', label: 'Weight: politics', t: 'number', step: 0.05 }, { k: 'powerWeights.cultivation', label: 'Weight: cultivation', t: 'number', step: 0.05 },
     { k: 'includeNpcInBalance', label: 'Count staff-run (NPC) factions in Balance', t: 'check' },
+    { k: 'baseDisciples', label: 'Rank-and-file disciples every sect has', t: 'number', help: 'Counted in military and cultivation, so a few strong players don\'t outweigh a whole sect' },
   ], s);
   const champ = h('input', { value: (s.championRealmMult || []).join(', ') });
-  openModal('World settings', h('div', { style: 'display:grid;gap:12px' }, f.el, h('label', { class: 'field wide' }, h('span', {}, 'Champion multiplier per realm (3rd Rate first)'), champ),
+  const worth = h('input', { value: (s.realmWorth || []).join(', ') });
+  openModal('World settings', h('div', { style: 'display:grid;gap:12px' }, f.el, h('label', { class: 'field wide' }, h('span', {}, 'Champion multiplier per realm in battle (3rd Rate first)'), champ),
+    h('label', { class: 'field wide' }, h('span', {}, 'Power Index: one cultivator is worth … disciples, per realm (3rd Rate first)'), worth, h('small', { class: 'muted' }, 'A 3rd Rate fighter barely counts; a Transcendent or above can be worth thousands of disciples.')),
     h('div', { class: 'card warn bad' }, h('b', {}, 'Reset the world'), h('p', { class: 'small' }, 'Rebuilds every region, faction, market and event from the defaults (a blank map: no land, relations or treaties). A backup is made first.'),
       h('button', { class: 'btn danger', onclick: run(async () => { const c = prompt('Type RESET to rebuild the world from scratch.'); if (c !== 'RESET') return; await api('/world/reset', { method: 'POST', body: { confirm: 'RESET' } }); toast('World reset.'); closeModal(); render(); }) }, 'Reset world…'))),
-  [h('button', { class: 'btn', onclick: closeModal }, 'Cancel'), h('button', { class: 'btn primary', onclick: run(async () => { const v = deepMerge(s, f.read()); v.championRealmMult = champ.value.split(/[,\s]+/).filter(Boolean).map(Number); await api('/world/settings', { method: 'PUT', body: v }); toast('Saved.'); closeModal(); render(); }) }, 'Save')]);
+  [h('button', { class: 'btn', onclick: closeModal }, 'Cancel'), h('button', { class: 'btn primary', onclick: run(async () => { const v = deepMerge(s, f.read()); v.championRealmMult = champ.value.split(/[,\s]+/).filter(Boolean).map(Number); v.realmWorth = worth.value.split(/[,\s]+/).filter(Boolean).map(Number); await api('/world/settings', { method: 'PUT', body: v }); toast('Saved.'); closeModal(); render(); }) }, 'Save')]);
 }
 
 /** A card listing one world list with add / edit (form + JSON for nested parts) / delete. */
@@ -1226,9 +1236,11 @@ VIEWS.politics = async () => {
         ], (p) => `${p.name} — ${p.scope} · ${p.cost?.treasury || 0}${p.upkeep?.treasury ? ` · ${p.upkeep.treasury}/turn` : ''}`, { json: [['effects', 'Effects per turn (treasury goes to the faction once; the rest to each region)', 6], ['kinds', 'Faction kinds allowed (empty = all)', 2], ['exclusive', 'Can\'t combine with (policy ids)', 2]] }),
         listEditorCard('Buildings', 'buildingTypes', [
           { k: 'id', label: 'Id' }, { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字' },
-          { k: 'cost', label: 'Cost', t: 'number' }, { k: 'turns', label: 'Turns to build', t: 'number' }, { k: 'upkeep', label: 'Upkeep / turn', t: 'number' }, { k: 'fort', label: '+ Walls in battle', t: 'number' },
+          { k: 'cost', label: 'Cost', t: 'number' }, { k: 'turns', label: 'Turns to build', t: 'number' }, { k: 'upkeep', label: 'Upkeep / wages per turn', t: 'number' }, { k: 'fort', label: '+ Walls in battle', t: 'number' },
+          { k: 'maxLevel', label: 'Max level (1–3)', t: 'number', help: 'Each level makes a production building produce more (×1 / ×1.8 / ×2.5)' }, { k: 'service', label: 'Service income per turn (inns, escort agencies)', t: 'number' },
           { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (regionTick)', t: 'select', opts: scriptOpts },
-        ], (b) => `${b.name} ${b.hanzi || ''} — ${b.cost}, ${b.turns} turns, ${b.upkeep}/turn${b.fort ? ` · +${b.fort} walls` : ''}`, { json: [['effects', 'Effects on the region every turn (same keys as policies)', 5], ['requires', 'Requires { terrains: [...] }', 2]] }))),
+        ], (b) => `${b.name} ${b.hanzi || ''} — ${b.cost}, ${b.turns} turns, ${b.upkeep}/turn${b.fort ? ` · +${b.fort} walls` : ''}${Object.keys(b.outputs || {}).length ? ` · ${Object.entries(b.inputs || {}).map(([g, q]) => `${q} ${goodOf(g)?.name || g}`).join(' + ') || 'nothing'} → ${Object.entries(b.outputs).map(([g, q]) => `${q} ${goodOf(g)?.name || g}`).join(' + ')}` : ''}${b.service ? ` · service ${b.service}` : ''}`,
+        { json: [['effects', 'Effects on the region every turn (same keys as policies)', 5], ['inputs', 'Production: inputs per turn bought from the market { goodId: qty }', 2], ['outputs', 'Production: outputs per turn sold to the market { goodId: qty }', 2], ['requires', 'Requires { terrains: [...], anyProduction: [goodIds] }', 2]] }))),
     worldLogCard(['diplomacy', 'alliance', 'war', 'request', 'policy', 'build', 'takeover', 'trade']),
   ].filter(Boolean);
 };
@@ -1372,6 +1384,18 @@ function ranksCard() {
 }
 
 /** One realm, CK3-style: overview, council, buildings, policies, shop. */
+/** Embargoes: factions whose merchants may not trade in this faction's lands (the normal market and caravans stop between them). */
+function embargoRow(f) {
+  const w = W_();
+  const list = [...(f.embargoes || [])];
+  const others = w.factions.filter((x) => x.id !== f.id);
+  const sel = select(others.filter((x) => !list.includes(x.id)).map((x) => [x.id, x.name]));
+  const save = (next) => run(async () => { await api(`/world/factions/${f.id}`, { method: 'PUT', body: { embargoes: next } }); toast('Saved.'); await loadWorld(); openRealm(fac(f.id)); });
+  return h('div', { class: 'toolbar small' }, h('b', {}, 'Embargoes:'),
+    ...(list.length ? list.map((id) => h('button', { class: 'btn small', title: 'Lift', onclick: save(list.filter((x) => x !== id)) }, `${facName(id)} ✕`)) : [h('span', { class: 'muted' }, 'none — trades with everyone it is not at war with')]),
+    h('span', { class: 'grow' }), others.length > list.length ? sel : null, others.length > list.length ? h('button', { class: 'btn small', onclick: save([...list, sel.value]) }, '+ Embargo') : null);
+}
+
 function openRealm(f, start = 'overview') {
   const w = W_();
   const v = clone(f);
@@ -1383,7 +1407,7 @@ function openRealm(f, start = 'overview') {
       { k: 'colorStyle', label: 'On the map', t: 'select', opts: [['', 'Map default'], ['washed', 'Washed'], ['vivid', 'Vivid']] },
       { k: 'kind', label: 'Kind', t: 'select', opts: ['sect', 'clan', 'palace', 'cult', 'court', 'guild', 'bandits', 'other'] }, { k: 'alignment', label: 'Alignment', t: 'select', opts: ['Orthodox', 'Unorthodox', 'Neutral', 'Imperial', 'Demonic'] },
       { k: 'sect', label: 'Linked sect (members)', t: 'select', opts: () => [['', '— none —'], ...WD.sects.map((x) => [x.name, x.name])] }, { k: 'hq', label: 'Seat', t: 'select', opts: () => [['', '—'], ...marketOpts()] },
-      { k: 'active', label: 'Active', t: 'check' }, { k: 'npc', label: 'Run by staff (not a player sect)', t: 'check' }, { k: 'tradeCharter', label: 'May run trade caravans', t: 'check', help: 'Guilds always may (World settings)' },
+      { k: 'active', label: 'Active', t: 'check' }, { k: 'npc', label: 'Run by staff (not a player sect)', t: 'check' }, { k: 'tradeCharter', label: 'Trade charter (sends caravans like a guild)', t: 'check' },
       { k: 'treasury', label: 'Treasury', t: 'number' },
       { k: 'icon', label: 'Icon in Discord menus (optional)' },
       { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (factionTick, regionTick, diplomacy, battleRound, shopPrice)', t: 'select', opts: scriptOpts, wide: true },
@@ -1395,7 +1419,10 @@ function openRealm(f, start = 'overview') {
         h('span', { class: 'muted' }, 'Alliance'), h('span', {}, al ? al.name : '—'),
         h('span', { class: 'muted' }, 'Wars'), h('span', {}, warsOfF(f.id).map((x) => x.name).join(', ') || 'at peace'),
         h('span', { class: 'muted' }, 'Agreements'), h('span', {}, w.agreements.filter((t) => t.parties.includes(f.id)).map((t) => t.name).join(', ') || '—'),
-        h('span', { class: 'muted' }, 'Last turn'), h('span', {}, Object.entries(f.lastIncome || {}).filter(([, x]) => x).map(([k, x]) => `${k} ${x > 0 ? '+' : ''}${fmt(x)}`).join(' · ') || '—')),
+        h('span', { class: 'muted' }, 'Last turn'), h('span', {}, Object.entries(f.lastIncome || {}).filter(([, x]) => x).map(([k, x]) => `${k} ${x > 0 ? '+' : ''}${fmt(x)}`).join(' · ') || '—'),
+        h('span', { class: 'muted' }, 'Taxes owed'), h('span', {}, `${fmt(f.taxPending || 0)}${w.settings.taxEveryTurns > 1 ? ` (paid every ${w.settings.taxEveryTurns} turns)` : ''}`),
+        h('span', { class: 'muted' }, 'Trade'), h('span', {}, `${(w.caravans || []).filter((c) => c.auto && c.owner?.id === f.id && c.status === 'travelling').length} automatic caravan(s) on the road · free trade with ${w.factions.filter((x) => x.id !== f.id && w.agreements.some((t) => t.parties.includes(f.id) && t.parties.includes(x.id) && t.perks?.freeTrade) || (al && al.terms?.freeTrade && al.members.includes(x.id) && x.id !== f.id)).map((x) => x.name).join(', ') || 'nobody (normal market, ' + w.settings.borderTariff + '% border tariff)'}`)),
+      embargoRow(f),
       form.el,
       h('div', { class: 'toolbar' }, f.sect ? null : h('button', { class: 'btn danger', onclick: run(async () => { if (!confirm(`Delete ${f.name}?`)) return; await api(`/world/factions/${f.id}`, { method: 'DELETE' }); done(); }) }, 'Delete faction'), h('span', { class: 'grow' }),
         h('button', { class: 'btn primary', onclick: run(async () => { await api(`/world/factions/${f.id}`, { method: 'PUT', body: form.read() }); toast('Saved.'); done(); }) }, 'Save')),
@@ -1421,8 +1448,9 @@ function openRealm(f, start = 'overview') {
       ...lands.map((r) => h('div', { class: 'card' }, h('b', {}, rname(r.key)), (r.buildings || []).length ? h('div', { class: 'list' }, r.buildings.map((b) => {
         const t = w.buildingTypes.find((x) => x.id === b.typeId);
         const hp = h('input', { type: 'number', min: 0, max: 100, value: Math.round(b.hp), style: 'width:64px' });
-        return h('div', { class: 'toolbar small' }, h('span', { class: 'grow' }, `${t?.name || b.typeId} — ${b.status === 'building' ? `under construction (ready turn ${b.readyTurn})` : 'ready'}`), h('span', {}, 'strength'), hp,
-          h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(r.key)}/buildings/${b.id}`, { method: 'PUT', body: { hp: Number(hp.value), status: 'ready' } }); toast('Saved.'); await loadWorld(); }) }, b.status === 'building' ? 'Finish now' : 'Save'),
+        const lv = h('input', { type: 'number', min: 1, max: t?.maxLevel || 1, value: b.level, style: 'width:52px', disabled: (t?.maxLevel || 1) <= 1 });
+        return h('div', { class: 'toolbar small' }, h('span', { class: 'grow' }, `${t?.name || b.typeId}${(t?.maxLevel || 1) > 1 ? ` (level ${b.level}/${t.maxLevel})` : ''} — ${b.status === 'building' ? `under construction (ready turn ${b.readyTurn})` : isProd(t) ? `${fmt(b.lastProfit)} last turn` : 'ready'}`), h('span', {}, 'level'), lv, h('span', {}, 'strength'), hp,
+          h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(r.key)}/buildings/${b.id}`, { method: 'PUT', body: { hp: Number(hp.value), level: Number(lv.value), status: 'ready' } }); toast('Saved.'); await loadWorld(); openRealm(fac(f.id), 'buildings'); }) }, b.status === 'building' ? 'Finish now' : 'Save'),
           h('button', { class: 'btn small danger', onclick: run(async () => { if (!confirm('Remove this building?')) return; await api(`/world/regions/${encodeURIComponent(r.key)}/buildings/${b.id}`, { method: 'DELETE' }); await loadWorld(); openRealm(fac(f.id), 'buildings'); }) }, 'Remove'));
       })) : h('p', { class: 'muted small' }, 'Nothing built.'))),
       h('div', { class: 'toolbar' }, typeSel, h('span', {}, 'in'), regSel, h('label', { class: 'field check' }, ready, h('span', {}, 'already finished')),
@@ -1672,7 +1700,7 @@ VIEWS.balance = async () => {
       ], r.rows)),
       h('div', { class: 'card ref' }, h('h3', {}, 'The three formulas'),
         h('p', {}, h('b', {}, '① Power Index'), ` = ${r.weights.military} × military share + ${r.weights.economy} × economy share + ${r.weights.politics} × politics share + ${r.weights.cultivation} × cultivation share (weights in World settings).`),
-        h('p', { class: 'muted small' }, 'Military = army strength (men × average attack & defence × morale) + champion power of members. Economy = Σ ruled regions (people × prosperity ÷ 100) + treasury ÷ 50 + workshop profits × 10. Politics = 10 per region ruled + 20 per agreement + 30 per fellow alliance member + 50. Cultivation = Σ members (stat total × realm multiplier). Each pillar is a share of the server total, so the Power Index of all factions adds up to 100%.'),
+        h('p', { class: 'muted small' }, `Military = army strength (men × average attack & defence × morale) + (${W_().settings.baseDisciples} rank-and-file disciples + what members are worth) × a disciple\'s strength. Economy = Σ ruled regions (people × prosperity ÷ 100) + treasury ÷ 50 + building profits × 10. Politics = 10 per region ruled + 20 per agreement + 30 per fellow alliance member + 50. Cultivation = ${W_().settings.baseDisciples} disciples + disciple troops + Σ members\' realm worth (3rd Rate = ${(W_().settings.realmWorth || [])[0] ?? 1} disciple(s) … see World settings), so one weak cultivator hardly moves it; representatives don\'t count as fighters. Each pillar is a share of the server total, so the Power Index of all factions adds up to 100%.`),
         h('p', {}, h('b', {}, '② vs fair share'), ` = Power Index − ${r.fair}% (100% ÷ number of factions). HHI = Σ (Power Index)²: ${r.hhiFair} when perfectly even; above 0.25 a single faction dominates.`),
         h('p', {}, h('b', {}, '③ Recruitment need'), ' = 60 × power deficit + 40 × member deficit (0–100). Power deficit = how far below the fair share the faction is; member deficit = how far below the average member count. The top three playable sects are recommended to new players (shown in /help and in /world → Politics for characters without a sect), and World settings → "join bonus" can pay extra Nyang for joining them.')),
     );

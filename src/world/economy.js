@@ -3,7 +3,9 @@
  * Regional economy, inspired by Bannerlord's supply-chain mods:
  *  · every market (province or special prefecture) has stock, production, demand and coffers
  *  · prices follow stock vs. what the market wants to hold:  price = base × (target ÷ stock)^elasticity
- *  · workshops turn local inputs into outputs (supply chains), merchant caravans move surplus to shortage
+ *  · production buildings turn local inputs into outputs (supply chains); merchants move surplus to shortage
+ *  · the "normal market": merchants trade across every border (paying the ruler a tariff) unless there is war or an
+ *    embargo; free trade removes the tariff and lets the factions' own merchant houses trade (see realm.autoTrade)
  *  · coffers = the merchants' purse: households fill it, imports and purchases from players drain it
  *  · prosperity rises with food, salt, trade and safety, and is dragged down by its own weight,
  *    so a region settles where its land and trade can carry it; events and wars shake it
@@ -24,12 +26,13 @@ function popDemand(state, r, g, mods, season = C.calendar(state).season) {
   const winter = season === 3 ? num(g.winterDemand, 1) : 1;
   return Math.max(0, r.population * num(g.perPop) * lux * winter * C.mulFor(mods?.demand, g));
 }
-function workshopNeeds(state, r) {
+function buildingNeeds(state, r) {
   const need = {};
-  for (const ws of r.workshops || []) {
-    const t = state.world.workshopTypes.find((x) => x.id === ws.typeId);
+  for (const b of r.buildings || []) {
+    if (b.status !== 'ready') continue;
+    const t = (state.world.buildingTypes || []).find((x) => x.id === b.typeId);
     if (!t) continue;
-    for (const [gid, q] of Object.entries(t.inputs || {})) need[gid] = (need[gid] || 0) + q * LEVEL_MULT[ws.level];
+    for (const [gid, q] of Object.entries(t.inputs || {})) need[gid] = (need[gid] || 0) + num(q) * (LEVEL_MULT[b.level] || 1);
   }
   return need;
 }
@@ -43,7 +46,7 @@ const armyMen = (a) => Object.values(a.units || {}).reduce((s, n) => s + num(n),
 function targetsFor(state, key, mods) {
   const r = state.world.regions[key];
   const s = state.world.settings;
-  const ws = workshopNeeds(state, r);
+  const ws = buildingNeeds(state, r);
   const an = armyNeeds(state, key);
   const out = {};
   for (const g of goods(state)) {
@@ -108,74 +111,79 @@ function initMarkets(state, world = state.world, { onlyMissing = false, only = n
   }
 }
 
-// ─────────── workshops ───────────
-function workshopType(state, id) { return state.world.workshopTypes.find((t) => t.id === id) || null; }
-function runWorkshop(state, key, r, ws, mods, ledger) {
-  const t = workshopType(state, ws.typeId);
-  if (!t) return;
-  const lv = LEVEL_MULT[ws.level] || 1;
+// ─────────── production buildings ───────────
+/**
+ * A production building buys its inputs from the market, makes its outputs (× level × prosperity × half when damaged)
+ * and sells them back; a service building (inns, escorts) earns from customers. The profit goes to the region's
+ * ruler (or stays in the town's coffers when nobody rules it). It cuts back when the output is worth less than the inputs.
+ */
+function runBuilding(state, key, r, b, t, mods, ledger) {
+  const lv = (LEVEL_MULT[b.level] || 1) * (b.hp < 50 ? 0.5 : 1);
   const pf = prosperityFactor(r.prosperity);
+  const hasIn = Object.keys(t.inputs || {}).length;
   let f = 1;
-  for (const [gid, q] of Object.entries(t.inputs || {})) f = Math.min(f, num(r.stock[gid]) / Math.max(0.01, q * lv));
+  for (const [gid, q] of Object.entries(t.inputs || {})) f = Math.min(f, num(r.stock[gid]) / Math.max(0.01, num(q) * lv));
   f = clamp(f, 0, 1);
-  // Don't run at a loss: if the outputs are worth less than the inputs plus wages, cut back to a quarter.
-  if (f > 0 && (Object.keys(t.outputs || {}).length || (num(t.service) && Object.keys(t.inputs || {}).length))) {
+  if (f > 0 && (Object.keys(t.outputs || {}).length || (num(t.service) && hasIn))) {
     let estIn = num(t.upkeep) * 0.7; let estOut = num(t.service) * Math.min(1.6, Math.sqrt(Math.max(0, r.population) / 20)) * pf * mods.income;
-    for (const [gid, q] of Object.entries(t.inputs || {})) estIn += q * num(r.prices[gid], good(state, gid)?.basePrice || 0);
-    for (const [gid, q] of Object.entries(t.outputs || {})) estOut += q * pf * num(r.prices[gid], good(state, gid)?.basePrice || 0);
-    if (estOut < estIn) { f = Math.min(f, 0.25); ws.throttled = true; } else ws.throttled = false;
+    for (const [gid, q] of Object.entries(t.inputs || {})) estIn += num(q) * num(r.prices[gid], good(state, gid)?.basePrice || 0);
+    for (const [gid, q] of Object.entries(t.outputs || {})) estOut += num(q) * pf * num(r.prices[gid], good(state, gid)?.basePrice || 0);
+    if (estOut < estIn) f = Math.min(f, 0.25);
   }
   let costIn = 0; let valueOut = 0;
   for (const [gid, q] of Object.entries(t.inputs || {})) {
     const g = good(state, gid); if (!g) continue;
-    const used = q * lv * f;
+    const used = num(q) * lv * f;
     costIn += used * num(r.prices[gid], g.basePrice);
     r.stock[gid] = r2(num(r.stock[gid]) - used);
   }
   const outs = {};
   for (const [gid, q] of Object.entries(t.outputs || {})) {
     const g = good(state, gid); if (!g) continue;
-    const made = q * lv * f * pf * C.mulFor(mods.production, g);
+    const made = num(q) * lv * f * pf * C.mulFor(mods.production, g);
     outs[gid] = made;
     valueOut += made * num(r.prices[gid], g.basePrice);
   }
-  // The market buys the output from its coffers (it can't buy what it can't pay for).
   const affordable = valueOut > 0 ? clamp((r.coffers + costIn) / valueOut, 0, 1) : 1;
   for (const [gid, made] of Object.entries(outs)) r.stock[gid] = r2(num(r.stock[gid]) + made * affordable);
   valueOut *= affordable;
-  const service = num(t.service) ? num(t.service) * lv * Math.min(1.6, Math.sqrt(Math.max(0, r.population) / 20)) * pf * mods.income * (Object.keys(t.inputs || {}).length ? f : 1) : 0;
-  const wages = num(t.upkeep) * lv * (0.3 + 0.7 * (Object.keys(t.inputs || {}).length ? f : 1)); // idle workers get a retainer
+  const service = num(t.service) ? num(t.service) * lv * Math.min(1.6, Math.sqrt(Math.max(0, r.population) / 20)) * pf * mods.income * (hasIn ? f : 1) : 0;
+  const wages = num(t.upkeep) * lv * (0.3 + 0.7 * (hasIn ? f : 1));
   r.coffers = r2(Math.max(0, r.coffers + costIn - valueOut - service + wages));
-  const gross = valueOut + service - costIn - wages;
-  const tax = gross > 0 ? gross * num(r.taxRate) / 100 * mods.tax : 0;
-  let profit = r2(gross - tax);
-  ledger.tax += tax;
-  // Pay the owner. An owner who can't cover a loss only loses what they have.
-  if (ws.owner.type === 'character') {
-    const c = state.characters.find((x) => x.id === ws.owner.id);
-    if (c) {
-      if (profit < 0) profit = -Math.min(-profit, c.nyang);
-      c.nyang = r2(Math.max(0, c.nyang + profit));
-      ledger.players.push({ charId: c.id, ws: ws.id, profit });
-    }
-  } else if (ws.owner.type === 'faction') {
-    const f2 = C.faction(state, ws.owner.id);
-    if (f2) { if (profit < 0) profit = -Math.min(-profit, Math.max(0, f2.treasury)); f2.treasury = r2(f2.treasury + profit); }
-  } else {
-    r.coffers = r2(r.coffers + Math.max(0, profit)); // town-owned: profits stay in town
-  }
-  ws.lastRun = r2(f); ws.lastProfit = r2(profit); ws.totalProfit = r2(num(ws.totalProfit) + profit); ws.idle = f < 0.05;
-  if (t.security) r.security = r2(clamp(r.security + num(t.security) * lv * 0.1, 0, 100));
+  // A ruler never loses more than an idle building's retainer in a bad turn.
+  const profit = r2(Math.max(valueOut + service - costIn - wages, -num(t.upkeep) * 0.3 * lv));
+  const owner = C.faction(state, r.controller);
+  if (owner) {
+    const p = profit < 0 ? -Math.min(-profit, Math.max(0, owner.treasury)) : profit;
+    owner.treasury = r2(owner.treasury + p);
+    ledger.buildings[owner.id] = r2((ledger.buildings[owner.id] || 0) + p);
+  } else r.coffers = r2(r.coffers + Math.max(0, profit));
+  b.lastRun = r2(f); b.lastProfit = profit;
+}
+const isProducer = (t) => !!(t && (Object.keys(t.outputs || {}).length || num(t.service)));
+
+/** Taxes and tariffs go into the ruler's pending purse; the treasury receives it every `taxEveryTurns` turns. */
+function collectTax(state, fid, amount, ledger) {
+  const f = C.faction(state, fid);
+  if (!f || !(amount > 0)) return;
+  f.taxPending = r2(num(f.taxPending) + amount);
+  if (ledger) ledger.factionTax[f.id] = r2((ledger.factionTax[f.id] || 0) + amount);
 }
 
-function workshopSlots(state, r) {
-  return num(state.world.settings.workshopSlotsBase, 2) + Math.floor(num(r.population) / 25) + Math.floor(num(r.prosperity) / 34);
+/** Can merchants carry goods from market a into market b, and what tariff do they pay to b's ruler? */
+function border(state, a, b) {
+  const fa = state.world.regions[a]?.controller || null; const fb = state.world.regions[b]?.controller || null;
+  if (fa === fb) return { blocked: false, tariff: 0, payee: null };
+  if (fa && fb && (C.atWar(state, fa, fb) || C.embargo(state, fa, fb))) return { blocked: true, tariff: 0, payee: null };
+  if (!fb) return { blocked: false, tariff: 0, payee: null };
+  if (fa && C.hasPerk(state, fa, fb, 'freeTrade')) return { blocked: false, tariff: 0, payee: null };
+  return { blocked: false, tariff: num(state.world.settings.borderTariff, 5) / 100, payee: fb };
 }
 
 // ─────────── the turn ───────────
 /**
  * One economic turn for one market. Returns a small summary.
- * Order: modifiers → production → workshops → armies eat → households consume → spoilage → prices → society.
+ * Order: modifiers → production → production buildings → armies eat → households consume → spoilage → prices → society.
  */
 function tickRegion(state, key, ledger) {
   const w = state.world;
@@ -195,8 +203,12 @@ function tickRegion(state, key, ledger) {
     const response = clamp(Math.pow(idx, num(s.supplyResponse, 0.4)), 0.55, 1.3);
     r.stock[g.id] = r2(num(r.stock[g.id]) + base * pf * seasonal * response * C.mulFor(mods.production, g));
   }
-  // Workshops
-  for (const ws of r.workshops || []) runWorkshop(state, key, r, ws, mods, ledger);
+  // Production buildings
+  for (const b of r.buildings || []) {
+    if (b.status !== 'ready') continue;
+    const t = (w.buildingTypes || []).find((x) => x.id === b.typeId);
+    if (isProducer(t)) runBuilding(state, key, r, b, t, mods, ledger);
+  }
   // Armies standing here eat grain
   const an = armyNeeds(state, key);
   if (an.grain) {
@@ -252,12 +264,8 @@ function tickRegion(state, key, ledger) {
   r.last = { ...r.last, food: r2(food), staple: r2(staple), lux: r2(lux), income: r2(income), taxes: r2(taxes), spent: r2(spent), dP: r2(dP), growth: r2(growth), drag: r2(drag), sources: mods.sources, notes: mods.notes || [], caravanRisk: r2(num(mods.caravanRisk)), tariff: r2(num(mods.tariff)), noGuild: num(mods.noGuildCaravans) > 0, tradeValue: 0, trade: r2(trade) };
   r.history.push({ t: w.turn, p: r.prosperity, s: r.security, f: r2(food) });
   if (r.history.length > 60) r.history.splice(0, r.history.length - 60);
-  // Controller collects the taxes
-  const f = C.faction(state, r.occupiedBy || r.controller);
-  if (f) {
-    f.treasury = r2(f.treasury + taxes);
-    ledger.factionTax[f.id] = (ledger.factionTax[f.id] || 0) + taxes;
-  }
+  // Controller (or occupier) collects the taxes
+  collectTax(state, r.occupiedBy || r.controller, taxes, ledger);
   return { key, food, dP, mods };
 }
 
@@ -268,7 +276,7 @@ function tickRegion(state, key, ledger) {
  * smoothly over the map; the merchant caravans below handle big long-distance shipments.
  *   flow = rate × the amount that would make both markets equally stocked, paid by the buying market's coffers.
  */
-function peddlerTrade(state) {
+function peddlerTrade(state, ledger = null) {
   const w = state.world;
   const g2 = geo.graph(state);
   const share = num(w.settings.peddlerRate, 0.5);
@@ -281,13 +289,15 @@ function peddlerTrade(state) {
       seen.add(key);
       const ra = w.regions[a]; const rb = w.regions[b];
       if (!ra || !rb || embargoed(state, a, b)) continue;
-      const cost = 1 + 0.05 * Math.max(1, e.cost / 120);
+      const road = 1 + 0.05 * Math.max(1, e.cost / 120);
       for (const g of goods(state)) {
         const Ta = num(ra.targets[g.id], 3); const Tb = num(rb.targets[g.id], 3);
         const sa = num(ra.stock[g.id]) / Ta; const sb = num(rb.stock[g.id]) / Tb;
         let from = ra; let to = rb; let sf = sa; let st = sb;
         if (sb > sa) { from = rb; to = ra; sf = sb; st = sa; }
         if (sf < st * 1.15 + 0.05) continue;
+        const bd = border(state, from.key, to.key);
+        const cost = road + bd.tariff;
         const pf = num(from.prices[g.id], g.basePrice); const pt = num(to.prices[g.id], g.basePrice);
         if (pt < pf * cost) continue;
         // Move part of the way toward equal scarcity on both sides (rate 0.5 = half way each turn).
@@ -302,6 +312,7 @@ function peddlerTrade(state) {
         to.stock[g.id] = r2(num(to.stock[g.id]) + q * (1 - Math.min(0.5, raidRisk(state, to.key) / 3)));
         to.coffers = r2(to.coffers - paid);
         from.coffers = r2(from.coffers + q * pf);
+        if (bd.payee) collectTax(state, bd.payee, q * pf * bd.tariff, ledger);
         from.last.tradeValue = r2(num(from.last.tradeValue) + q * pf);
         to.last.tradeValue = r2(num(to.last.tradeValue) + paid);
         moved += paid;
@@ -320,9 +331,7 @@ function raidRisk(state, key, extra = 0) {
   return clamp(Math.max(0, 55 - r.security) / 300 + num(r.last?.caravanRisk) + extra, 0, 0.9);
 }
 function embargoed(state, a, b) {
-  const fa = state.world.regions[a]?.controller; const fb = state.world.regions[b]?.controller;
-  if (!fa || !fb || fa === fb) return false;
-  return C.atWar(state, fa, fb);
+  return border(state, a, b).blocked;
 }
 function dispatchNpcCaravans(state) {
   const w = state.world;
@@ -345,7 +354,7 @@ function dispatchNpcCaravans(state) {
         const surplus = num(rs.stock[g.id]) - num(rs.targets[g.id]) * 1.1;
         if (surplus <= 1) continue;
         if (embargoed(state, src, dest)) continue;
-        const margin = num(rd.prices[g.id]) - num(rs.prices[g.id]) * (1 + 0.06 * hops);
+        const margin = num(rd.prices[g.id]) - num(rs.prices[g.id]) * (1 + 0.06 * hops + border(state, src, dest).tariff);
         if (margin <= g.basePrice * 0.1) continue;
         const score = margin * Math.min(surplus, Td * 0.9 - sd) / hops;
         if (!best || score > best.score) best = { src, hops, surplus, margin, score };
@@ -372,7 +381,8 @@ function dispatchNpcCaravans(state) {
     rs.stock[o.good.id] = r2(num(rs.stock[o.good.id]) - qty);
     rs.coffers = r2(rs.coffers + buy);
     rs.last.tradeValue = r2(num(rs.last.tradeValue) + buy);
-    w.caravans.push({ id: newId('cv-'), npc: true, owner: guild ? { type: 'faction', id: guild.id } : { type: 'region', id: o.dest }, from: o.src, to: o.dest, path: rt.path, good: o.good.id, qty, cost: buy, departTurn: w.turn, arriveTurn: w.turn + caravanTurns(state, rt.distance), status: 'travelling' });
+    const bd = border(state, o.src, o.dest);
+    w.caravans.push({ id: newId('cv-'), npc: true, owner: guild ? { type: 'faction', id: guild.id } : { type: 'region', id: o.dest }, from: o.src, to: o.dest, path: rt.path, good: o.good.id, qty, cost: buy, tariff: bd.tariff, payee: bd.payee, departTurn: w.turn, arriveTurn: w.turn + caravanTurns(state, rt.distance), status: 'travelling' });
     perNode[o.dest] = (perNode[o.dest] || 0) + 1; perNode[`s:${o.src}`] = (perNode[`s:${o.src}`] || 0) + 1;
     sent++;
   }
@@ -411,13 +421,14 @@ function arriveNpcCaravans(state) {
     rd.coffers = r2(rd.coffers - pay);
     rd.stock[cv.good] = r2(num(rd.stock[cv.good]) + qty);
     rd.last.tradeValue = r2(num(rd.last.tradeValue) + pay);
+    if (cv.payee && cv.tariff) collectTax(state, cv.payee, pay * cv.tariff);
     // The guild keeps a share of the margin; the rest pays drivers, tolls and inns along the way.
     const profit = r2((pay - cv.cost) * num(w.settings.guildShare, 0.1));
     if (cv.owner?.type === 'faction') { const f = C.faction(state, cv.owner.id); if (f) f.treasury = r2(Math.max(0, f.treasury + profit)); }
     cv.status = lost >= 0.99 ? 'raided' : 'arrived'; cv.profit = profit;
     done.push(cv);
   }
-  w.caravans = w.caravans.filter((cv) => cv.status === 'travelling' || (!cv.npc && cv.status !== 'archived'));
+  w.caravans = w.caravans.filter((cv) => cv.status === 'travelling' || (!cv.npc && cv.status !== 'archived' && !(cv.auto && w.turn - num(cv.arriveTurn) > 8)));
   return done;
 }
 
@@ -543,8 +554,7 @@ function sellGood(state, c, goodId, qty) {
   return { ...q, key, item: it };
 }
 function payTariff(state, r, tax) {
-  const f = C.faction(state, r.occupiedBy || r.controller);
-  if (f && tax > 0) f.treasury = r2(f.treasury + tax);
+  collectTax(state, r.occupiedBy || r.controller, tax);
 }
 function refreshPrice(state, key, goodId) {
   const r = state.world.regions[key]; const g = good(state, goodId);
@@ -621,53 +631,6 @@ function settlePlayerCaravans(state, now = Date.now()) {
   return out;
 }
 
-// ─────────── players: workshops ───────────
-function ownedWorkshops(state, c) {
-  const out = [];
-  for (const [k, r] of Object.entries(state.world.regions)) for (const ws of r.workshops || []) if (ws.owner.type === 'character' && ws.owner.id === c.id) out.push({ key: k, ws });
-  return out;
-}
-function buildWorkshop(state, c, typeId) {
-  const key = requireAt(state, c);
-  const r = state.world.regions[key];
-  const t = workshopType(state, typeId);
-  if (!t) throw new UserError('Unknown workshop.');
-  if (ownedWorkshops(state, c).length >= num(state.world.settings.maxWorkshopsPerCharacter, 2)) throw new UserError(`You can own at most ${state.world.settings.maxWorkshopsPerCharacter} workshops.`);
-  if ((r.workshops || []).length >= workshopSlots(state, r)) throw new UserError(`${geo.label(state, key)} has no free workshop plots (${workshopSlots(state, r)}). Plots grow with population and prosperity — or buy an existing workshop.`);
-  if (t.requires?.terrains?.length && !t.requires.terrains.includes(r.terrain)) throw new UserError(`${t.name} needs ${t.requires.terrains.join(' / ')} land.`);
-  if (t.requires?.anyProduction?.length && !t.requires.anyProduction.some((g) => num(r.production[g]) > 0)) throw new UserError(`${t.name} needs a region that produces ${t.requires.anyProduction.join(' or ')}.`);
-  const cost = r2(t.cost * (0.7 + r.prosperity / 100 * 0.6));
-  if (c.nyang < cost) throw new UserError(`Building a ${t.name} here costs ${fmt(cost)} ${state.settings.currencyName}.`);
-  c.nyang = r2(c.nyang - cost);
-  r.coffers = r2(r.coffers + cost * 0.5);
-  const ws = { id: newId('ws-'), typeId, level: 1, owner: { type: 'character', id: c.id }, name: '', lastProfit: 0, lastRun: 1, totalProfit: 0, idle: false };
-  r.workshops.push(ws);
-  return { ws, key, cost };
-}
-function upgradeWorkshop(state, c, wsId) {
-  const found = ownedWorkshops(state, c).find((x) => x.ws.id === wsId);
-  if (!found) throw new UserError('That is not your workshop.');
-  if (found.ws.level >= 3) throw new UserError('Already at the highest level.');
-  const t = workshopType(state, found.ws.typeId);
-  const cost = r2(t.cost * (found.ws.level === 1 ? 0.9 : 1.2));
-  if (c.nyang < cost) throw new UserError(`Upgrading costs ${fmt(cost)} ${state.settings.currencyName}.`);
-  c.nyang = r2(c.nyang - cost);
-  found.ws.level += 1;
-  return { ...found, cost };
-}
-function sellWorkshop(state, c, wsId) {
-  const found = ownedWorkshops(state, c).find((x) => x.ws.id === wsId);
-  if (!found) throw new UserError('That is not your workshop.');
-  const t = workshopType(state, found.ws.typeId);
-  const r = state.world.regions[found.key];
-  const value = r2(t.cost * (found.ws.level === 1 ? 0.5 : found.ws.level === 2 ? 0.9 : 1.4) * (0.6 + r.prosperity / 100 * 0.6));
-  const paid = r2(Math.min(value, r.coffers));
-  r.coffers = r2(r.coffers - paid);
-  c.nyang = r2(c.nyang + paid);
-  found.ws.owner = { type: 'region', id: '' };
-  return { ...found, paid };
-}
-
 // ─────────── shops (server shop + sect shops) ───────────
 /** Dynamic price of an item for a buyer: items linked to a good move with that good's local price (bounded). */
 function dynamicItemPrice(state, item, basePrice, c) {
@@ -738,9 +701,8 @@ function buyFromSectShop(state, c, factionId, itemId, qty) {
 
 module.exports = {
   LEVEL_MULT, goods, good, prosperityFactor, popDemand, targetsFor, unitPrice, updatePrices, priceIndex, initMarkets,
-  workshopType, workshopSlots, tickRegion, peddlerTrade, dispatchNpcCaravans, arriveNpcCaravans, raidRisk, embargoed, armyMen, journeyLoss, banditsTake,
+  buildingNeeds, runBuilding, isProducer, collectTax, border, tickRegion, peddlerTrade, dispatchNpcCaravans, arriveNpcCaravans, raidRisk, embargoed, armyMen, journeyLoss, banditsTake,
   locationOf, travelInfo, startTravel, settleTravel, isTravelling, requireAt,
   tariffFor, quote, itemForGood, buyGood, sellGood, sendCaravan, settlePlayerCaravans,
-  ownedWorkshops, buildWorkshop, upgradeWorkshop, sellWorkshop,
   dynamicItemPrice, shopTerms, sectShopOffers, buyFromSectShop, caravanTurns,
 };

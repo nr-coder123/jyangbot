@@ -3,10 +3,13 @@
  * Balance formulas for staff (World → Balance) and sect recommendations for new players.
  *
  * ① Power Index (PI) — each faction's share of the server's total power, from four pillars:
- *      Military    = Σ army strength (men × average of attack & defence × morale) + Σ champion power of members
- *      Economy     = Σ controlled regions (population × prosperity ÷ 100) + treasury ÷ 50 + workshop profits × 10
+ *      Military    = Σ army strength (men × average of attack & defence × morale) + the sect's own disciples
+ *                    (baseDisciples + members by realm worth, each worth one Sect Disciple soldier)
+ *      Economy     = Σ controlled regions (population × prosperity ÷ 100) + treasury ÷ 50 + building profits × 10
  *      Politics    = 10 per region ruled + 20 per agreement + 30 per other member of its alliance + 50
- *      Cultivation = Σ members (stat total × realm multiplier)
+ *      Cultivation = martial strength in sect-disciple equivalents: baseDisciples (every sect has unnamed disciples)
+ *                    + Disciple troops in its armies + Σ members' realm worth (3rd Rate 1, 2nd 2, 1st 5, Expert 12, Master 30,
+ *                    Peak 75, … — editable). One 3rd Rate player is one disciple among hundreds, not a superpower.
  *    PI = 0.35·Military share + 0.30·Economy share + 0.20·Politics share + 0.15·Cultivation share   (weights editable)
  * ② Balance — fair share = 1 ÷ number of factions.  Each faction's gap = PI − fair share.
  *      HHI (Herfindahl) = Σ PI²: equal to the fair share when perfectly balanced; above 0.25 one faction dominates.
@@ -24,16 +27,23 @@ function pillars(state, f) {
   const w = state.world;
   const mem = C.members(state, f);
   const armies = w.armies.filter((a) => a.factionId === f.id && a.status !== 'disbanded');
-  const military = armies.reduce((s, a) => s + M.armyStrength(state, a), 0) + mem.filter((c) => !M.isNonCombatant(state, c)).reduce((s, c) => s + M.championPower(state, c), 0);
+  const set = w.settings;
+  const worth = (c) => num((set.realmWorth || [])[c.realm], 1);
+  const sectLike = ['sect', 'clan', 'palace', 'cult'].includes(f.kind);
+  const base = sectLike ? num(set.baseDisciples, 300) : 0;
+  const disciples = armies.reduce((s, a) => s + num(a.units?.disciples), 0);
+  const fighters = mem.filter((c) => !M.isNonCombatant(state, c)).reduce((s, c) => s + worth(c), 0);
+  const disc = M.unitType(state, 'disciples');
+  const perDisciple = disc ? (num(disc.attack) + num(disc.defense)) / 2 * 0.85 : 7;
+  const military = armies.reduce((s, a) => s + M.armyStrength(state, a), 0) + (base + fighters) * perDisciple;
   const regions = C.controlled(state, f.id);
   let wsProfit = 0;
-  for (const r of Object.values(w.regions)) for (const ws of r.workshops || []) if (ws.owner.type === 'faction' && ws.owner.id === f.id) wsProfit += Math.max(0, num(ws.lastProfit));
+  for (const r of regions) for (const b of r.buildings || []) wsProfit += Math.max(0, num(b.lastProfit));
   const economy = regions.reduce((s, r) => s + num(r.population) * num(r.prosperity) / 100, 0) + num(f.treasury) / 50 + wsProfit * 10;
   const agreements = (w.agreements || []).filter((t) => t.parties.includes(f.id)).length;
   const al = C.allianceOf(state, f.id);
   const politics = regions.length * 10 + agreements * 20 + (al ? (al.members.length - 1) * 30 : 0) + 50;
-  const mult = w.settings.championRealmMult || [];
-  const cultivation = mem.reduce((s, c) => s + (num(c.stats?.strength) + num(c.stats?.endurance) + num(c.stats?.mobility)) * num(mult[c.realm], 1), 0);
+  const cultivation = base + disciples + mem.reduce((s, c) => s + worth(c), 0);
   return { military: r2(military), economy: r2(economy), politics: r2(politics), cultivation: r2(cultivation), members: mem.length, regions: regions.length, armies: armies.length, men: armies.reduce((s, a) => s + M.men(a), 0) };
 }
 

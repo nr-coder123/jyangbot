@@ -1,7 +1,7 @@
 'use strict';
 /**
  * /world — the map, the economy, politics and war, as one panel with tabs:
- *   Region · Market · Caravans · Workshops · Politics · War
+ *   Region · Market · Realm · War (· Caravans when players may send their own)
  *
  * Custom ids:  w:<v|a|s>:<viewer>:<name>[:<arg>[:<arg2>]]      (view / action / select)
  *              wm:<modal>:<viewer>[:<arg>[:<arg2>]]
@@ -23,10 +23,10 @@ const st = () => store.state;
 
 const cmd = new SlashCommandBuilder()
   .setName('world')
-  .setDescription('The Murim world: your region, its market, caravans, workshops, politics and war')
+  .setDescription('The Murim world: your region, its market, your realm and war')
   .addStringOption((o) => o.setName('tab').setDescription('Open on this tab').addChoices(
     { name: 'Region', value: 'region' }, { name: 'Market', value: 'market' }, { name: 'Caravans', value: 'caravans' },
-    { name: 'Workshops', value: 'workshops' }, { name: 'Realm', value: 'politics' }, { name: 'War', value: 'war' },
+    { name: 'Realm', value: 'politics' }, { name: 'War', value: 'war' },
   ))
   .addStringOption((o) => o.setName('region').setDescription('Look at another region').setAutocomplete(true))
   .addBooleanOption((o) => o.setName('public').setDescription('Show it in the channel'));
@@ -67,23 +67,15 @@ const here = (c) => geo.marketOf(st(), E.locationOf(st(), c));
 
 function navRow(ctx, active) {
   const b = (view, key) => btn(cid('v', ctx, view), key, { style: view === active ? ButtonStyle.Primary : ButtonStyle.Secondary });
-  return row(b('region', 'wRegion'), b('market', 'wMarket'), st().world.settings.playerCaravans ? b('caravans', 'wCaravans') : null, b('workshops', 'wWorkshops'), b('politics', 'wPolitics'));
+  return row(b('region', 'wRegion'), b('market', 'wMarket'), st().world.settings.playerCaravans ? b('caravans', 'wCaravans') : null, b('politics', 'wPolitics'));
 }
 const warRow = (ctx, active) => row(btn(cid('v', ctx, 'war'), 'wWar', { style: active === 'war' ? ButtonStyle.Primary : ButtonStyle.Secondary }));
 
-/** Markets near `from`, nearest first, as select options with travel time. */
-function nearbyOptions(c, from, { exclude = [], hoursPer = 'travelHoursPer100' } = {}) {
+/** Markets near `from`, nearest first, as select options. */
+function nearbyOptions(c, from, { exclude = [] } = {}) {
   const s = st();
-  const list = [...geo.within(s, from, 6).entries()].filter(([k]) => !exclude.includes(k)).map(([k, hops]) => {
-    const rt = geo.route(s, from, k);
-    return { k, hops, h: rt ? rt.distance / 100 * num(s.world.settings[hoursPer], 1.5) : 0 };
-  }).sort((a, b) => a.h - b.h);
-  const rp = T.channelMode(s);
-  return list.slice(0, 25).map((x) => {
-    const trip = rp ? T.rpTravel(s, from, x.k) : null;
-    const how = trip ? `${fmt(trip.km)} km · ~${trip.days[0]?.days} d ${trip.days[0]?.label.toLowerCase()}` : `~${fmt(Math.round(x.h * 10) / 10)} h`;
-    return { label: geo.fullLabel(s, x.k), value: x.k, description: `${x.hops} stage(s) · ${how} · prosperity ${Math.round(s.world.regions[x.k].prosperity)}` };
-  });
+  const list = [...geo.within(s, from, 6).entries()].filter(([k]) => !exclude.includes(k)).sort((a, b) => a[1] - b[1]);
+  return list.slice(0, 25).map(([k]) => ({ label: geo.fullLabel(s, k), value: k, description: `${C.faction(s, s.world.regions[k].controller)?.name || 'unclaimed'} · prosperity ${Math.round(s.world.regions[k].prosperity)}` }));
 }
 
 // ---------- views ----------
@@ -95,15 +87,7 @@ VIEWS.region = (ctx, key) => {
   key = key ? geo.marketOf(s, key) : ctx.channelRegion && geo.marketOf(s, ctx.channelRegion) !== loc ? geo.marketOf(s, ctx.channelRegion) : loc;
   const p = WP.regionPanel(key, c);
   const rows = [navRow(ctx, 'region'), warRow(ctx)];
-  if (ctx.isOwner) {
-    rows[1] = row(
-      btn(cid('v', ctx, 'war'), 'wWar'),
-      key !== loc && !E.isTravelling(c) ? btn(cid('a', ctx, 'travel', key), 'wTravel', { style: ButtonStyle.Success, label: T.channelMode(s) ? 'Go here (RP)' : `Travel here (~${fmt(Math.round(E.travelInfo(s, c, key).hours * 10) / 10)} h)` }) : null,
-      key !== loc ? btn(cid('v', ctx, 'region', loc), 'back', { label: 'Where I am' }) : null,
-      E.isTravelling(c) ? btn(cid('a', ctx, 'stoptravel'), 'cancel', { label: 'Turn back' }) : null,
-    );
-    rows.push(row(select(cid('s', ctx, 'look'), '🔭 Look at a nearby region…', nearbyOptions(c, key, { exclude: [key] }))));
-  }
+  if (ctx.isOwner) rows.push(row(select(cid('s', ctx, 'look'), 'Look at another region…', nearbyOptions(c, key, { exclude: [key] }))));
   return { ...p, components: rows };
 };
 
@@ -153,38 +137,6 @@ VIEWS.cvdest = (ctx, gid) => {
   };
 };
 
-VIEWS.workshops = (ctx) => {
-  const s = st(); const { c } = ctx;
-  const key = here(c);
-  const p = WP.workshopsPanel(key, c);
-  const mine = E.ownedWorkshops(s, c);
-  const types = s.world.workshopTypes.map((t) => { const l = WP.workshopTypeLine(s, t, key); return { label: `${t.name} — ${l.cost} ${s.settings.currencyName}`, value: t.id, emoji: t.emoji, description: l.text }; });
-  return {
-    ...p,
-    components: [navRow(ctx, 'workshops'),
-      ctx.isOwner && !E.isTravelling(c) ? row(select(cid('s', ctx, 'wsbuild'), `🏗️ Build a workshop in ${WP.regionName(key)}…`, types)) : null,
-      ctx.isOwner && mine.length ? row(select(cid('s', ctx, 'wsmine'), '🔧 Manage one of yours…', mine.map(({ key: k, ws }) => ({ label: `${s.world.workshopTypes.find((t) => t.id === ws.typeId)?.name} Lv ${ws.level} — ${WP.regionName(k)}`, value: ws.id, description: `last turn ${fmt(ws.lastProfit)}` })))) : null,
-      warRow(ctx)].filter(Boolean),
-  };
-};
-
-VIEWS.wsmanage = (ctx, wsId) => {
-  const s = st(); const { c } = ctx;
-  const found = E.ownedWorkshops(s, c).find((x) => x.ws.id === wsId);
-  if (!found) return VIEWS.workshops(ctx);
-  const t = s.world.workshopTypes.find((x) => x.id === found.ws.typeId);
-  const up = Math.round(t.cost * (found.ws.level === 1 ? 0.9 : 1.2));
-  return {
-    content: `${t.emoji} **${t.name}** Lv ${found.ws.level} in **${WP.regionName(found.key)}** — last turn ${fmt(found.ws.lastProfit)}, total ${fmt(found.ws.totalProfit)}.\n-# ${t.description}`,
-    embeds: [],
-    components: [navRow(ctx, 'workshops'), row(
-      btn(cid('a', ctx, 'wsup', wsId), 'wBuild', { style: ButtonStyle.Success, disabled: found.ws.level >= 3, label: found.ws.level >= 3 ? 'Max level' : `Upgrade (${up})` }),
-      btn(cid('a', ctx, 'wssell', wsId), 'cancel', { style: ButtonStyle.Danger, label: 'Sell to the town' }),
-      btn(cid('v', ctx, 'workshops'), 'back'),
-    )],
-  };
-};
-
 // ---------- realm (CK3-style: one screen, simple choices) ----------
 const realmOf = (ctx) => C.factionOfChar(st(), ctx.c);
 const levelFor = (ctx, f, power) => R.powerLevel(st(), f, ctx.c, ctx.member, power);
@@ -230,13 +182,15 @@ function dipOptions(ctx, f, to) {
   const add = (value, label, power, description) => { const lv = levelFor(ctx, f, power); if (lv !== 'none') out.push({ value, label: label + tag(lv), description }); };
   const war = C.warBetween(s, f.id, to.id);
   const myAl = C.allianceOf(s, f.id); const theirAl = C.allianceOf(s, to.id);
-  if (!war) add('agreement', 'Offer an agreement', 'diplomacy', 'Military access, free trade, shared shops, pacts, tribute…');
+  if (!war) add('agreement', 'Offer an agreement', 'diplomacy', 'Free trade (merchants trade for you), access, pacts, tribute…');
   add('marriage', 'Propose a political marriage', 'diplomacy', 'One character from each side');
   if (myAl && !myAl.members.includes(to.id)) add('alliance-invite', `Invite them into the ${myAl.name}`, 'alliance');
   if (theirAl && theirAl !== myAl) add('alliance-join', `Ask to join the ${theirAl.name}`, 'alliance');
   if (!myAl && !theirAl) add('alliance-found', 'Found an alliance together', 'alliance');
   if (war) add('peace', 'Offer peace', 'war', war.name); else add('war', 'Declare war', 'war', C.hasPerk(s, f.id, to.id, 'nonAggression') ? 'Not possible: non-aggression pact' : 'Allies with pacts may join');
   add('gift', 'Send money', 'treasury', 'From the treasury');
+  if (f.embargoes.includes(to.id)) add('lift-embargo', 'Lift the embargo', 'diplomacy', 'Let merchants trade with them again');
+  else if (!war) add('embargo', 'Embargo', 'diplomacy', 'Close your markets to them: no trade between your lands');
   for (const t of C.agreementsBetween(s, f.id, to.id)) add(`end:${t.id}`, `End: ${t.name}`.slice(0, 90), 'diplomacy', D.perkText(t).slice(0, 100));
   return out;
 }
@@ -279,7 +233,7 @@ VIEWS.build = (ctx) => {
   if (lv !== 'none' && p.lands.length) {
     rows.push(row(select(cid('s', ctx, 'bdtype'), `Build…${tag(lv)}`, s.world.buildingTypes.map((t) => ({ label: `${t.name} — ${t.cost}`, value: t.id, description: t.description.slice(0, 100) })))));
     const existing = p.lands.flatMap((r) => (r.buildings || []).map((b) => ({ r, b })));
-    if (existing.length) rows.push(row(select(cid('s', ctx, 'bdmanage'), 'Repair or pull down…', existing.flatMap(({ r, b }) => { const t = R.buildingType(s, b.typeId); return [b.hp < 100 ? { label: `Repair ${t?.name} in ${WP.regionName(r.key)} — ${Math.round(R.repairCost(s, r.key, b.id))}`.slice(0, 100), value: `repair|${r.key}|${b.id}` } : null, { label: `Pull down ${t?.name} in ${WP.regionName(r.key)}`.slice(0, 100), value: `demolish|${r.key}|${b.id}` }].filter(Boolean); }))));
+    if (existing.length) rows.push(row(select(cid('s', ctx, 'bdmanage'), 'Upgrade, repair or pull down…', existing.flatMap(({ r, b }) => { const t = R.buildingType(s, b.typeId); return [b.status === 'ready' && b.level < num(t?.maxLevel, 1) ? { label: `Upgrade ${t?.name} in ${WP.regionName(r.key)} to Lv ${b.level + 1} — ${Math.round(R.upgradeCost(s, r.key, b.id))}`.slice(0, 100), value: `upgrade|${r.key}|${b.id}` } : null, b.hp < 100 ? { label: `Repair ${t?.name} in ${WP.regionName(r.key)} — ${Math.round(R.repairCost(s, r.key, b.id))}`.slice(0, 100), value: `repair|${r.key}|${b.id}` } : null, { label: `Pull down ${t?.name} in ${WP.regionName(r.key)}`.slice(0, 100), value: `demolish|${r.key}|${b.id}` }].filter(Boolean); }).slice(0, 25))));
   }
   rows.push(backRow(ctx));
   return { embeds: p.embeds, components: rows.filter(Boolean) };
@@ -430,12 +384,6 @@ async function onComponent(i) {
           input('escort', 'Hire an escort? (yes / no)', { value: 'no', required: false }),
         ));
       }
-      case 'wsbuild': {
-        const r = E.buildWorkshop(s, c, v);
-        log(i, 'world.workshop', `${c.name} built a ${v} in ${geo.label(s, r.key)} for ${r.cost}`);
-        return i.update(render(ctx, 'workshops', null, `🏗️ You built a **${s.world.workshopTypes.find((t) => t.id === v)?.name}** in **${WP.regionName(r.key)}** for ${fmt(r.cost)}. It runs every turn.`));
-      }
-      case 'wsmine': return i.update(render(ctx, 'wsmanage', v));
       case 'realm': {
         if (v === 'stipend') {
           const f = repOf(s, c, ctx.member);
@@ -455,6 +403,7 @@ async function onComponent(i) {
         const to = C.faction(s, arg);
         if (v === 'agreement') return i.update(render(ctx, 'perks', arg));
         if (v.startsWith('end:')) return i.update(render(ctx, 'dipwith', arg, await act(i, ctx, 'end-agreement', { agreementId: v.slice(4) })));
+        if (v === 'embargo' || v === 'lift-embargo') return i.update(render(ctx, 'dipwith', arg, await act(i, ctx, v, { target: arg })));
         if (v === 'alliance-invite') return i.update(render(ctx, 'dipwith', arg, await act(i, ctx, 'offer', { kind: 'alliance-invite', to: arg, payload: { allianceId: C.allianceOf(s, C.factionOfChar(s, c).id)?.id } })));
         if (v === 'alliance-join') return i.update(render(ctx, 'dipwith', arg, await act(i, ctx, 'offer', { kind: 'alliance-join', to: arg, payload: { allianceId: C.allianceOf(s, arg)?.id } })));
         const forms = {
@@ -529,7 +478,7 @@ async function onComponent(i) {
         if (!a) throw new UserError('Army not found.');
         const f = C.faction(s, a.factionId);
         if (C.factionOfChar(s, c)?.id !== f.id || (a.commanderId !== c.id && R.powerLevel(s, f, c, ctx.member, 'army') === 'none')) throw new UserError('You do not command this army.');
-        if (name === 'march') { const rt = M.marchTo(s, a, v); log(i, 'world.army', `${a.name} marches to ${geo.label(s, v)}`); return i.update(render(ctx, 'army', a.id, `🚩 Marching to **${WP.regionName(v)}** — ${rt.hops} stage(s); armies move on each world turn.`)); }
+        if (name === 'march') { const rt = M.marchTo(s, a, v); log(i, 'world.army', `${a.name} marches to ${geo.label(s, v)}`); return i.update(render(ctx, 'army', a.id, `Marching to **${WP.regionName(v)}** — ${rt.hops} stage(s), about ${rt.turns} turn(s). Scouts and disciples in the army speed up the march.`)); }
         const fm = M.formation(s, v); a.formationId = v; return i.update(render(ctx, 'army', a.id, `${fm.emoji || '🧭'} Formation set to **${fm.name}**.`));
       }
       default: throw new UserError('Unknown menu.');
@@ -537,31 +486,11 @@ async function onComponent(i) {
   }
   // actions
   switch (name) {
-    case 'travel': {
-      const r = E.startTravel(s, c, arg);
-      log(i, 'world.travel', `${c.name}: ${geo.label(s, r.from)} → ${geo.label(s, arg)} (${r.hours} h)`);
-      return i.update(render(ctx, 'region', arg, r.instant ? `📍 You are now in **${WP.regionName(arg)}**.${r.rp ? `\n-# The journey from ${WP.regionName(r.from)}: ${r.rp.text}. Role-play it however you like — nobody waits.` : ''}` : `🧭 You set out for **${WP.regionName(arg)}** — ${r.hops} stage(s), about ${fmt(r.hours)} h. You can't trade at a market while on the road.`));
-    }
-    case 'stoptravel': {
-      if (!E.isTravelling(c)) throw new UserError('You are not travelling.');
-      c.travel = null;
-      return i.update(render(ctx, 'region', null, `↩️ You turn back and stay in **${WP.regionName(here(c))}**.`));
-    }
     case 'buy': case 'sell': {
       const g = E.good(s, arg); const it = E.itemForGood(s, arg);
       return i.showModal(new ModalBuilder().setCustomId(['wm', name, viewer, arg].join(':')).setTitle(truncate(`${name === 'buy' ? 'Buy' : 'Sell'} ${g.name}`, 45)).addComponents(
         input('qty', name === 'buy' ? `How many? (${Math.floor(num(s.world.regions[here(c)].stock[arg]))} in the market)` : `How many? (you have ${num(c.inventory[it?.id])})`, { value: name === 'sell' ? String(num(c.inventory[it?.id])) : '10' }),
       ));
-    }
-    case 'wsup': {
-      const r = E.upgradeWorkshop(s, c, arg);
-      log(i, 'world.workshop', `${c.name} upgraded a workshop to Lv ${r.ws.level} for ${r.cost}`);
-      return i.update(render(ctx, 'wsmanage', arg, `⬆️ Upgraded to level ${r.ws.level} for ${fmt(r.cost)}.`));
-    }
-    case 'wssell': {
-      const r = E.sellWorkshop(s, c, arg);
-      log(i, 'world.workshop', `${c.name} sold a workshop for ${r.paid}`);
-      return i.update(render(ctx, 'workshops', null, `💰 Sold for ${fmt(r.paid)}.`));
     }
     case 'cmd': {
       const a = M.army(s, arg); const f = a && C.faction(s, a.factionId);
