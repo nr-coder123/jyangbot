@@ -432,60 +432,16 @@ function arriveNpcCaravans(state) {
   return done;
 }
 
-// ─────────── players: location & travel ───────────
+// ─────────── where a character is (only used to pick which region /world shows first) ───────────
 function locationOf(state, c) {
   if (c.location && geo.get(c.location)) return c.location;
   const f = C.factionOfChar(state, c);
   return (f && f.hq && geo.get(f.hq) && f.hq) || state.world.settings.startRegion || '河南';
 }
-function travelInfo(state, c, to) {
-  const from = locationOf(state, c);
-  const rt = geo.route(state, from, to);
-  if (!rt) throw new UserError(`There is no road from ${geo.label(state, from)} to ${geo.label(state, to)}.`);
-  const hours = r2(rt.distance / 100 * num(state.world.settings.travelHoursPer100, 1.5));
-  return { from, to, ...rt, hours };
-}
-function startTravel(state, c, to) {
-  if (c.travel && Date.parse(c.travel.arriveAt) > Date.now()) throw new UserError(`You are already travelling to **${geo.label(state, c.travel.to)}** (arrive <t:${Math.floor(Date.parse(c.travel.arriveAt) / 1000)}:R>).`);
-  if (!geo.get(to)) throw new UserError('Unknown destination.');
-  const info = travelInfo(state, c, to);
-  // Text RP: by default nobody waits — you simply are where you post. The trip is only described.
-  if ((state.world.settings.travelMode || 'channel') === 'channel') { c.location = to; c.travel = null; return { ...info, instant: true, rp: require('./territory').rpTravel(state, info.from, to) }; }
-  if (info.hops === 0 && geo.marketOf(state, to) === geo.marketOf(state, info.from)) { c.location = to; c.travel = null; return { ...info, instant: true }; }
-  const now = Date.now();
-  c.travel = { from: info.from, to, path: info.path, departAt: new Date(now).toISOString(), arriveAt: new Date(now + info.hours * 3600000).toISOString() };
-  if (info.hours <= 0) { c.location = to; c.travel = null; return { ...info, instant: true }; }
-  return info;
-}
-/** Finish travels that have arrived. Returns characters that arrived. */
-function settleTravel(state, now = Date.now()) {
-  const arrived = [];
-  for (const c of state.characters) {
-    if (c.travel && Date.parse(c.travel.arriveAt) <= now) { c.location = c.travel.to; c.travel = null; arrived.push(c); }
-  }
-  return arrived;
-}
-const isTravelling = (c) => !!(c.travel && Date.parse(c.travel.arriveAt) > Date.now());
-function requireAt(state, c) {
-  if (isTravelling(c)) throw new UserError(`You are on the road to **${geo.label(state, c.travel.to)}** — you arrive <t:${Math.floor(Date.parse(c.travel.arriveAt) / 1000)}:R>.`);
-  return geo.marketOf(state, locationOf(state, c));
-}
 
-// ─────────── players: market trade ───────────
-function tariffFor(state, key, c) {
-  const w = state.world;
-  const r = w.regions[key];
-  const f = C.factionOfChar(state, c);
-  let t = num(w.settings.baseTariff, 3) + num(r.last?.tariff);
-  if (f && r.controller) {
-    if (f.id === r.controller) t = 0;
-    else if (C.hasPerk(state, f.id, r.controller, 'freeTrade')) t = Math.min(t, 0);
-    if (C.atWar(state, f.id, r.controller)) throw new UserError(`**${geo.label(state, key)}** is held by ${C.faction(state, r.controller)?.name}, who are at war with your faction. The market won't deal with you.`);
-  }
-  return Math.max(0, t);
-}
+// ─────────── market quotes (merchant houses and guild caravans) ───────────
 /** Price for buying (side 'buy') or selling ('sell') qty units, walking the price as stock changes. */
-function quote(state, key, goodId, qty, side, c) {
+function quote(state, key, goodId, qty, side) {
   const w = state.world;
   const r = w.regions[key];
   const g = good(state, goodId);
@@ -499,136 +455,16 @@ function quote(state, key, goodId, qty, side, c) {
     if (side === 'buy') { total += unitPrice(state, r, g, stock); stock -= 1; } else { stock += 1; total += unitPrice(state, r, g, stock); }
   }
   const spread = num(w.settings.spread, 8) / 200;
-  const tariff = c ? tariffFor(state, key, c) / 100 : 0;
-  const gross = side === 'buy' ? total * (1 + spread) : total * (1 - spread);
-  const tax = gross * tariff;
-  const final = r2(side === 'buy' ? gross + tax : gross - tax);
-  return { qty, total: final, each: r2(final / qty), tariff: r2(tariff * 100), tax: r2(tax), coffers: r.coffers };
+  const final = r2(side === 'buy' ? total * (1 + spread) : total * (1 - spread));
+  return { qty, total: final, each: r2(final / qty), coffers: r.coffers };
 }
 function itemForGood(state, goodId) {
   const g = good(state, goodId);
   return state.items.find((i) => i.tradeGood === goodId) || (g?.itemId && state.items.find((i) => i.id === g.itemId)) || null;
 }
-function buyGood(state, c, goodId, qty) {
-  if (!state.world.settings.playerMarketBuy) throw new UserError('Province markets sell to merchants and caravans, not to wandering martial artists. (Staff can allow it in World settings.)');
-  const key = requireAt(state, c);
-  const it = itemForGood(state, goodId);
-  if (!it) throw new UserError('This good has no inventory item yet. Staff can create it in the dashboard (World → Economy → "Create good items").');
-  const q = quote(state, key, goodId, qty, 'buy', c);
-  checkTradeCap(state, c, q.total);
-  if (c.nyang < q.total) throw new UserError(`You need ${fmt(q.total)} ${state.settings.currencyName} (you have ${fmt(c.nyang)}).`);
-  const r = state.world.regions[key];
-  c.nyang = r2(c.nyang - q.total);
-  r.stock[goodId] = r2(num(r.stock[goodId]) - q.qty);
-  r.coffers = r2(r.coffers + q.total - q.tax);
-  payTariff(state, r, q.tax);
-  c.inventory[it.id] = (c.inventory[it.id] || 0) + q.qty;
-  r.last.tradeValue = r2(num(r.last.tradeValue) + q.total);
-  require('./territory').noteTrade(state, c, q.total);
-  refreshPrice(state, key, goodId);
-  return { ...q, key, item: it };
-}
-/** Each character can only move so much money through the markets per turn (stops arbitrage farming). */
-function checkTradeCap(state, c, value) {
-  const room = require('./territory').tradeRoom(state, c);
-  if (value > room) throw new UserError(room <= 0 ? `You've traded as much as one merchant can this turn (${fmt(state.world.settings.maxTradePerTurn)} ${state.settings.currencyName}). The next turn starts <t:${Math.floor(Date.parse(state.world.nextTurnAt || new Date().toISOString()) / 1000)}:R>.` : `That's more than you can still trade this turn — about ${fmt(room)} ${state.settings.currencyName} left.`);
-}
-function sellGood(state, c, goodId, qty) {
-  if (state.world.settings.playerMarketSell === false) throw new UserError('Selling to province markets is turned off (World settings).');
-  const key = requireAt(state, c);
-  const it = itemForGood(state, goodId);
-  if (!it || (c.inventory[it.id] || 0) < qty) throw new UserError(`You don't have ${qty} ${good(state, goodId)?.name || goodId}.`);
-  const r = state.world.regions[key];
-  const q = quote(state, key, goodId, qty, 'sell', c);
-  checkTradeCap(state, c, q.total);
-  if (r.coffers < q.total) throw new UserError(`The merchants of ${geo.label(state, key)} only have ${fmt(r.coffers)} ${state.settings.currencyName} left to buy with this turn. Sell fewer, or try another market.`);
-  c.inventory[it.id] -= q.qty;
-  if (c.inventory[it.id] <= 0) delete c.inventory[it.id];
-  c.nyang = r2(c.nyang + q.total);
-  r.stock[goodId] = r2(num(r.stock[goodId]) + q.qty);
-  r.coffers = r2(r.coffers - q.total - q.tax);
-  payTariff(state, r, q.tax);
-  r.last.tradeValue = r2(num(r.last.tradeValue) + q.total);
-  require('./territory').noteTrade(state, c, q.total);
-  refreshPrice(state, key, goodId);
-  return { ...q, key, item: it };
-}
-function payTariff(state, r, tax) {
-  collectTax(state, r.occupiedBy || r.controller, tax);
-}
 function refreshPrice(state, key, goodId) {
   const r = state.world.regions[key]; const g = good(state, goodId);
   r.prices[goodId] = r2(unitPrice(state, r, g, num(r.stock[goodId])));
-}
-
-// ─────────── players: caravans ───────────
-function sendCaravan(state, c, to, goodId, qty, { escort = false, sell = true } = {}) {
-  const w = state.world; const s = w.settings;
-  if (!s.playerCaravans) throw new UserError('Caravans are run by trade factions, not by single characters (World settings → Player caravans).');
-  const from = requireAt(state, c);
-  const dest = geo.marketOf(state, to);
-  if (dest === from) throw new UserError('Pick a different market.');
-  const active = w.caravans.filter((x) => !x.npc && x.owner.id === c.id && x.status === 'travelling').length;
-  if (active >= num(s.maxPlayerCaravans, 2)) throw new UserError(`You already have ${active} caravans on the road (max ${s.maxPlayerCaravans}).`);
-  const g = good(state, goodId);
-  const it = itemForGood(state, goodId);
-  qty = Math.floor(num(qty));
-  if (!g || !it) throw new UserError('Unknown good.');
-  if (qty < 1 || (c.inventory[it.id] || 0) < qty) throw new UserError(`You don't have ${qty} ${g.name}.`);
-  const cap = num(s.caravanCapacity, 120) / Math.max(0.5, num(g.weight, 1));
-  if (qty > cap) throw new UserError(`A caravan carries at most ${Math.floor(cap)} ${g.name}.`);
-  const rt = geo.route(state, from, dest);
-  if (!rt) throw new UserError('No road there.');
-  const value = qty * num(w.regions[from].prices[goodId], g.basePrice);
-  const fee = r2(qty * 0.4 * rt.hops + (escort ? value * num(s.escortCost, 0.08) : 0));
-  if (c.nyang < fee) throw new UserError(`Hiring the caravan${escort ? ' and an escort' : ''} costs ${fmt(fee)} ${state.settings.currencyName}.`);
-  c.nyang = r2(c.nyang - fee);
-  c.inventory[it.id] -= qty;
-  if (c.inventory[it.id] <= 0) delete c.inventory[it.id];
-  const hours = r2(rt.distance / 100 * num(s.caravanHoursPer100, 2));
-  const cv = { id: newId('cv-'), npc: false, owner: { type: 'character', id: c.id }, ownerUserId: c.ownerId, from, to: dest, path: rt.path, good: goodId, qty, fee, escort: !!escort, sell, departAt: new Date().toISOString(), arriveAt: new Date(Date.now() + hours * 3600000).toISOString(), status: 'travelling', risk: r2(rt.path.slice(1).reduce((a, k) => 1 - (1 - a) * (1 - raidRisk(state, k, escort ? -0.15 : 0)), 0)) };
-  w.caravans.push(cv);
-  return { cv, hours, fee, route: rt };
-}
-/** Player caravans whose time has come. Returns results for notifications. */
-function settlePlayerCaravans(state, now = Date.now()) {
-  const w = state.world;
-  const out = [];
-  for (const cv of w.caravans) {
-    if (cv.npc || cv.status !== 'travelling' || Date.parse(cv.arriveAt) > now) continue;
-    const c = state.characters.find((x) => x.id === cv.owner.id);
-    const g = good(state, cv.good);
-    const it = itemForGood(state, cv.good);
-    const { lost, raids } = journeyLoss(state, cv, cv.escort ? 0.15 : 0);
-    const qty = Math.floor(cv.qty * (1 - lost));
-    const rd = w.regions[cv.to];
-    let earned = 0; let sold = 0; let kept = qty;
-    if (lost) banditsTake(state, raids[0], qty * num(rd?.prices?.[cv.good], g?.basePrice || 1) * lost);
-    if (c && rd && qty > 0 && cv.sell) {
-      // Sell what the merchants can afford; the rest waits in the market's warehouse for you.
-      let n = qty;
-      while (n > 0) {
-        const q = quote(state, cv.to, cv.good, n, 'sell', null);
-        if (q.total <= rd.coffers) { earned = q.total; sold = n; break; }
-        n = Math.floor(n * 0.7);
-      }
-      if (sold) {
-        rd.stock[cv.good] = r2(num(rd.stock[cv.good]) + sold);
-        rd.coffers = r2(rd.coffers - earned);
-        rd.last.tradeValue = r2(num(rd.last.tradeValue) + earned);
-        c.nyang = r2(c.nyang + earned);
-        refreshPrice(state, cv.to, cv.good);
-      }
-      kept = qty - sold;
-    }
-    if (c && it && kept > 0) c.inventory[it.id] = (c.inventory[it.id] || 0) + kept;
-    cv.status = 'arrived'; cv.result = { lost, raids, sold, earned: r2(earned), kept };
-    out.push({ cv, c, g });
-  }
-  // keep a short history of player caravans
-  const mine = w.caravans.filter((cv) => !cv.npc && cv.status !== 'travelling');
-  if (mine.length > 100) { const drop = new Set(mine.slice(0, mine.length - 100).map((x) => x.id)); w.caravans = w.caravans.filter((cv) => !drop.has(cv.id)); }
-  return out;
 }
 
 // ─────────── the shop ───────────
@@ -648,6 +484,15 @@ function realmPriceIndex(state, goodId) {
   return wt ? sum / wt : 1;
 }
 /** Price of a shop item: the same for every buyer. (The last argument is ignored; kept for old callers.) */
+/**
+ * What a trade good is worth to a player, wherever they post: its average price across the realm.
+ * Players never trade goods with a particular province's market; they sell what they own to the shop at this price
+ * (less the merchants' spread), give it to other players, or list it on the player market.
+ */
+function realmPrice(state, goodId) {
+  const g = good(state, goodId);
+  return g ? r2(num(g.basePrice) * realmPriceIndex(state, goodId)) : 0;
+}
 function dynamicItemPrice(state, item, basePrice) {
   basePrice = num(basePrice);
   if (!item?.economy?.good || !num(item.economy.sensitivity) || !state.world?.settings?.enabled) return basePrice;
@@ -660,7 +505,6 @@ function dynamicItemPrice(state, item, basePrice) {
 module.exports = {
   LEVEL_MULT, goods, good, prosperityFactor, popDemand, targetsFor, unitPrice, updatePrices, priceIndex, initMarkets,
   buildingNeeds, runBuilding, isProducer, collectTax, border, tickRegion, peddlerTrade, dispatchNpcCaravans, arriveNpcCaravans, raidRisk, embargoed, armyMen, journeyLoss, banditsTake,
-  locationOf, travelInfo, startTravel, settleTravel, isTravelling, requireAt,
-  tariffFor, quote, itemForGood, buyGood, sellGood, sendCaravan, settlePlayerCaravans,
-  dynamicItemPrice, realmPriceIndex, caravanTurns,
+  locationOf, quote, itemForGood, refreshPrice,
+  dynamicItemPrice, realmPriceIndex, realmPrice, caravanTurns,
 };

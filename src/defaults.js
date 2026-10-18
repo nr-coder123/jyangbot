@@ -405,9 +405,8 @@ function normalizeCharacter(c = {}) {
     notes: c.notes || '',
     approvedBy: c.approvedBy || null,
     approvedAt: c.approvedAt || null,
-    // World: where the character is, travel in progress, marriage and sworn bonds.
+    // World: the region the player last posted in (only picks what /world shows first), marriage and sworn bonds.
     location: c.location || '',
-    travel: c.travel && typeof c.travel === 'object' ? c.travel : null,
     spouseId: c.spouseId || '',
     bonds: arr(c.bonds),
     createdAt: c.createdAt || new Date().toISOString(),

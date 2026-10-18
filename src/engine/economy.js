@@ -38,6 +38,11 @@ const shopItems = (state) => state.items.filter((i) => i.shop?.enabled);
 
 function shopSellPrice(state, item) {
   if (item.sellPrice !== null && item.sellPrice !== undefined) return num(item.sellPrice);
+  // Trade goods sell at their average price across the realm, less the merchants' spread — the same wherever you post.
+  if (item.tradeGood && state.world?.settings?.enabled) {
+    const p = require('../world/economy').realmPrice(state, item.tradeGood);
+    return Math.max(0, Math.round(p * (1 - num(state.world.settings.spread, 8) / 100) * 100) / 100);
+  }
   if (item.shop?.enabled && item.shop.price > 0) return Math.floor((item.shop.price * num(state.settings.shopSellbackPercent)) / 100);
   return 0;
 }
@@ -71,12 +76,6 @@ function validateSide(state, c, side, label, other) {
     const it = state.items.find((i) => i.id === side.itemId);
     if (!it) throw new UserError(`${label}: item no longer exists.`);
     if (!it.tradeable) throw new UserError(`**${it.name}** cannot be traded.`);
-    // Trade goods are bulky cargo: you can only hand them over in person (same region), or send a caravan.
-    if (it.tradeGood && other && state.world?.settings?.enabled) {
-      const E = require('../world/economy');
-      const a = require('../world/geo').marketOf(state, E.locationOf(state, c)); const b = require('../world/geo').marketOf(state, E.locationOf(state, other));
-      if (a !== b || E.isTravelling(c) || E.isTravelling(other)) throw new UserError(`**${it.name}** is cargo — both characters must be in the same region to hand it over.`);
-    }
     if (qtyOf(c, side.itemId) < side.qty) throw new UserError(`${label}: **${c.name}** doesn't have ${side.qty}× ${it.name}.`);
   }
   if (side.nyang > 0 && c.nyang < side.nyang) throw new UserError(`${label}: **${c.name}** doesn't have ${fmt(side.nyang)} ${state.settings.currencyName}.`);

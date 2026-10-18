@@ -287,38 +287,16 @@ function tickStipends(state) {
   return state.world.factions.filter((f) => f.active && num(f.stipendFund) > 0).map((f) => payStipends(state, f)).filter(Boolean);
 }
 
-// ─────────── role-play travel (text RP: nobody waits) ───────────
-const DEFAULT_SPEEDS = [{ id: 'foot', label: 'On foot', kmPerDay: 30 }, { id: 'horse', label: 'By horse', kmPerDay: 60 }, { id: 'qinggong', label: 'Qinggong', kmPerDay: 150 }];
-function rpTravel(state, from, to) {
-  const rt = geo.route(state, from, to);
-  if (!rt) return null;
-  const km = Math.round(rt.distance * num(state.world.settings.kmPerPx, 5));
-  const speeds = (Array.isArray(state.world.settings.travelSpeeds) && state.world.settings.travelSpeeds.length ? state.world.settings.travelSpeeds : DEFAULT_SPEEDS);
-  const days = speeds.map((s) => ({ id: s.id, label: s.label, days: Math.max(0.5, Math.round(km / Math.max(1, num(s.kmPerDay, 30)) * 2) / 2) }));
-  return { from, to, km, li: km * 2, hops: rt.hops, path: rt.path, days, text: `${km.toLocaleString('en-US')} km (${(km * 2).toLocaleString('en-US')} li) · ${days.map((d) => `${d.label.toLowerCase()} ~${d.days} day${d.days === 1 ? '' : 's'}`).join(' · ')}` };
-}
-const channelMode = (state) => (state.world.settings.travelMode || 'channel') === 'channel';
-
-/** In channel mode, a character is wherever its player last posted or used /world in a region channel. */
+// ─────────── where a character posts ───────────
+/** A character "is" wherever its player last posted or used /world in a region channel. It only decides which region
+ *  /world shows first — nothing a player can buy, sell or earn depends on it. */
 function notePresence(state, c, channel) {
-  if (!c || !channelMode(state)) return null;
+  if (!c) return null;
   const key = geo.regionOfChannel(state, channel);
   if (!key || key === c.location) return null;
   const from = c.location;
-  c.location = key; c.travel = null;
+  c.location = key;
   return { from, to: key };
-}
-
-// ─────────── per-character trade cap ───────────
-function tradeRoom(state, c) {
-  const cap = num(state.world.settings.maxTradePerTurn, 0);
-  if (!cap) return Infinity;
-  const t = c.worldTrade && c.worldTrade.turn === state.world.turn ? num(c.worldTrade.value) : 0;
-  return Math.max(0, cap - t);
-}
-function noteTrade(state, c, value) {
-  if (!c.worldTrade || c.worldTrade.turn !== state.world.turn) c.worldTrade = { turn: state.world.turn, value: 0 };
-  c.worldTrade.value = r2(c.worldTrade.value + Math.abs(num(value)));
 }
 
 module.exports = {
@@ -326,6 +304,5 @@ module.exports = {
   takeover, requestTakeover, approveTakeover, rejectTakeover, revertTakeover, forceTakeover,
   OFFICES, officeOf, setOffice, isNonCombatant,
   accrueStipend, stipendPlan, payStipends, tickStipends,
-  rpTravel, channelMode, notePresence, DEFAULT_SPEEDS,
-  tradeRoom, noteTrade,
+  notePresence,
 };

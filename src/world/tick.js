@@ -1,5 +1,5 @@
 'use strict';
-/** The world turn and the real-time checks (travel, caravans, battles). */
+/** The world turn and the real-time checks (battles). */
 const geo = require('./geo');
 const C = require('./common');
 const E = require('./economy');
@@ -51,10 +51,8 @@ function runTurn(state, { by = 'system' } = {}) {
 
 /** Things that happen on the clock, not on turns. Returns notifications for the bot. */
 function realtime(state, now = Date.now()) {
-  const arrivals = E.settleTravel(state, now);
-  const caravans = E.settlePlayerCaravans(state, now);
   const battles = M.resolveDue(state, now);
-  return { arrivals, caravans, battles };
+  return { arrivals: [], caravans: [], battles };
 }
 
 /** Is a turn due? */

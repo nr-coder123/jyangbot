@@ -168,6 +168,7 @@ VIEWS.item = (ctx, itemId) => {
     }
     const sell = economy.shopSellPrice(st(), it);
     if (sell > 0) buttons.push(btn(cid('a', ctx, 'sell', it.id), 'sellShop', { vars: { price: fmt(sell) } }));
+    if (sell > 0 && it.tradeGood && q > 1) buttons.push(btn(cid('a', ctx, 'sellall', it.id), 'sellShopAll', { vars: { qty: fmt(q), total: fmt(Math.round(sell * q * 100) / 100) } }));
     if (it.tradeable && it.marketable) buttons.push(btn(cid('a', ctx, 'list', it.id), 'list'));
   }
   return { ...panels.itemInfo(it, c), components: [navRow(ctx, 'inv'), row(...buttons.slice(0, 5)), row(btn(cid('v', ctx, 'inv'), 'back'))].filter(Boolean) };
@@ -392,12 +393,13 @@ async function onButton(i) {
       store.log(actor(i), 'item.equip', `${c.name} equipped ${it.name}`);
       return i.update(render(ctx, 'item', it.id, `${ui.emoji(state, 'weapon')} **${it.name}** is now your main weapon.`));
     }
-    case 'sell': {
+    case 'sell': case 'sellall': {
       const it = state.items.find((x) => x.id === arg);
       if (!it) throw new UserError('Item not found.');
-      const r = economy.sellToShop(state, c, it, 1);
-      store.log(actor(i), 'shop.sell', `${c.name} sold 1× ${it.name} for ${r.total}`);
-      return i.update(render(ctx, economy.qtyOf(c, it.id) > 0 ? 'item' : 'inv', it.id, `💰 Sold **${it.name}** for ${ui.emoji(state, 'nyang')} ${fmt(r.total)}. Purse: ${fmt(c.nyang)}.`));
+      const n = name === 'sellall' ? economy.qtyOf(c, it.id) : 1;
+      const r = economy.sellToShop(state, c, it, n);
+      store.log(actor(i), 'shop.sell', `${c.name} sold ${n}× ${it.name} for ${r.total}`);
+      return i.update(render(ctx, economy.qtyOf(c, it.id) > 0 ? 'item' : 'inv', it.id, `💰 Sold ${n > 1 ? `${n}× ` : ''}**${it.name}** for ${ui.emoji(state, 'nyang')} ${fmt(r.total)}. Purse: ${fmt(c.nyang)}.`));
     }
     case 'list': {
       const it = state.items.find((x) => x.id === arg);

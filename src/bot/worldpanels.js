@@ -28,7 +28,7 @@ function spark(list) {
 const factionLabel = (f) => (f ? `${f.icon || ''} ${f.name}`.trim() : '—');
 const regionName = (key) => geo.label(st(), key);
 
-// Where a character stands is kept quietly (for markets); the panels don't talk about travel.
+// Where a player last posted only picks which region /world opens on; nothing a player buys, sells or earns depends on it.
 function youLine() { return ''; }
 
 function regionPanel(key, c) {
@@ -73,57 +73,32 @@ function trendArrow(r, gid) {
 function marketPanel(key, c) {
   const state = st();
   const r = state.world.regions[key];
-  const lines = state.world.goods.map((g) => {
-    const it = E.itemForGood(state, g.id);
-    const have = it ? num(c.inventory[it.id]) : 0;
-    return `${g.emoji} **${g.name}** ${fmt(r.prices[g.id])} ${trendArrow(r, g.id)} · ${stockDots(r, g.id)}${have ? ` · you ${fmt(have)}` : ''}`;
-  });
-  let tariff = '—';
-  try { tariff = `${fmt(E.tariffFor(state, key, c))}%`; } catch (e) { tariff = '⛔ closed to you'; }
-  return msg('worldMarket', { region: regionName(key), goods: truncate(lines.join('\n'), 4000), nyang: fmt(c.nyang), currency: cur(), tariff, coffers: big(r.coffers) });
+  const lines = state.world.goods.map((g) => `${g.emoji} **${g.name}** ${fmt(r.prices[g.id])} ${trendArrow(r, g.id)} · ${stockDots(r, g.id)}`);
+  return msg('worldMarket', { region: regionName(key), goods: truncate(lines.join('\n'), 4000), nyang: fmt(c.nyang), currency: cur(), coffers: big(r.coffers) });
 }
 
 function goodPanel(key, c, gid) {
   const state = st();
   const r = state.world.regions[key];
   const g = E.good(state, gid);
+  if (!g || !r) return { content: 'Unknown good.', embeds: [] };
   const it = E.itemForGood(state, gid);
   const have = it ? num(c.inventory[it.id]) : 0;
-  const q = (n, side) => { try { return E.quote(state, key, gid, n, side, c); } catch { return null; } };
-  const b1 = q(1, 'buy'); const b10 = q(10, 'buy'); const s1 = have ? q(1, 'sell') : null; const s10 = have >= 10 ? q(10, 'sell') : null;
-  const near = [...geo.within(state, key, 3).keys()].filter((k) => k !== key).map((k) => ({ k, p: num(state.world.regions[k].prices[gid]) })).sort((a, b) => b.p - a.p);
-  const fmtNear = (list) => list.map((x) => `${regionName(x.k)} **${fmt(x.p)}**`).join(' · ');
+  const list = geo.marketKeys(state).map((k) => ({ k, p: num(state.world.regions[k]?.prices?.[gid]) })).filter((x) => x.p > 0).sort((a, b) => b.p - a.p);
+  const fmtList = (xs) => xs.map((x) => `${regionName(x.k)} **${fmt(x.p)}**`).join(' · ');
+  const sell = it ? require('../engine/economy').shopSellPrice(state, it) : 0;
   const e = new EmbedBuilder().setTitle(`${g.emoji} ${g.name} — ${regionName(key)}`).setColor(0xc0a062)
     .setDescription([
       g.description ? `-# ${g.description}` : '',
-      `**Price:** ${fmt(r.prices[gid])} ${trendArrow(r, gid)} · base ${fmt(g.basePrice)} · ${spark(r.priceHistory?.[gid])}`,
-      `**Stock:** ${stockDots(r, gid)} ${big(r.stock[gid])} (the market wants ~${big(r.targets?.[gid])})`,
-      state.world.settings.playerMarketBuy ? `**Buy:** 1 for ${b1 ? fmt(b1.total) : '—'} · 10 for ${b10 ? fmt(b10.total) : '—'}${b1?.tariff ? ` *(incl. ${fmt(b1.tariff)}% tariff)*` : ''}` : '**Buy:** *merchants and trade caravans only*',
-      `**Sell:** ${s1 ? `1 for ${fmt(s1.total)}` : 'you have none'}${s10 ? ` · 10 for ${fmt(s10.total)}` : ''}`,
-      `**You have:** ${fmt(have)} · ${nyang()} ${fmt(c.nyang)}`,
+      `**Price here:** ${fmt(r.prices[gid])} ${trendArrow(r, gid)} · base ${fmt(g.basePrice)} · ${spark(r.priceHistory?.[gid])}`,
+      `**Stock here:** ${stockDots(r, gid)} ${big(r.stock[gid])} (the market wants ~${big(r.targets?.[gid])})`,
+      `**Across the realm:** ${fmt(E.realmPrice(state, gid))} on average`,
+      `**Dearest:** ${fmtList(list.slice(0, 3)) || '—'}`,
+      `**Cheapest:** ${fmtList(list.slice(-3).reverse()) || '—'}`,
       '',
-      `**Pays most nearby:** ${fmtNear(near.slice(0, 3)) || '—'}`,
-      `**Cheapest nearby:** ${fmtNear(near.slice(-3).reverse()) || '—'}`,
-      '-# Prices move with supply: every unit sold here lowers the price.',
+      have ? `You have **${fmt(have)}** — sell them from \`/menu\` → Inventory for ${fmt(sell)} each (the realm price, wherever you are).` : '',
+      '-# Province markets are traded by merchants and faction caravans; players don\'t buy or sell here.',
     ].filter(Boolean).join('\n'));
-  return { embeds: [e] };
-}
-
-function caravansPanel(c) {
-  const state = st();
-  const list = state.world.caravans.filter((cv) => !cv.npc && cv.owner.id === c.id).slice(-10).reverse();
-  const lines = list.map((cv) => {
-    const g = E.good(state, cv.good);
-    if (cv.status === 'travelling') return `🐫 ${cv.qty} ${g?.emoji || ''} ${g?.name} → **${regionName(cv.to)}** · arrives <t:${Math.floor(Date.parse(cv.arriveAt) / 1000)}:R> · raid risk ~${Math.round(num(cv.risk) * 100)}%${cv.escort ? ' · 🚩 escorted' : ''}`;
-    const res = cv.result || {};
-    return `✅ ${cv.qty} ${g?.name} → ${regionName(cv.to)}: ${res.lost ? `🏴 raided (${Math.round(res.lost * 100)}% lost) · ` : ''}${res.sold ? `sold ${res.sold} for ${fmt(res.earned)}` : ''}${res.kept ? ` · ${res.kept} kept in your inventory` : ''}`;
-  });
-  const e = new EmbedBuilder().setTitle('🐫 Your caravans').setColor(0xc0a062).setDescription([
-    lines.join('\n') || '*No caravans yet.*',
-    '',
-    `Send trade goods from **${regionName(geo.marketOf(state, E.locationOf(state, c)))}** to another market without travelling. They are sold on arrival for whatever that market pays. Bandits may raid them on the way — an escort costs ${Math.round(num(state.world.settings.escortCost) * 100)}% of the cargo's value but cuts the risk.`,
-    `-# At most ${state.world.settings.maxPlayerCaravans} caravans at a time.`,
-  ].join('\n'));
   return { embeds: [e] };
 }
 
@@ -344,4 +319,4 @@ function requestPost(q) {
   return { content: truncate(lines.join('\n'), 1900) };
 }
 
-module.exports = { youLine, bar, spark, regionPanel, marketPanel, goodPanel, caravansPanel, realmPanel, relationsWith, alliancePanel, buildPanel, tradePanel, requestPost, warPanel, armyPanel, battlePost, battleVars, battleReport, proposalPost, regionName, factionLabel, big };
+module.exports = { youLine, bar, spark, regionPanel, marketPanel, goodPanel, realmPanel, relationsWith, alliancePanel, buildPanel, tradePanel, requestPost, warPanel, armyPanel, battlePost, battleVars, battleReport, proposalPost, regionName, factionLabel, big };

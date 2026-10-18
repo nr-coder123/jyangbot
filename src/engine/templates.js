@@ -258,7 +258,7 @@ const DEFS = {
   // ---------------- world (/world) ----------------
   worldRegion: {
     group: 'World', label: 'Region (/world → Region)',
-    buttons: [['wRegion', 'wMarket', 'wCaravans', 'wPolitics', 'wWar']],
+    buttons: [['wRegion', 'wMarket', 'wPolitics', 'wWar']],
     placeholders: ['region', 'province', 'hanzi', 'controller', 'terrain', 'population', 'prosperity', 'prosperityBar', 'security', 'fort', 'buildings', 'coffers', 'calendar', 'events', 'policies', 'you', 'notes', 'armies', 'currency', 'trend'],
     help: '{prosperityBar} is a ten-block bar.',
     sample: { region: 'Luoyang', province: 'Henan', hanzi: '洛阳', controller: '🪷 Shaolin Sect', terrain: '🌾 Plains', population: '21', prosperity: '64', prosperityBar: '🟩🟩🟩🟩🟩🟩⬛⬛⬛⬛', security: '61', fort: '4', buildings: 'Granary · City Walls (damaged)', coffers: '1,240', calendar: '🌸 Spring, day 3 · Year 428', events: '🎪 Great Trade Fair (3 turns left)', policies: '🏛️ Ever-Normal Granaries', notes: 'Ancient capital: sword manors and the great market.', armies: '', currency: 'Nyang', trend: '📈 +0.4 / turn' },
@@ -282,14 +282,14 @@ const DEFS = {
   },
   worldMarket: {
     group: 'World', label: 'Regional market (/world → Market)',
-    buttons: [['wRegion', 'wMarket', 'wCaravans', 'wPolitics', 'wWar']],
-    placeholders: ['region', 'goods', 'nyang', 'currency', 'tariff', 'coffers'],
-    sample: { region: 'Luoyang', goods: '🌾 **Grain** 4.2 ▲ · stock ●●●○ · you 0\n🧂 **Salt** 13.1 ▼ · stock ●○○○ · you 12', nyang: '120', currency: 'Nyang', tariff: '3%', coffers: '1,240' },
+    buttons: [['wRegion', 'wMarket', 'wPolitics', 'wWar']],
+    placeholders: ['region', 'goods', 'nyang', 'currency', 'coffers'],
+    sample: { region: 'Luoyang', goods: '🌾 **Grain** 4.2 ▲ · stock ●●●○\n🧂 **Salt** 13.1 ▼ · stock ●○○○', nyang: '120', currency: 'Nyang', coffers: '1,240' },
     default: E({
       title: '🏪 Market of {region}',
       description: '{goods}',
       color: 0xc0a062,
-      footer: { text: 'Prices per unit · buy a little above, sell a little below · tariff {tariff} · merchants can pay up to {coffers} · your purse {nyang} {currency}' },
+      footer: { text: 'Prices per unit in this province — merchants and guild caravans trade here. Trade goods you own sell from your inventory at the realm-wide price.' },
     }),
   },
   worldEvent: {

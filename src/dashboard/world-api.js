@@ -52,7 +52,7 @@ function mount(app, { wrap, bot, diff }) {
     const world = w();
     return {
       world, calendar: C.calendar(s), markets: geo.marketKeys(s),
-      characters: s.characters.filter((c) => c.status === 'active').map((c) => ({ id: c.id, name: c.name, sect: c.sect, ownerId: c.ownerId, ownerTag: c.ownerTag, realm: c.realm, location: c.location, travel: c.travel, spouseId: c.spouseId, champion: M.championPower(s, c), office: T.officeOf(s, c), pips: M.generalPips(s, c), nyang: c.nyang })),
+      characters: s.characters.filter((c) => c.status === 'active').map((c) => ({ id: c.id, name: c.name, sect: c.sect, ownerId: c.ownerId, ownerTag: c.ownerTag, realm: c.realm, location: c.location, spouseId: c.spouseId, champion: M.championPower(s, c), office: T.officeOf(s, c), pips: M.generalPips(s, c), nyang: c.nyang })),
       sects: s.sects.map((x) => ({ name: x.name, playable: x.playable, roleId: x.roleId })),
       items: s.items.map((i) => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, price: i.shop?.price, tradeGood: i.tradeGood, economy: i.economy })),
       scripts: s.scripts.map((x) => ({ id: x.id, name: x.name })),
@@ -79,15 +79,13 @@ function mount(app, { wrap, bot, diff }) {
     for (const k of ['localPrices', 'shopSalesTax', 'madeHereDiscount']) delete next[k];
     next.powerWeights = Object.fromEntries(Object.entries({ ...before.powerWeights, ...(next.powerWeights || {}) }).map(([k, v]) => [k, Math.max(0, num(v))]));
     next.representativeRoleIds = arr(next.representativeRoleIds).map(String).filter(Boolean);
-    next.travelMode = 'channel';
     next.realmWorth = arr(next.realmWorth).map((x) => Math.max(0, num(x, 1)));
     if (!next.realmWorth.length) next.realmWorth = clone(W.defaults.DEFAULT_WORLD_SETTINGS.realmWorth);
     next.taxEveryTurns = Math.max(1, Math.floor(next.taxEveryTurns));
     next.repRanks = arr(next.repRanks).filter((x) => x && x.id).map((x) => ({ id: slug(x.id), name: String(x.name || x.id).slice(0, 40), hanzi: String(x.hanzi || '').slice(0, 20), spendLimit: Math.max(0, num(x.spendLimit)), description: String(x.description || '').slice(0, 300), powers: Object.fromEntries(W.defaults.POWERS.map((p) => [p.id, ['free', 'staff', 'none'].includes(x.powers?.[p.id]) ? x.powers[p.id] : 'none'])) }));
     if (!next.repRanks.length) next.repRanks = clone(W.defaults.REP_RANKS);
     next.factionCaravans = ['guilds', 'all', 'none'].includes(next.factionCaravans) ? next.factionCaravans : 'guilds';
-    next.travelSpeeds = arr(next.travelSpeeds).filter((x) => x && x.label).map((x) => ({ id: String(x.id || slug(x.label)), label: String(x.label).slice(0, 30), kmPerDay: Math.max(1, num(x.kmPerDay, 30)) }));
-    if (!next.travelSpeeds.length) next.travelSpeeds = clone(W.defaults.DEFAULT_WORLD_SETTINGS.travelSpeeds);
+    for (const k of ['travelMode', 'kmPerPx', 'travelSpeeds', 'maxTradePerTurn', 'playerMarketBuy', 'playerMarketSell', 'playerCaravans', 'escortCost', 'baseTariff']) delete next[k];
     if (next.startRegion && !geo.get(next.startRegion)) throw new UserError('Unknown start region.');
     w().settings = next;
     if (before.turnHours !== next.turnHours && w().lastTurnAt) w().nextTurnAt = new Date(Date.parse(w().lastTurnAt) + next.turnHours * 3600000).toISOString();
@@ -454,7 +452,7 @@ function mount(app, { wrap, bot, diff }) {
   app.post('/api/world/reset', wrap(async (req) => {
     if (req.body?.confirm !== 'RESET') throw new UserError('Type RESET to confirm.');
     await store.createBackup('Safety copy before world reset', req.actor, true);
-    for (const c of store.state.characters) { c.location = ''; c.travel = null; }
+    for (const c of store.state.characters) c.location = '';
     store.state.world = WS.createWorld(store.state);
     log(req, 'world.reset', 'The world was reset to its defaults (backup created first).');
     return { ok: true };

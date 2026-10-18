@@ -25,7 +25,7 @@ const cmd = new SlashCommandBuilder()
   .setName('world')
   .setDescription('The Murim world: your region, its market, your realm and war')
   .addStringOption((o) => o.setName('tab').setDescription('Open on this tab').addChoices(
-    { name: 'Region', value: 'region' }, { name: 'Market', value: 'market' }, { name: 'Caravans', value: 'caravans' },
+    { name: 'Region', value: 'region' }, { name: 'Market prices', value: 'market' },
     { name: 'Realm', value: 'politics' }, { name: 'War', value: 'war' },
   ))
   .addStringOption((o) => o.setName('region').setDescription('Look at another region').setAutocomplete(true))
@@ -67,7 +67,7 @@ const here = (c) => geo.marketOf(st(), E.locationOf(st(), c));
 
 function navRow(ctx, active) {
   const b = (view, key) => btn(cid('v', ctx, view), key, { style: view === active ? ButtonStyle.Primary : ButtonStyle.Secondary });
-  return row(b('region', 'wRegion'), b('market', 'wMarket'), st().world.settings.playerCaravans ? b('caravans', 'wCaravans') : null, b('politics', 'wPolitics'));
+  return row(b('region', 'wRegion'), b('market', 'wMarket'), b('politics', 'wPolitics'));
 }
 const warRow = (ctx, active) => row(btn(cid('v', ctx, 'war'), 'wWar', { style: active === 'war' ? ButtonStyle.Primary : ButtonStyle.Secondary }));
 
@@ -91,50 +91,26 @@ VIEWS.region = (ctx, key) => {
   return { ...p, components: rows };
 };
 
-VIEWS.market = (ctx) => {
+/** Market prices of a province (information only: players don't trade with province markets). arg = region key. */
+const shownRegion = (ctx, key) => {
+  const s = st();
+  if (key && geo.get(key)) return geo.marketOf(s, key);
+  return ctx.channelRegion ? geo.marketOf(s, ctx.channelRegion) : here(ctx.c);
+};
+VIEWS.market = (ctx, arg) => {
   const s = st(); const { c } = ctx;
-  const key = here(c);
+  const key = shownRegion(ctx, arg);
   const p = WP.marketPanel(key, c);
   const r = s.world.regions[key];
   const opts = s.world.goods.map((g) => ({ label: `${g.name} — ${fmt(r.prices[g.id])}`, value: g.id, emoji: g.emoji, description: `stock ${Math.round(num(r.stock[g.id]))} · base ${g.basePrice}` }));
-  return { ...p, components: [navRow(ctx, 'market'), row(select(cid('s', ctx, 'good'), '📦 Pick a good to trade…', opts)), warRow(ctx)] };
+  return { ...p, components: [navRow(ctx, 'market'), row(select(cid('s', ctx, 'good', key), '📦 Look at a good…', opts)), row(select(cid('s', ctx, 'mlook'), 'Prices in another province…', nearbyOptions(c, key, { exclude: [key] }))), warRow(ctx)] };
 };
 
-VIEWS.good = (ctx, gid) => {
-  const { c } = ctx;
-  const key = here(c);
-  const p = WP.goodPanel(key, c, gid);
-  return {
-    ...p,
-    components: [navRow(ctx, 'market'), row(
-      st().world.settings.playerMarketBuy ? btn(cid('a', ctx, 'buy', gid), 'wBuy', { style: ButtonStyle.Success, disabled: !ctx.isOwner || E.isTravelling(c) }) : null,
-      st().world.settings.playerMarketSell !== false ? btn(cid('a', ctx, 'sell', gid), 'wSell', { disabled: !ctx.isOwner || E.isTravelling(c) }) : null,
-      btn(cid('v', ctx, 'market'), 'back'),
-    )],
-  };
-};
-
-VIEWS.caravans = (ctx) => {
-  const s = st(); const { c } = ctx;
-  const p = WP.caravansPanel(c);
-  const goods = s.world.goods.filter((g) => { const it = E.itemForGood(s, g.id); return it && num(c.inventory[it.id]) > 0; });
-  return {
-    ...p,
-    components: [navRow(ctx, 'caravans'), ctx.isOwner ? row(select(cid('s', ctx, 'cvgood'), '🐫 Send a caravan with…', goods.map((g) => ({ label: `${g.name} (you have ${num(c.inventory[E.itemForGood(s, g.id).id])})`, value: g.id, emoji: g.emoji })))) : null, warRow(ctx)].filter(Boolean),
-  };
-};
-
-VIEWS.cvdest = (ctx, gid) => {
-  const s = st(); const { c } = ctx;
-  const from = here(c);
-  const g = E.good(s, gid);
-  const list = [...geo.within(s, from, 6).keys()].filter((k) => k !== from).map((k) => ({ k, p: num(s.world.regions[k].prices[gid]), rt: geo.route(s, from, k) })).sort((a, b) => b.p - a.p).slice(0, 25);
-  const opts = list.map((x) => ({ label: `${geo.fullLabel(s, x.k)} — pays ~${fmt(x.p)}`, value: x.k, description: `~${fmt(Math.round(x.rt.distance / 100 * num(s.world.settings.caravanHoursPer100, 2) * 10) / 10)} h · raid risk ~${Math.round(x.rt.path.slice(1).reduce((a, k) => 1 - (1 - a) * (1 - E.raidRisk(s, k)), 0) * 100)}%` }));
-  return {
-    content: `🐫 Where should the **${g.emoji} ${g.name}** go? Here it sells for **${fmt(s.world.regions[from].prices[gid])}**.`,
-    embeds: [],
-    components: [navRow(ctx, 'caravans'), row(select(cid('s', ctx, 'cvto', gid), '📍 Destination…', opts)), row(btn(cid('v', ctx, 'caravans'), 'back'))],
-  };
+VIEWS.good = (ctx, arg) => {
+  const [gid, k] = String(arg || '').split('|');
+  const key = shownRegion(ctx, k);
+  const p = WP.goodPanel(key, ctx.c, gid);
+  return { ...p, components: [navRow(ctx, 'market'), row(btn(cid('v', ctx, 'market', key), 'back'))] };
 };
 
 // ---------- realm (CK3-style: one screen, simple choices) ----------
@@ -375,15 +351,8 @@ async function onComponent(i) {
     const v = i.values[0];
     switch (name) {
       case 'look': return i.update(render(ctx, 'region', v));
-      case 'good': return i.update(render(ctx, 'good', v));
-      case 'cvgood': return i.update(render(ctx, 'cvdest', v));
-      case 'cvto': {
-        const g = E.good(s, arg); const it = E.itemForGood(s, arg);
-        return i.showModal(new ModalBuilder().setCustomId(['wm', 'caravan', viewer, arg, v].join(':')).setTitle(truncate(`${g.name} → ${geo.label(s, v)}`, 45)).addComponents(
-          input('qty', `How many? (you have ${num(c.inventory[it?.id])})`, { value: String(num(c.inventory[it?.id])) }),
-          input('escort', 'Hire an escort? (yes / no)', { value: 'no', required: false }),
-        ));
-      }
+      case 'good': return i.update(render(ctx, 'good', `${v}|${arg || ''}`));
+      case 'mlook': return i.update(render(ctx, 'market', v));
       case 'realm': {
         if (v === 'stipend') {
           const f = repOf(s, c, ctx.member);
@@ -486,12 +455,6 @@ async function onComponent(i) {
   }
   // actions
   switch (name) {
-    case 'buy': case 'sell': {
-      const g = E.good(s, arg); const it = E.itemForGood(s, arg);
-      return i.showModal(new ModalBuilder().setCustomId(['wm', name, viewer, arg].join(':')).setTitle(truncate(`${name === 'buy' ? 'Buy' : 'Sell'} ${g.name}`, 45)).addComponents(
-        input('qty', name === 'buy' ? `How many? (${Math.floor(num(s.world.regions[here(c)].stock[arg]))} in the market)` : `How many? (you have ${num(c.inventory[it?.id])})`, { value: name === 'sell' ? String(num(c.inventory[it?.id])) : '10' }),
-      ));
-    }
     case 'cmd': {
       const a = M.army(s, arg); const f = a && C.faction(s, a.factionId);
       if (!a || C.factionOfChar(s, c)?.id !== f?.id || R.powerLevel(s, f, c, ctx.member, 'army') === 'none') throw new UserError('Only representatives with the army power can name a commander.');
@@ -523,18 +486,6 @@ async function onModal(i) {
     return k;
   };
   switch (name) {
-    case 'buy': case 'sell': {
-      const qty = Math.floor(num(val('qty')));
-      const r = name === 'buy' ? E.buyGood(s, c, arg, qty) : E.sellGood(s, c, arg, qty);
-      log(i, `world.${name}`, `${c.name} ${name === 'buy' ? 'bought' : 'sold'} ${r.qty} ${arg} in ${geo.label(s, r.key)} for ${r.total}`);
-      return i.update(render(ctx, 'good', arg, `${name === 'buy' ? '🛒 Bought' : '💰 Sold'} **${r.qty} ${E.good(s, arg).name}** for ${ui.emoji(s, 'nyang')} ${fmt(r.total)} (${fmt(r.each)} each${r.tariff ? `, ${fmt(r.tariff)}% tariff` : ''}). Purse: ${fmt(c.nyang)}.`));
-    }
-    case 'caravan': {
-      const escort = /^(y|yes|sim|s|true|1)/i.test(val('escort'));
-      const r = E.sendCaravan(s, c, arg2, arg, Math.floor(num(val('qty'))), { escort });
-      log(i, 'world.caravan', `${c.name} sent ${r.cv.qty} ${arg} to ${geo.label(s, arg2)} (fee ${r.fee})`);
-      return i.update(render(ctx, 'caravans', null, `🐫 Your caravan leaves for **${WP.regionName(arg2)}** — about ${fmt(r.hours)} h, raid risk ~${Math.round(r.cv.risk * 100)}%. Fee ${fmt(r.fee)}. You'll get a DM when it arrives.`));
-    }
     case 'd-agreement': {
       const perks = Object.fromEntries((arg2 || '').split(',').filter((x) => x && x !== '-').map((x) => [x, true]));
       const tr = val('tribute').toLowerCase().match(/^(we|us|our|they|them|their)\D*(\d+(?:\.\d+)?)/);

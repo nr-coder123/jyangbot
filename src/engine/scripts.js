@@ -114,7 +114,6 @@ function worldInfo(state, c) {
       region: { key: loc, name: geo.label(state, loc), terrain: r.terrain, prosperity: r.prosperity, controller: r.controller || null, ownLand: !!(f && r.controller === f.id) },
       events: state.world.activeEvents.filter((e) => e.regions.includes(loc)).map((e) => e.eventId),
       faction: f ? { id: f.id, name: f.name } : null,
-      travelling: E.isTravelling(c),
     };
   } catch {
     return {};

@@ -461,56 +461,22 @@ test('world: 300 turns stay stable (no negative stock, prosperity moves, no fami
   for (const f of state.world.factions) assert.ok(f.treasury >= 0, `${f.name} treasury`);
 });
 
-test('world: buying raises the price, selling lowers it, the market pays from its coffers', () => {
-  const { state, c } = worldFresh();
-  assert.throws(() => W.economy.buyGood(state, c, 'grain', 1), /merchants and caravans/, 'players do not buy from province markets by default');
-  state.world.settings.playerMarketBuy = true;
-  c.nyang = 100000;
-  const key = W.economy.requireAt(state, c);
-  const r = state.world.regions[key];
-  r.stock.grain = Math.max(300, r.targets.grain); r.targets.grain = r.stock.grain;
-  W.economy.updatePrices(state, key, W.common.emptyMods());
-  const before = r.prices.grain;
-  const buy = W.economy.buyGood(state, c, 'grain', 50);
-  assert.ok(r.prices.grain > before, 'price up after buying');
-  assert.ok(buy.each > before * 0.99);
-  const coffers = r.coffers;
-  const sell = W.economy.sellGood(state, c, 'grain', 50);
-  assert.ok(sell.total < buy.total, 'round trip loses money (no free arbitrage)');
-  assert.ok(r.coffers < coffers);
-});
-
-test('world: travel blocks trading, caravans arrive and sell', () => {
-  const { state, c } = worldFresh();
-  state.world.settings.travelMode = 'timed';
-  state.world.settings.playerMarketBuy = true; state.world.settings.playerCaravans = true;
-  c.nyang = 1000;
-  const from = W.economy.requireAt(state, c);
-  W.economy.buyGood(state, c, 'salt', 5);
-  const dest = W.geo.neighbors(state, from).find((k) => !k.includes('/')) || W.geo.neighbors(state, from)[0];
-  const r = W.economy.sendCaravan(state, c, dest, 'salt', 5, { escort: true });
-  assert.ok(r.hours > 0);
-  W.economy.startTravel(state, c, dest);
-  assert.throws(() => W.economy.buyGood(state, c, 'salt', 1), /on the road/);
-  const out = W.tick.realtime(state, Date.now() + 72 * 3600000);
-  assert.strictEqual(out.arrivals.length, 1);
-  assert.strictEqual(out.caravans.length, 1);
-  assert.strictEqual(W.economy.locationOf(state, c), dest);
-});
-
-test('world: channel travel is instant, gives RP travel info, and posting moves you', () => {
-  const { state, c } = worldFresh();
-  assert.strictEqual(state.world.settings.travelMode, 'channel');
-  c.location = '河南';
-  const r = W.economy.startTravel(state, c, '四川');
-  assert.ok(r.instant && r.rp.km > 500 && r.rp.days.length === 3);
-  assert.strictEqual(W.economy.locationOf(state, c), '四川');
+test('world: trade goods have no location — sold at the realm price, handed over anywhere', () => {
+  const { state, c, d } = worldFresh();
+  const it = state.items.find((i) => i.tradeGood === 'silk');
+  assert.ok(it && it.marketable, 'trade goods can be listed on the player market');
+  for (const k of ['buyGood', 'sellGood', 'sendCaravan', 'startTravel', 'requireAt']) assert.ok(!W.economy[k], `${k} is gone`);
+  c.location = '河南'; const here = economy.shopSellPrice(state, it);
+  c.location = '广东'; const there = economy.shopSellPrice(state, it);
+  assert.strictEqual(here, there, 'the same price wherever you post');
+  const realm = W.economy.realmPrice(state, 'silk');
+  assert.ok(Math.abs(here - realm * (1 - state.world.settings.spread / 100)) < 0.02);
+  c.inventory[it.id] = 10; const before = c.nyang;
+  const r = economy.sellToShop(state, c, it, 10);
+  assert.ok(Math.abs(c.nyang - before - r.total) < 0.01 && !c.inventory[it.id]);
+  // Moving between channels only changes which region /world opens on.
   state.world.regions['江苏'].categoryId = 'cat-js';
-  const moved = W.territory.notePresence(state, c, { id: 'chan', parentId: 'cat-js' });
-  assert.deepStrictEqual(moved, { from: '四川', to: '江苏' });
-  // Per-turn trade cap
-  state.world.settings.maxTradePerTurn = 50; c.nyang = 10000; state.world.settings.playerMarketBuy = true;
-  assert.throws(() => W.economy.buyGood(state, c, 'grain', 30), /more than you can still trade|traded as much/);
+  assert.deepStrictEqual(W.territory.notePresence(state, c, { id: 'chan', parentId: 'cat-js' }), { from: '广东', to: '江苏' });
 });
 
 test('world: painting, split provinces, takeovers and revert', () => {
@@ -567,12 +533,23 @@ test('world: representatives, stipends with a soft cap', () => {
   assert.strictEqual(f.stipendFund, 20);
 });
 
-test('world: trade goods can only be handed over in the same region', () => {
+test('world: old saves — player caravans on the road bring their cargo home, travel settings go', () => {
+  const { state, c } = worldFresh();
+  const w = state.world; const it = state.items.find((i) => i.tradeGood === 'tea');
+  w.version = 6; w.settings.playerMarketBuy = true; w.settings.travelMode = 'timed'; c.travel = { to: '河南' };
+  w.caravans.push({ id: 'cv-x', npc: false, owner: { type: 'character', id: c.id }, good: 'tea', qty: 12, status: 'travelling', to: '河南', from: '四川' });
+  it.description = 'Tea.\n\n-# **Trade good** — bought and sold at regional markets (`/world` → Market). Base price 9; its worth depends on where you are.'; it.marketable = false;
+  W.state.normalizeWorld(state);
+  assert.strictEqual(c.inventory[it.id], 12);
+  assert.ok(!w.caravans.some((x) => x.id === 'cv-x') && !c.travel);
+  assert.ok(!('playerMarketBuy' in w.settings) && !('travelMode' in w.settings));
+  assert.ok(it.marketable && !/where you are/.test(it.description));
+});
+
+test('world: trade goods can be handed over wherever both characters post', () => {
   const { state, c, d } = worldFresh();
   c.inventory['good-silk'] = 3;
   c.location = '河南'; d.location = '四川';
-  assert.throws(() => economy.createTrade(state, c, d, { itemId: 'good-silk', qty: 1 }, {}), /same region/);
-  d.location = '河南';
   assert.ok(economy.createTrade(state, c, d, { itemId: 'good-silk', qty: 1 }, {}));
 });
 

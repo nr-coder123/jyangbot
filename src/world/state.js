@@ -94,7 +94,7 @@ function normalizeRegion(key, r = {}) {
   return out;
 }
 
-const WORLD_VERSION = 6;
+const WORLD_VERSION = 7;
 /** Put the preset buildings into regions that don't have them yet. */
 function seedBuildings(regions) {
   for (const [key, typeId, level] of W.START_BUILDINGS) {
@@ -104,6 +104,27 @@ function seedBuildings(regions) {
     if (have) { have.level = Math.max(num(have.level, 1), level); continue; }
     r.buildings.push(normalizeBuilding({ id: `bd-${slug(key)}-${typeId}`, typeId, level, factionId: r.controller || '', status: 'ready' }));
   }
+}
+const GOOD_NOTE = (g) => `-# **Trade good** — base price ${g.basePrice}. Sell it from your inventory at its average price across the realm (the same wherever you post), give it to anyone, or list it on the player market.`;
+/** v6 → v7: players no longer trade with a province's market (no buying, selling, caravans or travel by channel).
+ *  Player caravans still on the road bring their cargo home. */
+function migrateV7(state, w) {
+  for (const cv of arr(w.caravans)) {
+    if (cv.npc || cv.owner?.type !== 'character' || cv.status !== 'travelling') continue;
+    const c = (state.characters || []).find((x) => x.id === cv.owner.id);
+    const it = (state.items || []).find((i) => i.tradeGood === cv.good);
+    if (c && it) { c.inventory = c.inventory || {}; c.inventory[it.id] = num(c.inventory[it.id]) + num(cv.qty); }
+    cv.status = 'archived';
+  }
+  w.caravans = arr(w.caravans).filter((cv) => cv.status !== 'archived' && !(cv.owner?.type === 'character'));
+  for (const c of state.characters || []) { delete c.travel; delete c.worldTrade; }
+  for (const it of state.items || []) {
+    if (!it.tradeGood || typeof it.description !== 'string') continue;
+    const i = it.description.indexOf('-# **Trade good** — bought and sold at regional markets');
+    const g = arr(w.goods).find((x) => x.id === it.tradeGood);
+    if (i >= 0 && g) { it.description = it.description.slice(0, i) + GOOD_NOTE(g); it.marketable = true; }
+  }
+  if (w.settings) for (const k of ['travelMode', 'kmPerPx', 'travelSpeeds', 'travelHoursPer100', 'caravanHoursPer100', 'maxPlayerCaravans', 'escortCost', 'maxTradePerTurn', 'playerMarketBuy', 'playerMarketSell', 'playerCaravans', 'baseTariff']) delete w.settings[k];
 }
 /** v5 → v6: the shop no longer depends on where a character posts (no local prices, sales tax or "open markets"). */
 function migrateV6(state, w) {
@@ -312,7 +333,7 @@ function ensureGoodItems(state, world = state.world) {
     const id = g.itemId || `good-${g.id}`;
     if (state.items.some((i) => i.tradeGood === g.id || i.id === id)) continue;
     if (state.items.length >= num(state.settings?.maxItems, 300)) break;
-    state.items.push(defaults.normalizeItem({ id, name: state.items.some((i) => i.name.toLowerCase() === g.name.toLowerCase()) ? `${g.name} (cargo)` : g.name, rarity: state.rarities?.[0]?.name || 'Earthly', type: 'material', emoji: g.emoji, description: `${g.description || `${g.name}: bulk trade cargo.`}\n\n-# **Trade good** — bought and sold at regional markets (\`/world\` → Market). Base price ${g.basePrice}; its worth depends on where you are.`, tradeable: true, marketable: false, inDropPool: false, shop: { enabled: false, price: 0, stock: -1 }, tradeGood: g.id }));
+    state.items.push(defaults.normalizeItem({ id, name: state.items.some((i) => i.name.toLowerCase() === g.name.toLowerCase()) ? `${g.name} (cargo)` : g.name, rarity: state.rarities?.[0]?.name || 'Earthly', type: 'material', emoji: g.emoji, description: `${g.description || `${g.name}: bulk trade cargo.`}\n\n${GOOD_NOTE(g)}`, tradeable: true, marketable: true, inDropPool: false, shop: { enabled: false, price: 0, stock: -1 }, tradeGood: g.id }));
     n++;
   }
   return n;
@@ -397,6 +418,7 @@ function normalizeWorld(state) {
   if (w.version < 4) { w.version = 4; }
   if (w.version < 5) { migrateV5(state, w); w.version = 5; }
   if (w.version < 6) { migrateV6(state, w); w.version = 6; }
+  if (w.version < 7) { migrateV7(state, w); w.version = 7; }
   if (w.needsBuildingSeed) { seedBuildings(w.regions); delete w.needsBuildingSeed; }
   w.factions = w.factions.map(normalizeFaction);
   const fids = new Set(w.factions.map((f) => f.id));
