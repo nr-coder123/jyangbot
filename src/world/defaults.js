@@ -446,7 +446,6 @@ const DEFAULT_WORLD_SETTINGS = {
   resaleCap: 100, // % of an item's global price it may be resold for on the player market (shop items: never above the cheapest shop price)
   itemValueByRarity: [50, 250, 1000], // reference value of items with no price at all, by rarity (first = commonest)
   autoLinkSensitivity: 0.5, // how strongly an auto-linked item follows its trade good
-  gdpTradeShare: 0.1, // share of the trade passing through a market that counts toward its GDP (taxes are a share of GDP)
   battlePrepHours: 24,
   battleDays: 30,
   pipStat: 30,

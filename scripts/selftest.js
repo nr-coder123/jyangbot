@@ -504,18 +504,6 @@ test('world: item prices — sect markets, cheapest source, resale cap, sell-bac
   assert.ok(E.itemQuote(state, pill, d).yours < qd.yours);
 });
 
-test('world: taxes come from GDP — production, building value added and trade', () => {
-  const { state } = worldFresh();
-  const w = state.world;
-  W.territory.paint(state, ['四川'], w.factions[0].id);
-  for (let i = 0; i < 3; i++) W.tick.runTurn(state);
-  const r = w.regions['四川'];
-  assert.ok(r.last.gdp > 0 && r.last.produced > 0);
-  assert.ok(Math.abs(r.last.taxes - Math.min(r.last.gdp * r.taxRate / 100, r.last.taxes)) < 0.01);
-  const rich = w.regions['四川'].last.gdp; const poor = w.regions['青海'].last.gdp;
-  assert.ok(rich > poor, 'a productive province has a bigger economy');
-});
-
 test('world: painting, split provinces, takeovers and revert', () => {
   const { state } = worldFresh();
   const T = W.territory; const w = state.world;

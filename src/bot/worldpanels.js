@@ -52,7 +52,7 @@ function regionPanel(key, c) {
     region: geo.label(state, key), province: key.includes('/') ? regionName(geo.provinceOf(key)) : (g?.historicalName || ''), hanzi: g?.hanzi || '',
     controller: factionLabel(f) + occ, terrain: `${t.emoji || ''} ${t.label || r.terrain}`, population: fmt(r2(r.population)), prosperity: fmt(Math.round(r.prosperity)),
     prosperityBar: bar(r.prosperity), security: fmt(Math.round(r.security)), fort: fmt(Math.round(C.wallsOf(state, key))), buildings: buildings.join(' · ') || 'None',
-    coffers: big(r.coffers), gdp: big(r.last?.gdp), taxes: big(r.last?.taxes), calendar: C.calendar(state).text, events: events.join('\n'), policies: policies.join(' · '), armies: armies.join('\n'),
+    coffers: big(r.coffers), calendar: C.calendar(state).text, events: events.join('\n'), policies: policies.join(' · '), armies: armies.join('\n'),
     you: youLine(c, key), notes: r.notes || g?.description || '', currency: cur(),
     trend: `${dP >= 0.3 ? '📈' : dP <= -0.3 ? '📉' : '➖'} ${dP >= 0 ? '+' : ''}${fmt(r2(dP))} / turn${r.last?.food !== undefined && r.last.food < 0.9 ? ` · 🥣 food ${Math.round(r.last.food * 100)}%` : ''}`,
   }, { color: f?.color });

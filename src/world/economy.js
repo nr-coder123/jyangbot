@@ -159,8 +159,6 @@ function runBuilding(state, key, r, b, t, mods, ledger) {
     owner.treasury = r2(owner.treasury + p);
     ledger.buildings[owner.id] = r2((ledger.buildings[owner.id] || 0) + p);
   } else r.coffers = r2(r.coffers + Math.max(0, profit));
-  // Value added to the region's economy (its GDP): what the building makes, less what it uses up.
-  b.valueAdded = r2(Math.max(0, valueOut + service - costIn));
   b.lastRun = r2(f); b.lastProfit = profit;
 }
 const isProducer = (t) => !!(t && (Object.keys(t.outputs || {}).length || num(t.service)));
@@ -196,8 +194,6 @@ function tickRegion(state, key, ledger) {
   const mods = C.regionMods(state, key);
   const pf = prosperityFactor(r.prosperity);
   const sat = {};
-  // GDP (Victoria 3 style): the value the region's economy creates this turn. Taxes are a share of it.
-  let produced = 0;
   // Production
   // Producers respond to prices: they plant, mine and breed less when prices crash and more when they soar.
   for (const g of goods(state)) {
@@ -206,15 +202,13 @@ function tickRegion(state, key, ledger) {
     const seasonal = Array.isArray(g.seasonal) ? num(g.seasonal[cal.season], 1) : 1;
     const idx = num(r.prices[g.id], g.basePrice) / g.basePrice / Math.max(0.1, num(r.priceMods?.[g.id], 1));
     const response = clamp(Math.pow(idx, num(s.supplyResponse, 0.4)), 0.55, 1.3);
-    const made = base * pf * seasonal * response * C.mulFor(mods.production, g);
-    r.stock[g.id] = r2(num(r.stock[g.id]) + made);
-    produced += made * num(r.prices[g.id], g.basePrice);
+    r.stock[g.id] = r2(num(r.stock[g.id]) + base * pf * seasonal * response * C.mulFor(mods.production, g));
   }
   // Production buildings
   for (const b of r.buildings || []) {
     if (b.status !== 'ready') continue;
     const t = (w.buildingTypes || []).find((x) => x.id === b.typeId);
-    if (isProducer(t)) { runBuilding(state, key, r, b, t, mods, ledger); produced += num(b.valueAdded); }
+    if (isProducer(t)) runBuilding(state, key, r, b, t, mods, ledger);
   }
   // Armies standing here eat grain
   const an = armyNeeds(state, key);
@@ -236,11 +230,7 @@ function tickRegion(state, key, ledger) {
   }
   // Households buy what they consume from the merchants, plus a little base trade: that fills the coffers.
   const income = (spent * num(s.spendingToCoffers, 0.9) + r.population * num(s.householdIncome, 1) * pf) * mods.income;
-  // Taxes come from the circulation of the economy, not from a flat head count:
-  //   GDP = value of what the land and its workshops produced + a share of the trade that passed through its market (last turn).
-  const traded = num(r.last?.tradeValue) * num(s.gdpTradeShare, 0.25);
-  const gdp = (produced + traded) * mods.income;
-  const taxes = Math.min(Math.max(0, r.coffers + income), gdp * num(r.taxRate) / 100 * mods.tax);
+  const taxes = income * num(r.taxRate) / 100 * mods.tax;
   r.coffers = r2(Math.min(r.population * num(s.maxCoffersPerPop, 60), Math.max(0, r.coffers + income - taxes + num(mods.coffers))));
   ledger.tax += taxes;
   // Spoilage
@@ -272,7 +262,7 @@ function tickRegion(state, key, ledger) {
   const dPop = (food - 0.95) * 0.8 + (r.prosperity - 50) / 50 * 0.1 - 0.4 * Math.max(0, r.population / Math.max(1, num(r.basePop, r.population)) - 1) + num(mods.population);
   r.population = r2(Math.max(1, r.population * (1 + dPop / 100)));
   if (mods.fortGrowth) r.fort = r2(clamp(num(r.fort) + mods.fortGrowth, 0, Math.max(5, num(r.fort))));
-  r.last = { ...r.last, food: r2(food), staple: r2(staple), lux: r2(lux), income: r2(income), taxes: r2(taxes), spent: r2(spent), gdp: r2(gdp), produced: r2(produced), traded: r2(traded), dP: r2(dP), growth: r2(growth), drag: r2(drag), sources: mods.sources, notes: mods.notes || [], caravanRisk: r2(num(mods.caravanRisk)), tariff: r2(num(mods.tariff)), noGuild: num(mods.noGuildCaravans) > 0, tradeValue: 0, trade: r2(trade) };
+  r.last = { ...r.last, food: r2(food), staple: r2(staple), lux: r2(lux), income: r2(income), taxes: r2(taxes), spent: r2(spent), dP: r2(dP), growth: r2(growth), drag: r2(drag), sources: mods.sources, notes: mods.notes || [], caravanRisk: r2(num(mods.caravanRisk)), tariff: r2(num(mods.tariff)), noGuild: num(mods.noGuildCaravans) > 0, tradeValue: 0, trade: r2(trade) };
   r.history.push({ t: w.turn, p: r.prosperity, s: r.security, f: r2(food) });
   if (r.history.length > 60) r.history.splice(0, r.history.length - 60);
   // Controller (or occupier) collects the taxes
