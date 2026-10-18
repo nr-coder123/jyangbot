@@ -38,7 +38,7 @@ const marketCmd = new SlashCommandBuilder()
   .setName('market')
   .setDescription('Browse the market: the shop and items other players are selling')
   .addStringOption((o) => o.setName('show').setDescription('What to show').addChoices(
-    { name: 'Everything', value: 'all' }, { name: 'Player market only', value: 'players' }, { name: 'Shop only', value: 'shop' }, { name: 'Sect shops only', value: 'sect' },
+    { name: 'Everything', value: 'all' }, { name: 'Player market only', value: 'players' }, { name: 'Shop only', value: 'shop' },
   ));
 
 // ---------- component helpers ----------
@@ -174,24 +174,25 @@ VIEWS.item = (ctx, itemId) => {
 };
 
 VIEWS.market = (ctx, filter = 'all', page = 0) => {
-  filter = ['all', 'players', 'shop', 'sect'].includes(filter) ? filter : 'all';
+  filter = ['all', 'players', 'shop'].includes(filter) ? filter : 'all';
   const m = panels.market(ctx.c, filter, page);
   const components = [navRow(ctx, 'market')];
   if (m.slice.length) {
     components.push(row(select(cid('s', ctx, 'entry', filter), '🛒 Pick something to buy', m.slice.map((x) => ({
       label: `${x.it.name}${x.kind === 'L' ? ` ×${x.qty}` : ''} — ${fmt(x.price)} ${S().currencyName}`,
       value: `${x.kind}.${x.id}`,
-      description: x.kind === 'S' ? `Shop · ${x.it.rarity} ${x.it.type}` : x.kind === 'F' ? `${x.faction.name} · ${x.it.rarity} ${x.it.type}` : `Player: ${x.seller?.name || '?'} · ${x.it.rarity} ${x.it.type}`,
-      emoji: x.kind === 'S' ? ui.emoji(st(), 'shop') : x.kind === 'F' ? (x.faction.icon || '🏯') : ui.emoji(st(), 'player'),
+      description: x.kind === 'S' ? `Shop · ${x.it.rarity} ${x.it.type}` : `Player: ${x.seller?.name || '?'} · ${x.it.rarity} ${x.it.type}`,
+      emoji: x.kind === 'S' ? ui.emoji(st(), 'shop') : ui.emoji(st(), 'player'),
     })))));
   }
   const f = (key, value) => btn(cid('v', ctx, 'market', value, 0), key, { style: filter === value ? ButtonStyle.Primary : ButtonStyle.Secondary });
+  // Filters and page buttons share a row: at most 5 buttons (Discord refuses a 6th, and the market would not open).
   components.push(row(
-    f('filterAll', 'all'), f('filterPlayers', 'players'), f('filterShop', 'shop'), st().world?.settings?.enabled ? f('filterSect', 'sect') : null,
+    f('filterAll', 'all'), f('filterPlayers', 'players'), f('filterShop', 'shop'),
     m.pages > 1 ? btn(cid('v', ctx, 'market', filter, m.page - 1), 'prev', { disabled: m.page <= 0 }) : null,
     m.pages > 1 ? btn(cid('v', ctx, 'market', filter, m.page + 1), 'next', { disabled: m.page >= m.pages - 1 }) : null,
   ));
-  return { content: m.content, embeds: m.embeds, components };
+  return { content: m.content, embeds: m.embeds, components: components.filter(Boolean) };
 };
 
 VIEWS.entry = (ctx, key, filter = 'all') => {
@@ -199,7 +200,7 @@ VIEWS.entry = (ctx, key, filter = 'all') => {
   const entry = panels.findEntry(key, c);
   if (!entry) return VIEWS.market(ctx, filter, 0);
   const own = entry.kind === 'L' && entry.listing.sellerUserId === ctx.viewer;
-  const canBuy = ctx.isOwner && !own && c.nyang >= entry.price && entry.qty !== 0 && (entry.kind !== 'F' || entry.terms.allowed);
+  const canBuy = ctx.isOwner && !own && c.nyang >= entry.price && entry.qty !== 0;
   return {
     ...panels.marketEntry(c, entry),
     components: [navRow(ctx, 'market'), row(
@@ -300,16 +301,12 @@ function buyEntry(i, ctx, key, qty) {
   const { c } = ctx;
   const entry = panels.findEntry(key, c);
   if (!entry) throw new UserError('That is no longer for sale.');
-  if (entry.kind === 'F') {
-    const [fid, itemId] = entry.id.split('|');
-    const r = world.economy.buyFromSectShop(state, c, fid, itemId, qty);
-    store.log(actor(i), 'sectshop.buy', `${c.name} bought ${r.qty}× ${entry.it.name} from ${r.faction.name} for ${r.cost} (${r.tier})`);
-    return `🛒 Bought ${r.qty}× **${entry.it.name}** from **${r.faction.name}** for ${ui.emoji(state, 'nyang')} ${fmt(r.cost)}. Purse: ${fmt(c.nyang)}.`;
-  }
   if (entry.kind === 'S') {
     const r = economy.buyFromShop(state, c, entry.it, qty, entry.price);
-    store.log(actor(i), 'shop.buy', `${c.name} bought ${r.qty}× ${entry.it.name} for ${r.cost}`);
-    return `🛒 Bought ${r.qty}× **${entry.it.name}** for ${ui.emoji(state, 'nyang')} ${fmt(r.cost)}. Purse: ${fmt(c.nyang)}.`;
+    const tax = world.economy.shopSaleTax(state, c, r.cost);
+    const ruler = entry.quote?.ctx?.ruler;
+    store.log(actor(i), 'shop.buy', `${c.name} bought ${r.qty}× ${entry.it.name} for ${r.cost}${tax ? ` (${tax} tax to ${ruler?.name})` : ''}`);
+    return `🛒 Bought ${r.qty}× **${entry.it.name}** for ${ui.emoji(state, 'nyang')} ${fmt(r.cost)}. Purse: ${fmt(c.nyang)}.${tax ? `\n-# ${fmt(tax)} of it went to ${ruler?.name} as sales tax.` : ''}`;
   }
   const r = economy.buyFromMarket(state, c, entry.listing, qty);
   store.log(actor(i), 'market.buy', `${c.name} bought ${qty}× ${entry.it.name} from ${r.seller?.name} for ${r.cost}`);

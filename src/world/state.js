@@ -41,10 +41,6 @@ function normalizeFaction(f = {}) {
     repRanks: isPlainObject(f.repRanks) ? Object.fromEntries(Object.entries(f.repRanks).map(([k, v]) => [String(k), String(v)])) : {},
     repRoleId: f.repRoleId || '',
     policies: arr(f.policies).filter((p) => p && p.policyId).map((p) => ({ policyId: p.policyId, region: p.region || '', since: num(p.since) })),
-    shop: {
-      access: ['everyone', 'allies', 'members'].includes(f.shop?.access) ? f.shop.access : 'everyone',
-      items: arr(f.shop?.items).filter((x) => x && x.itemId).map((x) => ({ itemId: x.itemId, price: x.price === null || x.price === undefined || x.price === '' ? null : num(x.price), stock: num(x.stock, -1), restock: num(x.restock, 0), access: ['inherit', 'everyone', 'allies', 'members'].includes(x.access) ? x.access : 'inherit' })),
-    },
     // Stipends: a share of each turn's net income set aside and paid to members every season (see world/territory.js).
     stipendRate: Math.max(0, Math.min(100, num(f.stipendRate, 0))),
     stipendFund: r2(Math.max(0, num(f.stipendFund, 0))),
@@ -76,7 +72,7 @@ function normalizeRegion(key, r = {}) {
       terrain: W.TERRAINS[r.terrain] ? r.terrain : 'plains',
       population: r2(Math.max(0, num(r.population, 10))),
       basePop: r2(Math.max(1, num(r.basePop, num(r.population, 10)))),
-      fort: Math.max(0, Math.min(5, num(r.fort, 1))),
+      fort: Math.max(0, Math.min(10, num(r.fort, 1))), // base walls 0–10 (City Walls buildings add on top)
       prosperity: r2(Math.max(0, Math.min(100, num(r.prosperity, 50)))),
       security: r2(Math.max(0, Math.min(100, num(r.security, 55)))),
       coffers: r2(Math.max(0, num(r.coffers, 0))),
@@ -98,7 +94,7 @@ function normalizeRegion(key, r = {}) {
   return out;
 }
 
-const WORLD_VERSION = 4;
+const WORLD_VERSION = 5;
 /** Put the preset buildings into regions that don't have them yet. */
 function seedBuildings(regions) {
   for (const [key, typeId, level] of W.START_BUILDINGS) {
@@ -108,6 +104,14 @@ function seedBuildings(regions) {
     if (have) { have.level = Math.max(num(have.level, 1), level); continue; }
     r.buildings.push(normalizeBuilding({ id: `bd-${slug(key)}-${typeId}`, typeId, level, factionId: r.controller || '', status: 'ready' }));
   }
+}
+/** v4 → v5: sect shops are gone (the one shop is priced where you stand); City Walls can be raised to level 3. */
+function migrateV5(state, w) {
+  w.policies = arr(w.policies).map(W.cleanPolicy);
+  const walls = arr(w.buildingTypes).find((t) => t.id === 'walls');
+  if (walls && num(walls.maxLevel, 1) <= 1) { walls.maxLevel = 3; walls.description = W.BUILDING_TYPES.find((t) => t.id === 'walls').description; }
+  if (w.settings) delete w.settings.shopTiers;
+  for (const f of arr(w.factions)) delete f.shop;
 }
 /** v3 → v4 (on raw regions, before they are normalized): workshops become buildings; players are refunded what theirs cost. */
 function migrateV4(state, w) {
@@ -386,6 +390,7 @@ function normalizeWorld(state) {
   if (w.version < 2) { migrateV2(state, w); w.version = 2; }
   if (w.version < 3) { migrateV3(state, w); w.version = 3; }
   if (w.version < 4) { w.version = 4; }
+  if (w.version < 5) { migrateV5(state, w); w.version = 5; }
   if (w.needsBuildingSeed) { seedBuildings(w.regions); delete w.needsBuildingSeed; }
   w.factions = w.factions.map(normalizeFaction);
   const fids = new Set(w.factions.map((f) => f.id));

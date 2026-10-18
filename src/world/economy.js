@@ -260,7 +260,7 @@ function tickRegion(state, key, ledger) {
   // The land can only feed so many: growth slows as population passes its base (carrying capacity).
   const dPop = (food - 0.95) * 0.8 + (r.prosperity - 50) / 50 * 0.1 - 0.4 * Math.max(0, r.population / Math.max(1, num(r.basePop, r.population)) - 1) + num(mods.population);
   r.population = r2(Math.max(1, r.population * (1 + dPop / 100)));
-  if (mods.fortGrowth) r.fort = r2(clamp(num(r.fort) + mods.fortGrowth, 0, 5));
+  if (mods.fortGrowth) r.fort = r2(clamp(num(r.fort) + mods.fortGrowth, 0, Math.max(5, num(r.fort))));
   r.last = { ...r.last, food: r2(food), staple: r2(staple), lux: r2(lux), income: r2(income), taxes: r2(taxes), spent: r2(spent), dP: r2(dP), growth: r2(growth), drag: r2(drag), sources: mods.sources, notes: mods.notes || [], caravanRisk: r2(num(mods.caravanRisk)), tariff: r2(num(mods.tariff)), noGuild: num(mods.noGuildCaravans) > 0, tradeValue: 0, trade: r2(trade) };
   r.history.push({ t: w.turn, p: r.prosperity, s: r.security, f: r2(food) });
   if (r.history.length > 60) r.history.splice(0, r.history.length - 60);
@@ -631,72 +631,104 @@ function settlePlayerCaravans(state, now = Date.now()) {
   return out;
 }
 
-// ─────────── shops (server shop + sect shops) ───────────
-/** Dynamic price of an item for a buyer: items linked to a good move with that good's local price (bounded). */
-function dynamicItemPrice(state, item, basePrice, c) {
-  if (!item?.economy?.good || !num(item.economy.sensitivity) || !state.world?.settings?.enabled) return basePrice;
-  const key = c ? geo.marketOf(state, locationOf(state, c)) : null;
-  if (!key) return basePrice;
-  const idx = priceIndex(state, key, item.economy.good);
-  const max = num(state.world.settings.shopSwingMax, 25) / 100;
-  const mult = clamp(1 + num(item.economy.sensitivity) * (idx - 1), 1 - max, 1 + max);
-  return Math.max(1, Math.round(basePrice * mult));
-}
-
-/** How a sect shop treats a buyer: { tier, pct, allowed, reason } */
-function shopTerms(state, f, c, entry) {
-  const s = state.world.settings;
-  const tiers = s.shopTiers || {};
+// ─────────── the shop, priced where you stand ───────────
+/**
+ * There is one shop, but what an item costs depends on where the character stands:
+ *  · items linked to a trade good follow its local price (bounded by shopSwingMax);
+ *  · the ruler's own members pay the home price, members of factions with "open markets" pay the friend price,
+ *    enemies at war with the ruler pay more (World settings → localPrices);
+ *  · a ruler's "Closed Gates"-style policies charge outsiders extra (policy field outsiderMarkup);
+ *  · if the region has a working production building that makes the item's good, it is cheaper (made here);
+ *  · the ruler collects a sales tax on every purchase (it is added to the faction's taxes).
+ * Custom code (shopPrice hook on the ruling faction or the region) can change the price or refuse the sale.
+ */
+function shopContext(state, c) {
+  const w = state.world;
+  if (!w?.settings?.enabled || !c) return null;
+  const key = geo.marketOf(state, locationOf(state, c));
+  const r = key && w.regions[key];
+  if (!r) return null;
+  const ruler = C.faction(state, r.controller);
   const buyerF = C.factionOfChar(state, c);
-  const policyAccess = f.policies.map((p) => state.world.policies.find((x) => x.id === p.policyId)?.shopAccess).find(Boolean);
-  const access = entry && entry.access !== 'inherit' ? entry.access : policyAccess || f.shop.access;
+  const lp = { home: -10, friend: -5, neutral: 0, enemy: 25, ...(w.settings.localPrices || {}) };
   let tier = 'neutral';
-  if (buyerF && buyerF.id === f.id) tier = 'member';
-  else if (buyerF) {
-    if (C.atWar(state, f.id, buyerF.id)) tier = 'war';
-    else if (C.hasPerk(state, f.id, buyerF.id, 'sharedShops')) tier = 'ally';
+  if (ruler && buyerF) {
+    if (buyerF.id === ruler.id) tier = 'home';
+    else if (C.atWar(state, ruler.id, buyerF.id)) tier = 'enemy';
+    else if (C.hasPerk(state, ruler.id, buyerF.id, 'sharedShops')) tier = 'friend';
   }
-  const pct = tiers[tier];
-  if (tier === 'war' || pct === null || pct === undefined) return { tier, pct: 0, allowed: false, reason: `${f.name} will not sell to enemies.` };
-  if (access === 'members' && tier !== 'member') return { tier, pct, allowed: false, reason: `${f.name}'s gates are closed — members only.` };
-  if (access === 'allies' && !['member', 'ally'].includes(tier)) return { tier, pct, allowed: false, reason: `${f.name} only sells to members and allies.` };
-  return { tier, pct: num(pct), allowed: true, reason: '' };
+  let pct = ruler ? num(lp[tier]) : 0;
+  let gates = 0;
+  if (ruler && tier !== 'home') {
+    for (const p of ruler.policies || []) gates += num(w.policies.find((x) => x.id === p.policyId)?.outsiderMarkup);
+    pct += gates;
+  }
+  return { key, region: r, ruler, buyerF, tier, pct, gates, salesTax: ruler ? num(w.settings.shopSalesTax, 10) : 0 };
 }
-function sectShopOffers(state, c) {
-  const out = [];
-  for (const f of state.world.factions) {
-    if (!f.active || !f.shop.items.length) continue;
-    for (const e of f.shop.items) {
-      const it = state.items.find((i) => i.id === e.itemId);
-      if (!it) continue;
-      const base = e.price !== null ? num(e.price) : num(it.shop?.price);
-      if (!(base > 0)) continue;
-      const terms = shopTerms(state, f, c, e);
-      let price = dynamicItemPrice(state, it, base, c);
-      price = Math.max(1, Math.round(price * (1 + terms.pct / 100)));
-      const sources = [{ scriptId: f.scriptId, type: 'faction', name: f.name }];
-      if (f.scriptId) {
-        const v = C.runHooks(state, sources, 'shopPrice', C.worldCtx(state, { faction: C.factionSummary(state, f), buyer: c ? { id: c.id, name: c.name, sect: c.sect } : null, item: { id: it.id, name: it.name } }), { price, allowed: terms.allowed, reason: terms.reason });
-        if (v && typeof v === 'object') { price = Math.max(0, num(v.price, price)); terms.allowed = v.allowed !== false; terms.reason = v.reason || terms.reason; }
-      }
-      out.push({ key: `F.${f.id}.${it.id}`, faction: f, entry: e, it, price, base, ...terms, stock: num(e.stock, -1) });
+const TIER_TEXT = { home: 'home ground', friend: 'open markets', neutral: 'outsider', enemy: 'enemy of the ruler' };
+/** Discount for an item made in this region (a working production building whose output is the item's good). */
+function madeHere(state, r, item) {
+  const g = item?.economy?.good;
+  if (!g || !r) return 0;
+  let best = 0;
+  for (const b of r.buildings || []) {
+    if (b.status !== 'ready' || b.hp < 50) continue;
+    const t = (state.world.buildingTypes || []).find((x) => x.id === b.typeId);
+    if (t?.outputs?.[g]) best = Math.max(best, num(b.level, 1));
+  }
+  return best * num(state.world.settings.madeHereDiscount, 5);
+}
+/** Full quote for a shop item: { price, base, pct, notes[], allowed, reason, ctx } */
+function shopQuote(state, item, basePrice, c) {
+  basePrice = num(basePrice);
+  const out = { price: basePrice, base: basePrice, pct: 0, notes: [], allowed: true, reason: '', ctx: null };
+  if (!state.world?.settings?.enabled) return out;
+  const ctx = shopContext(state, c);
+  out.ctx = ctx;
+  let price = basePrice;
+  if (item?.economy?.good && num(item.economy.sensitivity) && ctx) {
+    const idx = priceIndex(state, ctx.key, item.economy.good);
+    const max = num(state.world.settings.shopSwingMax, 25) / 100;
+    price *= clamp(1 + num(item.economy.sensitivity) * (idx - 1), 1 - max, 1 + max);
+  }
+  if (ctx) {
+    let pct = ctx.pct;
+    if (ctx.ruler && ctx.pct - ctx.gates) out.notes.push(`${TIER_TEXT[ctx.tier]} ${ctx.pct - ctx.gates > 0 ? '+' : ''}${ctx.pct - ctx.gates}%`);
+    if (ctx.gates) out.notes.push(`closed gates +${ctx.gates}%`);
+    const made = madeHere(state, ctx.region, item);
+    if (made) { pct -= made; out.notes.push(`made here −${made}%`); }
+    out.pct = pct;
+    price *= 1 + pct / 100;
+    if (ctx.ruler && (ctx.region.scriptId || ctx.ruler.scriptId)) {
+      const sources = [{ scriptId: ctx.ruler.scriptId, type: 'faction', name: ctx.ruler.name }, { scriptId: ctx.region.scriptId, type: 'region', name: geo.label(state, ctx.key) }];
+      const v = C.runHooks(state, sources, 'shopPrice', C.worldCtx(state, { faction: C.factionSummary(state, ctx.ruler), region: C.regionSummary(state, ctx.key), buyer: { id: c.id, name: c.name, sect: c.sect, tier: ctx.tier }, item: { id: item.id, name: item.name, type: item.type, rarity: item.rarity } }), { price, allowed: true, reason: '' });
+      if (v && typeof v === 'object') { price = Math.max(0, num(v.price, price)); out.allowed = v.allowed !== false; out.reason = v.reason || (out.allowed ? '' : 'Not sold here.'); }
     }
   }
+  out.price = Math.max(1, Math.round(price));
   return out;
 }
-function buyFromSectShop(state, c, factionId, itemId, qty) {
-  qty = Math.max(1, Math.floor(num(qty, 1)));
-  const o = sectShopOffers(state, c).find((x) => x.faction.id === factionId && x.it.id === itemId);
-  if (!o) throw new UserError('That item is not sold there.');
-  if (!o.allowed) throw new UserError(o.reason);
-  if (o.stock >= 0 && o.stock < qty) throw new UserError(`Only ${o.stock} left.`);
-  const cost = r2(o.price * qty);
-  if (c.nyang < cost) throw new UserError(`You need ${fmt(cost)} ${state.settings.currencyName}.`);
-  c.nyang = r2(c.nyang - cost);
-  o.faction.treasury = r2(o.faction.treasury + cost);
-  if (o.stock >= 0) o.entry.stock = o.stock - qty;
-  c.inventory[itemId] = (c.inventory[itemId] || 0) + qty;
-  return { ...o, qty, cost };
+/** Price of a shop item for a buyer where they stand (see shopQuote). */
+function dynamicItemPrice(state, item, basePrice, c) {
+  return shopQuote(state, item, basePrice, c).price;
+}
+/** One line for the market screen: where the character shops and on what terms. */
+function shopHeadline(state, c) {
+  const ctx = shopContext(state, c);
+  if (!ctx) return '';
+  const where = geo.label(state, ctx.key);
+  if (!ctx.ruler) return `Shopping in **${where}** (unclaimed land) — no ruler, no sales tax.`;
+  const bits = [ctx.pct ? `${ctx.pct > 0 ? '+' : '−'}${Math.abs(ctx.pct)}% for you (${TIER_TEXT[ctx.tier]}${ctx.gates ? ', closed gates' : ''})` : `normal prices for you (${TIER_TEXT[ctx.tier]})`];
+  if (ctx.salesTax) bits.push(`${ctx.salesTax}% of every sale goes to ${ctx.ruler.name}`);
+  return `Shopping in **${where}**, ruled by **${ctx.ruler.name}** — ${bits.join(' · ')}.`;
+}
+/** After a shop sale: the ruler's sales tax. Returns the tax paid. */
+function shopSaleTax(state, c, cost) {
+  const ctx = shopContext(state, c);
+  if (!ctx?.ruler || !ctx.salesTax) return 0;
+  const tax = r2(num(cost) * ctx.salesTax / 100);
+  if (tax > 0) collectTax(state, ctx.ruler.id, tax, null);
+  return tax;
 }
 
 module.exports = {
@@ -704,5 +736,5 @@ module.exports = {
   buildingNeeds, runBuilding, isProducer, collectTax, border, tickRegion, peddlerTrade, dispatchNpcCaravans, arriveNpcCaravans, raidRisk, embargoed, armyMen, journeyLoss, banditsTake,
   locationOf, travelInfo, startTravel, settleTravel, isTravelling, requireAt,
   tariffFor, quote, itemForGood, buyGood, sellGood, sendCaravan, settlePlayerCaravans,
-  dynamicItemPrice, shopTerms, sectShopOffers, buyFromSectShop, caravanTurns,
+  dynamicItemPrice, shopQuote, shopContext, shopHeadline, shopSaleTax, madeHere, caravanTurns,
 };

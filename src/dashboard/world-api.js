@@ -75,8 +75,9 @@ function mount(app, { wrap, bot, diff }) {
     next.turnHours = Math.max(0.25, next.turnHours);
     next.turnsPerSeason = Math.max(1, Math.floor(next.turnsPerSeason));
     next.championRealmMult = arr(next.championRealmMult).map((x) => num(x, 1));
-    next.shopTiers = { ...before.shopTiers, ...(next.shopTiers || {}) };
-    for (const k of Object.keys(next.shopTiers)) next.shopTiers[k] = next.shopTiers[k] === null || next.shopTiers[k] === '' ? null : num(next.shopTiers[k]);
+    delete next.shopTiers;
+    next.localPrices = Object.fromEntries(Object.entries({ ...W.defaults.DEFAULT_WORLD_SETTINGS.localPrices, ...before.localPrices, ...(next.localPrices || {}) }).map(([k, v]) => [k, Math.max(-90, Math.min(500, num(v)))]));
+    next.shopSalesTax = Math.max(0, Math.min(100, num(next.shopSalesTax)));
     next.powerWeights = Object.fromEntries(Object.entries({ ...before.powerWeights, ...(next.powerWeights || {}) }).map(([k, v]) => [k, Math.max(0, num(v))]));
     next.representativeRoleIds = arr(next.representativeRoleIds).map(String).filter(Boolean);
     next.travelMode = 'channel';
@@ -247,7 +248,7 @@ function mount(app, { wrap, bot, diff }) {
     const b = req.body || {};
     if (b.scriptId) scriptOk(b.scriptId);
     if (b.hq && !geo.get(b.hq)) throw new UserError('Unknown HQ region.');
-    for (const e of arr(b.shop?.items)) if (!store.state.items.some((i) => i.id === e.itemId)) throw new UserError(`Shop: unknown item ${e.itemId}.`);
+    delete b.shop;
     const next = WS.normalizeFaction({ ...before, ...b, id: f.id, policies: b.policies ?? before.policies });
     Object.assign(f, next);
     log(req, 'world.faction', `${f.name}: ${diff(before, f, ['lastIncome'])}`);

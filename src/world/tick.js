@@ -37,8 +37,6 @@ function runTurn(state, { by = 'system' } = {}) {
   }
   const stipends = T.tickStipends(state);
   D.expireProposals(state);
-  // Sect shop restock
-  for (const f of w.factions) for (const e of f.shop.items) if (num(e.restock) > 0 && e.stock >= 0) e.stock = e.stock + num(e.restock);
   const now = Date.now();
   w.lastTurnAt = new Date(now).toISOString();
   w.nextTurnAt = new Date(now + num(w.settings.turnHours, 6) * 3600000).toISOString();

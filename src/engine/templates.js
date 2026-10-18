@@ -268,7 +268,7 @@ const DEFS = {
       color: 0xc0a062,
       fields: [
         { name: 'Ruled by', value: '{controller}', inline: true },
-        { name: 'Land', value: '{terrain} · Walls {fort}/5', inline: true },
+        { name: 'Land', value: '{terrain} · Walls {fort}', inline: true },
         { name: 'People', value: '{population}k households', inline: true },
         { name: 'Prosperity', value: '{prosperityBar} **{prosperity}**\n-# {trend}', inline: false },
         { name: 'Security', value: '{security}', inline: true },
@@ -328,7 +328,7 @@ const DEFS = {
     sample: { region: 'Kaifeng', attacker: 'Blood Cult', defender: 'Shaolin Sect', attackerArmy: '1,200 Spearmen · 400 Crossbowmen\nFormation: Arrowhead · Duel dice +1\nCommander: Baek Cheon (fire 2 · shock 3 · maneuver 1)', defenderArmy: '900 Shield & Sabre · 150 Sect Disciples\nFormation: Square', resolves: '<t:1900000000:R>', duels: '🤺 Chung Myung defeated Baek Cheon', champions: 'Attacker: Baek Cheon\nDefender: Chung Myung', terrain: 'Rivers & Lakes (attacker -1 dice) · width 25k', fort: '3' },
     default: E({
       title: '⚔️ Battle of {region}',
-      description: '**{attacker}** attacks **{defender}** · {terrain} · walls {fort}/5\nThe battle begins {resolves}. Until then champions may duel in RP; staff record the result with **Record duel**.',
+      description: '**{attacker}** attacks **{defender}** · {terrain} · walls {fort}\nThe battle begins {resolves}. Until then champions may duel in RP; staff record the result with **Record duel**.',
       color: 0x8b0000,
       fields: [
         { name: '🗡️ {attacker}', value: '{attackerArmy}', inline: true },

@@ -21,6 +21,8 @@ async function loadWorld() {
   return WD;
 }
 const W_ = () => WD.world;
+/** Walls of a market in battle: base walls + City Walls (+fort per level, only at half strength or more). */
+const wallsOfR = (r) => (r ? Number(r.fort || 0) + (r.buildings || []).reduce((s, b) => { const t = W_().buildingTypes.find((x) => x.id === b.typeId); return s + (b.status === 'ready' && b.hp >= 50 ? Number(t?.fort || 0) * (b.level || 1) : 0); }, 0) : 0);
 const isProd = (t) => !!t && (Object.keys(t.outputs || {}).length > 0 || Number(t.service) > 0);
 const geoOf = (key) => MAPDATA?.byKey.get(key);
 const provinceOf = (key) => (key && key.includes('/') ? key.split('/')[0] : key);
@@ -148,6 +150,7 @@ function regionValue(key) {
     case 'food': return r ? ramp(((r.last?.food ?? 1) - 0.5) / 0.5) : UNCLAIMED;
     case 'price': { const g = goodOf(MAPV.good); return g && r ? priceRamp((r.prices?.[g.id] || g.basePrice) / g.basePrice) : UNCLAIMED; }
     case 'terrain': return TERRAIN_COLOR[r?.terrain] || UNCLAIMED;
+    case 'walls': return r ? wallRamp(wallsOfR(r)) : UNCLAIMED;
     case 'events': return r && w.activeEvents.some((e) => e.regions.includes(marketOf(key))) ? '#e08a3c' : UNCLAIMED;
     case 'relations': {
       const ctl = ctlOf(key);
@@ -157,6 +160,7 @@ function regionValue(key) {
     default: return fac(ctlOf(key))?.color || UNCLAIMED;
   }
 }
+function wallRamp(v) { return v <= 0 ? '#e9e1cf' : ramp(Math.min(1, v / 10)); }
 function fillFor(key) {
   if (MAPV.overlay !== 'political') return { fill: regionValue(key), op: 0.88 };
   const f = fac(ctlOf(key));
@@ -171,6 +175,7 @@ function legendFor() {
   if (o === 'terrain') return Object.entries(TERRAIN_COLOR).map(([k, c]) => box(c, W_().terrains[k]?.label || k));
   if (o === 'relations') return [box(STANCE_COLOR.self, 'this faction'), box(STANCE_COLOR.allied, 'same alliance'), box(STANCE_COLOR.agreement, 'agreement'), box(STANCE_COLOR.neutral, 'neutral'), box(STANCE_COLOR.war, 'at war')];
   if (o === 'events') return [box('#e08a3c', 'event in progress')];
+  if (o === 'walls') return [box(wallRamp(0), 'no walls'), box(wallRamp(3), '3'), box(wallRamp(6), '6'), box(wallRamp(10), '10+')];
   return [box(ramp(0), 'low'), box(ramp(0.5), 'mid'), box(ramp(1), 'high')];
 }
 
@@ -468,6 +473,7 @@ const ICONS = {
   fit: ['M8 3H5a2 2 0 0 0-2 2v3', 'M21 8V5a2 2 0 0 0-2-2h-3', 'M3 16v3a2 2 0 0 0 2 2h3', 'M16 21h3a2 2 0 0 0 2-2v-3'],
   panel: ['M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z', 'M15 3v18'],
   alliance: ['M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z', 'M8 11h8', 'M12 7v8'],
+  walls: ['M3 21V8h3V5h3v3h2V5h2v3h2V5h3v3h3v13Z', 'M10 21v-5a2 2 0 0 1 4 0v5'],
 };
 function icon(name, size = 18) {
   return sv('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': 2, 'stroke-linecap': 'round', 'stroke-linejoin': 'round' }, ...(ICONS[name] || []).map((d) => sv('path', { d })));
@@ -500,8 +506,8 @@ VIEWS.map = async () => {
   const redraw = () => { svgEl = buildMapSvg(onPick); holder.replaceChildren(svgEl); legend.replaceChildren(...legendFor()); drawStatus(); };
   const drawStatus = () => {
     const k = MAPV.hover;
-    status.replaceChildren(k ? h('span', {}, h('b', {}, rfull(k)), ` ${geoOf(k)?.hanzi || ''} — `, (() => { const f = fac(ctlOf(k)); return f ? h('span', { style: `color:${f.color};font-weight:600` }, f.name) : h('span', { class: 'muted' }, 'unclaimed'); })(), W_().regions[k]?.special ? h('span', { class: 'muted' }, ' · own market') : null)
-      : h('span', { class: 'muted' }, MAPV.tool === 'paint' ? (fac(MAPV.paintF) ? `Click or drag to paint ${fac(MAPV.paintF).name}. Drag the sea to move.` : 'Pick a faction to paint with.') : MAPV.tool === 'erase' ? 'Click or drag to unclaim land.' : MAPV.tool === 'alliance' ? 'Click a region to add or remove its ruler from the alliance.' : MAPV.tool === 'landmark' ? 'Click the map to place a landmark.' : MAPV.tool === 'frontier' ? 'Click points to draw a line.' : 'Click a region to inspect it.'));
+    status.replaceChildren(k ? h('span', {}, h('b', {}, rfull(k)), ` ${geoOf(k)?.hanzi || ''} — `, (() => { const f = fac(ctlOf(k)); return f ? h('span', { style: `color:${f.color};font-weight:600` }, f.name) : h('span', { class: 'muted' }, 'unclaimed'); })(), W_().regions[k]?.special ? h('span', { class: 'muted' }, ' · own market') : null, MAPV.tool === 'walls' || MAPV.overlay === 'walls' ? h('span', {}, ` · walls ${fmt(W_().regions[marketOf(k)]?.fort || 0)}${wallsOfR(W_().regions[marketOf(k)]) > (W_().regions[marketOf(k)]?.fort || 0) ? ` (+${fmt(wallsOfR(W_().regions[marketOf(k)]) - (W_().regions[marketOf(k)]?.fort || 0))} City Walls)` : ''}`) : null)
+      : h('span', { class: 'muted' }, MAPV.tool === 'paint' ? (fac(MAPV.paintF) ? `Click or drag to paint ${fac(MAPV.paintF).name}. Drag the sea to move.` : 'Pick a faction to paint with.') : MAPV.tool === 'erase' ? 'Click or drag to unclaim land.' : MAPV.tool === 'alliance' ? 'Click a region to add or remove its ruler from the alliance.' : MAPV.tool === 'walls' ? 'Click a region to set its walls (choose the level top left).' : MAPV.tool === 'landmark' ? 'Click the map to place a landmark.' : MAPV.tool === 'frontier' ? 'Click points to draw a line.' : 'Click a region to inspect it.'));
   };
   // ----- painting with undo / redo -----
   async function paint(keys, ctl) {
@@ -545,6 +551,16 @@ VIEWS.map = async () => {
       if (ev.landmark) return editLandmark(w.map.landmarks.find((l) => l.id === ev.landmark), reloadAll);
       if (MAPV.tool === 'landmark') return editLandmark({ name: '', hanzi: '', type: 'sect_site', xy: ev.xy, region: ev.key || '', factionId: '', notes: '' }, reloadAll);
       if (MAPV.tool === 'frontier') { MAPV.frontier = [...(MAPV.frontier || []), ev.xy]; redraw(); drawActive(); return; }
+      if (MAPV.tool === 'walls' && ev.key) {
+        const mk = marketOf(ev.key); const r = w.regions[mk];
+        const lv = MAPV.wallLv ?? 3;
+        const next = MAPV.wallMode === 'add' ? Math.max(0, Math.min(10, Number(r?.fort || 0) + 1)) : MAPV.wallMode === 'sub' ? Math.max(0, Number(r?.fort || 0) - 1) : lv;
+        await api(`/world/regions/${encodeURIComponent(mk)}`, { method: 'PUT', body: { fort: next } });
+        await loadWorld(); w = W_();
+        const extra = wallsOfR(w.regions[mk]) - next;
+        toast(`${rfull(mk)}: walls ${next}${extra ? ` (+${extra} from City Walls = ${next + extra} in battle)` : ''}.`);
+        redraw(); drawSide(); return;
+      }
       if (MAPV.tool === 'alliance' && ev.key) {
         const al = w.alliances.find((a) => a.id === MAPV.allianceId);
         if (!al) { toast('Pick or create an alliance first (top left).', true); return; }
@@ -560,7 +576,11 @@ VIEWS.map = async () => {
     } catch (e) { toast(e.message, true); redraw(); }
   }
   // ----- left rail (tools) -----
-  const setTool = (t) => { MAPV.tool = t; if (t !== 'frontier') MAPV.frontier = null; drawRail(); drawActive(); redraw(); };
+  const setTool = (t) => {
+    // The walls tool shows the walls map mode while it is active, then puts the previous one back.
+    const swap = (MAPV.tool === 'walls') !== (t === 'walls');
+    if (swap && t === 'walls') { MAPV.prevOverlay = MAPV.overlay; MAPV.overlay = 'walls'; } else if (swap && MAPV.overlay === 'walls') MAPV.overlay = MAPV.prevOverlay && MAPV.prevOverlay !== 'walls' ? MAPV.prevOverlay : 'political';
+    MAPV.tool = t; if (swap) drawSide(); if (t !== 'frontier') MAPV.frontier = null; drawRail(); drawActive(); redraw(); };
   const zoom = (k) => { const vb = MAPV.vb; const nw = Math.max(100, Math.min(2800, vb.w * k)); const nh = vb.h * (nw / vb.w); MAPV.vb = { x: vb.x + (vb.w - nw) / 2, y: vb.y + (vb.h - nh) / 2, w: nw, h: nh }; redraw(); };
   const railBtn = (id, label, desc, onclick, { on = false, disabled = false } = {}) => h('button', { class: `wm-tool${on ? ' on' : ''}`, onclick, disabled, 'aria-label': label }, icon(id), h('span', { class: 'wm-tip' }, h('b', {}, label), desc ? h('small', {}, desc) : null));
   function drawRail() {
@@ -569,6 +589,7 @@ VIEWS.map = async () => {
       railBtn('erase', 'Eraser  (E)', 'Click or drag to unclaim land', () => setTool('erase'), { on: MAPV.tool === 'erase' }),
       railBtn('inspect', 'Inspect  (I)', 'Click a region to see and edit it', () => setTool('inspect'), { on: MAPV.tool === 'inspect' }),
       railBtn('alliance', 'Alliance  (A)', 'Click a region to add or remove its ruler from the active alliance', () => setTool('alliance'), { on: MAPV.tool === 'alliance' }),
+      railBtn('walls', 'Walls  (W)', 'Click a region to set its walls (forts for battles)', () => setTool('walls'), { on: MAPV.tool === 'walls' }),
       railBtn('landmark', 'Landmark  (L)', 'Click the map to place a sect site, pass or city', () => setTool('landmark'), { on: MAPV.tool === 'landmark' }),
       railBtn('frontier', 'Frontier line  (F)', 'Click points to draw walls, truce lines and fronts', () => setTool('frontier'), { on: MAPV.tool === 'frontier' }),
       h('div', { class: 'wm-sep' }),
@@ -594,6 +615,16 @@ VIEWS.map = async () => {
             MAPV.frontier = null; toast('Line saved.'); await reloadAll();
           }) }, 'Save'), h('button', { class: 'btn small', onclick: () => { MAPV.frontier = null; redraw(); drawActive(); } }, 'Clear'),
           w.map.frontiers.length ? h('button', { class: 'btn small danger', onclick: run(async () => { if (!confirm('Delete every frontier line?')) return; await api('/world/map', { method: 'PUT', body: { frontiers: [] } }); await reloadAll(); }) }, 'Delete all') : null));
+      return;
+    }
+    if (MAPV.tool === 'walls') {
+      const lv = MAPV.wallLv ?? 3; const mode = MAPV.wallMode || 'set';
+      const pick = (m, n) => { MAPV.wallMode = m; if (n !== undefined) MAPV.wallLv = n; drawActive(); };
+      active.replaceChildren(
+        h('div', { class: 'wm-active-row' }, h('span', { class: 'muted' }, 'Walls — click a region')),
+        h('div', { class: 'toolbar small', style: 'flex-wrap:wrap;gap:4px' }, ...Array.from({ length: 11 }, (_, n) => h('button', { class: `btn small${mode === 'set' && lv === n ? ' primary' : ''}`, style: 'min-width:30px;padding:4px 6px', onclick: () => pick('set', n) }, String(n)))),
+        h('div', { class: 'toolbar small' }, h('button', { class: `btn small${mode === 'add' ? ' primary' : ''}`, onclick: () => pick('add') }, '+1 per click'), h('button', { class: `btn small${mode === 'sub' ? ' primary' : ''}`, onclick: () => pick('sub') }, '−1 per click')),
+        h('div', { class: 'muted small' }, mode === 'set' ? `Clicked regions get walls ${lv}. ` : '', '0 = open country, 3 = a walled city, 6 = a great fortress, 10 = an impregnable pass. City Walls buildings add +1 per level on top. A prefecture without its own market sets its province\'s walls.'));
       return;
     }
     if (MAPV.tool === 'alliance') {
@@ -675,7 +706,7 @@ VIEWS.map = async () => {
     if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); run(redo)(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (k === ' ') { SPACE_DOWN = true; svgEl?.classList.add('space'); e.preventDefault(); return; }
-    const map = { b: 'paint', p: 'paint', e: 'erase', i: 'inspect', a: 'alliance', l: 'landmark', f: 'frontier' };
+    const map = { b: 'paint', p: 'paint', e: 'erase', i: 'inspect', a: 'alliance', l: 'landmark', f: 'frontier', w: 'walls' };
     if (map[k]) setTool(map[k]);
     if (k === 'escape') { WSEL = null; redraw(); drawSide(); }
   };
@@ -744,7 +775,7 @@ function takeoversPanel(reload) {
 
 function mapPanel(reload, redraw) {
   const w = W_();
-  const overlaySel = select([['political', 'Political (who rules)'], ['prosperity', 'Prosperity'], ['food', 'Food supply'], ['security', 'Security'], ['price', 'Price of…'], ['relations', 'Alliances & wars of…'], ['events', 'Events'], ['terrain', 'Terrain']], MAPV.overlay);
+  const overlaySel = select([['political', 'Political (who rules)'], ['prosperity', 'Prosperity'], ['food', 'Food supply'], ['security', 'Security'], ['price', 'Price of…'], ['relations', 'Alliances & wars of…'], ['events', 'Events'], ['terrain', 'Terrain'], ['walls', 'Walls & forts']], MAPV.overlay);
   const goodSel = select(w.goods.map((g) => [g.id, g.name]), MAPV.good);
   const relSel = select(factionOpts('— faction —'), MAPV.relF);
   const sub = h('div');
@@ -859,7 +890,12 @@ function regionDrawer(key, reload) {
       h('span', { class: 'muted' }, 'Prosperity'), h('span', {}, h('b', {}, fmt(mr.prosperity)), ` (${mr.last?.dP >= 0 ? '+' : ''}${fmt(mr.last?.dP)}/turn) `, sparkSvg((mr.history || []).map((x) => x.p), 90, 18)),
       h('span', { class: 'muted' }, 'Food · staples'), h('span', {}, `${Math.round((mr.last?.food ?? 1) * 100)}% · ${Math.round((mr.last?.staple ?? 1) * 100)}%`),
       h('span', { class: 'muted' }, 'Security'), h('span', {}, fmt(mr.security)),
-      h('span', { class: 'muted' }, 'Buildings'), h('span', {}, (mr.buildings || []).map((b) => `${w.buildingTypes.find((x) => x.id === b.typeId)?.name || b.typeId}${b.status === 'building' ? ' (building)' : b.hp < 100 ? ` (${Math.round(b.hp)}%)` : ''}`).join(', ') || '—'),
+      h('span', { class: 'muted' }, 'Walls'), h('span', { class: 'toolbar small', style: 'gap:4px' },
+        h('button', { class: 'btn small', title: 'Lower the walls', disabled: !(mr.fort > 0), onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(market)}`, { method: 'PUT', body: { fort: Math.max(0, Math.round(mr.fort) - 1) } }); reload(); }) }, '−'),
+        h('b', {}, String(Math.round(mr.fort * 10) / 10)),
+        h('button', { class: 'btn small', title: 'Raise the walls', disabled: mr.fort >= 10, onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(market)}`, { method: 'PUT', body: { fort: Math.min(10, Math.round(mr.fort) + 1) } }); reload(); }) }, '+'),
+        h('span', { class: 'muted' }, wallsOfR(mr) > mr.fort ? `+${fmt(wallsOfR(mr) - mr.fort)} City Walls = ${fmt(wallsOfR(mr))} in battle` : `${key !== market ? `(${rname(market)}) ` : ''}0–10`)),
+      h('span', { class: 'muted' }, 'Buildings'), h('span', {}, (mr.buildings || []).map((b) => `${w.buildingTypes.find((x) => x.id === b.typeId)?.name || b.typeId}${b.level > 1 ? ` Lv ${b.level}` : ''}${b.status === 'building' ? ' (building)' : b.hp < 100 ? ` (${Math.round(b.hp)}%)` : ''}`).join(', ') || '—'),
       h('span', { class: 'muted' }, 'People'), h('span', {}, `${fmt(mr.population)}k households (base ${fmt(mr.basePop)})`),
       h('span', { class: 'muted' }, 'Coffers'), h('span', {}, `${fmtN(mr.coffers)} · taxes ${fmt(mr.last?.taxes)}/turn to ${f?.name || 'no one'}`),
       h('span', { class: 'muted' }, 'Effects'), h('span', {}, (mr.last?.sources || []).join(', ') || '—'),
@@ -885,7 +921,7 @@ function regionDrawer(key, reload) {
         isM ? { k: 'terrain', label: 'Terrain', t: 'select', opts: Object.entries(w.terrains).map(([k, t]) => [k, t.label]) } : null,
         isM ? { k: 'population', label: 'Population (k households)', t: 'number' } : null,
         isM ? { k: 'basePop', label: 'Land supports (base pop.)', t: 'number' } : null,
-        isM ? { k: 'fort', label: 'Walls / forts (0–5)', t: 'number' } : null,
+        isM ? { k: 'fort', label: 'Walls / forts (0–10)', t: 'number', help: 'Base walls. City Walls buildings add +1 per level' } : null,
         isM ? { k: 'taxRate', label: 'Tax rate %', t: 'number' } : null,
         isM ? { k: 'prosperity', label: 'Prosperity', t: 'number' } : null,
         isM ? { k: 'security', label: 'Security', t: 'number' } : null,
@@ -1060,7 +1096,6 @@ function worldSettings() {
     { k: 'autoTradeCaravans', label: 'Automatic caravans / faction / turn', t: 'number', help: '+1 per free-trade partner, max 6' },
     { k: 'autoTradeInvest', label: 'Share of the treasury they may invest / turn (0–1)', t: 'number', step: 0.01 },
     { k: 'autoTradeMinMargin', label: 'Minimum margin for a caravan (0–1)', t: 'number', step: 0.05 },
-    { k: 'shopSwingMax', label: 'Max shop price swing %', t: 'number', help: 'Items linked to a good never move more than this' },
     { section: 'Players' },
     { k: 'startRegion', label: 'Where new characters start', t: 'select', opts: marketOpts },
     { k: 'maxTradePerTurn', label: 'Max market trade per character per turn', t: 'number', help: 'Stops arbitrage farming. 0 = no limit' },
@@ -1070,8 +1105,13 @@ function worldSettings() {
     { k: 'factionCaravans', label: 'Which factions run trade caravans', t: 'select', opts: [['guilds', 'Guilds (and factions with a trade charter)'], ['all', 'Every faction'], ['none', 'None']] },
     { k: 'factionCaravanTurns', label: 'Faction caravan travel (turns, 0 = by distance)', t: 'number' },
     { k: 'caravanCapacity', label: 'Caravan capacity', t: 'number' }, { k: 'escortCost', label: 'Escort cost (share of cargo)', t: 'number', step: 0.01 },
-    { k: 'shopTiers.member', label: 'Sect shop: members %', t: 'number' }, { k: 'shopTiers.ally', label: 'Sect shop: allies (shared shops) %', t: 'number' }, { k: 'shopTiers.neutral', label: 'Sect shop: everyone else %', t: 'number' },
     { k: 'underdogBonus', label: 'Join bonus for recommended sects', t: 'number', help: 'Extra Nyang for new characters joining a sect the Balance tab recommends' },
+    { section: 'The shop, priced where you stand' },
+    { k: 'localPrices.home', label: 'Ruler\'s own members %', t: 'number', help: 'Shopping in your own faction\'s lands' }, { k: 'localPrices.friend', label: 'Open-market partners %', t: 'number', help: 'Agreement or alliance with "Open markets"' },
+    { k: 'localPrices.neutral', label: 'Everyone else %', t: 'number' }, { k: 'localPrices.enemy', label: 'Enemies at war with the ruler %', t: 'number' },
+    { k: 'shopSalesTax', label: 'Sales tax to the ruler %', t: 'number', help: 'Share of every shop purchase paid to the faction that rules the region' },
+    { k: 'madeHereDiscount', label: 'Made here: % cheaper per building level', t: 'number', help: 'If the region has a working building that makes the item\'s linked good' },
+    { k: 'shopSwingMax', label: 'Max shop price swing %', t: 'number', help: 'Items linked to a good never move more than this with its local price' },
     { section: 'Buildings' },
     { k: 'buildingRazeChance', label: 'Chance each building is razed when a region is taken (0–1)', t: 'number', step: 0.05 },
     { k: 'battleBuildingDamage', label: 'Battle damage to buildings ×', t: 'number', step: 0.1 },
@@ -1231,7 +1271,7 @@ VIEWS.politics = async () => {
           { k: 'scope', label: 'Applies to', t: 'select', opts: [['faction', 'All the faction\'s land'], ['region', 'One region']] },
           { k: 'cost.treasury', label: 'Cost to adopt', t: 'number' }, { k: 'upkeep.treasury', label: 'Upkeep / turn', t: 'number' },
           { k: 'fatigue', label: 'Fatigue / turn (0–1)', t: 'number', step: 0.01, help: 'Weakens every turn after the grace period' }, { k: 'grace', label: 'Grace (turns)', t: 'number' }, { k: 'floor', label: 'Never below', t: 'number', step: 0.05 }, { k: 'minTurns', label: 'Minimum turns', t: 'number' },
-          { k: 'shopAccess', label: 'Sect shop access while active', t: 'select', opts: [['', '— unchanged —'], ['members', 'Members only'], ['allies', 'Members & allies'], ['everyone', 'Everyone']] },
+          { k: 'outsiderMarkup', label: 'Shop: outsiders pay +% in this faction\'s lands', t: 'number', help: 'Faction policies only. Closed Gates: +25' },
           { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (regionTick)', t: 'select', opts: scriptOpts },
         ], (p) => `${p.name} — ${p.scope} · ${p.cost?.treasury || 0}${p.upkeep?.treasury ? ` · ${p.upkeep.treasury}/turn` : ''}`, { json: [['effects', 'Effects per turn (treasury goes to the faction once; the rest to each region)', 6], ['kinds', 'Faction kinds allowed (empty = all)', 2], ['exclusive', 'Can\'t combine with (policy ids)', 2]] }),
         listEditorCard('Buildings', 'buildingTypes', [
@@ -1468,25 +1508,7 @@ function openRealm(f, start = 'overview') {
       h('div', { class: 'toolbar' }, polSel, regSel, h('label', { class: 'field check' }, free, h('span', {}, 'free')), h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/factions/${f.id}/policies`, { method: 'POST', body: { policyId: polSel.value, region: regSel.value, free: free.checked } }); toast('Adopted.'); done(); }) }, 'Adopt')),
     ];
   };
-  const shopTab = () => {
-    const shop = clone(v.shop);
-    const wrap = h('div');
-    const access = select([['everyone', 'Open to everyone (except enemies)'], ['allies', 'Members & allies only'], ['members', 'Members only (closed gates)']], shop.access);
-    access.onchange = () => (shop.access = access.value);
-    const draw = () => wrap.replaceChildren(table([
-      ['Item', (e) => { const s = select(WD.items.filter((i) => !i.tradeGood).map((i) => [i.id, `${i.name} (${i.type})`]), e.itemId); s.onchange = () => (e.itemId = s.value); return s; }],
-      ['Price', (e) => { const i = h('input', { type: 'number', value: e.price ?? '', placeholder: `shop ${WD.items.find((x) => x.id === e.itemId)?.price || ''}`, style: 'width:80px' }); i.onchange = () => (e.price = i.value === '' ? null : Number(i.value)); return i; }],
-      ['Stock', (e) => { const i = h('input', { type: 'number', value: e.stock, style: 'width:70px', title: '-1 = unlimited' }); i.onchange = () => (e.stock = Number(i.value)); return i; }],
-      ['+ / turn', (e) => { const i = h('input', { type: 'number', value: e.restock || 0, style: 'width:60px' }); i.onchange = () => (e.restock = Number(i.value)); return i; }],
-      ['Who', (e) => { const s = select([['inherit', 'shop rule'], ['everyone', 'everyone'], ['allies', 'allies'], ['members', 'members']], e.access); s.onchange = () => (e.access = s.value); return s; }],
-      ['', (e) => h('button', { class: 'btn small danger', onclick: () => { shop.items.splice(shop.items.indexOf(e), 1); draw(); } }, '✕')],
-    ], shop.items));
-    draw();
-    return [h('div', { class: 'toolbar' }, access, h('button', { class: 'btn small', onclick: () => { shop.items.push({ itemId: WD.items[0]?.id, price: null, stock: -1, restock: 0, access: 'inherit' }); draw(); } }, '+ Item')),
-      h('p', { class: 'muted small' }, `Prices: members ${w.settings.shopTiers.member}% · allies (shared shops) ${w.settings.shopTiers.ally}% · everyone else +${w.settings.shopTiers.neutral}% · enemies at war can't buy.`), wrap,
-      h('div', { class: 'toolbar' }, h('span', { class: 'grow' }), h('button', { class: 'btn primary', onclick: run(async () => { await api(`/world/factions/${f.id}`, { method: 'PUT', body: { shop } }); toast('Saved.'); }) }, 'Save shop'))];
-  };
-  openModal(`${f.name}${f.hanzi ? ` ${f.hanzi}` : ''}`, tabsEl([['overview', 'Overview', overview], ['council', 'Council', council], ['buildings', 'Buildings', buildings], ['policies', 'Policies', policies], ['shop', 'Sect shop', shopTab]], start), [h('button', { class: 'btn', onclick: done }, 'Close')]);
+  openModal(`${f.name}${f.hanzi ? ` ${f.hanzi}` : ''}`, tabsEl([['overview', 'Overview', overview], ['council', 'Council', council], ['buildings', 'Buildings', buildings], ['policies', 'Policies', policies]], start), [h('button', { class: 'btn', onclick: done }, 'Close')]);
 }
 const editFaction = (f) => (f ? openRealm(f) : newFaction(render));
 
@@ -1622,7 +1644,7 @@ function simulatorCard() {
   };
   const A = side('Attacker', { spearmen: 2000, crossbows: 1000 }); const Dd = side('Defender', { swordsmen: 2500, disciples: 100 });
   const terrain = select(Object.entries(w.terrains).map(([k, t]) => [k, `${t.label} (attacker ${t.attackerPenalty || 0} dice · width ${t.width || 30}k)`]), 'plains');
-  const fort = h('input', { type: 'number', value: 0, min: 0, max: 5, style: 'width:70px' });
+  const fort = h('input', { type: 'number', value: 0, min: 0, max: 13, style: 'width:70px' });
   const out = h('div');
   return h('div', { class: 'card' }, h('h3', {}, 'Battle simulator'), h('p', { class: 'muted small' }, 'Runs the real battle code 300 times on made-up armies (nothing in the world changes). The defender is treated as holding its own land, so walls count.'),
     h('div', { class: 'grid', style: 'grid-template-columns:repeat(auto-fit,minmax(300px,1fr))' }, A.el, Dd.el),

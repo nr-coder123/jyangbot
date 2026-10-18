@@ -53,7 +53,6 @@ const BUTTONS = {
   filterAll: ['All', '', 'Market filter'],
   filterPlayers: ['Player market', '👥', 'Market filter'],
   filterShop: ['Shop', '🏮', 'Market filter'],
-  filterSect: ['Sect shops', '🏯', 'Market filter (only when the World is on)'],
   buy1: ['Buy 1 ({price})', '🛒', 'Market entry'],
   buyAmount: ['Buy amount…', '', 'Market entry'],
   unlist: ['Take down', '🗑️', 'Market entry (own listing)'],

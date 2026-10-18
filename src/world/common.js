@@ -43,7 +43,7 @@ const atWar = (state, a, b) => !!warBetween(state, a, b);
 /** Has either side closed its markets to the other? */
 const embargo = (state, a, b) => { const A = faction(state, a); const B = faction(state, b); return !!(A && B && (A.embargoes?.includes(b) || B.embargoes?.includes(a))); };
 const agreementsBetween = (state, a, b) => (state.world.agreements || []).filter((t) => t.parties.includes(a) && t.parties.includes(b));
-/** Does a perk (militaryAccess, freeTrade, sharedShops, nonAggression, defensive, callToArms) hold between a and b? */
+/** Does a perk (militaryAccess, freeTrade, sharedShops = open markets, nonAggression, defensive, callToArms) hold between a and b? */
 function hasPerk(state, a, b, perk) {
   if (!a || !b || a === b) return false;
   if (sameAlliance(state, a, b) && allianceOf(state, a).terms?.[perk]) return true;
@@ -218,12 +218,12 @@ function regionMods(state, key) {
   return m;
 }
 
-/** Walls of a region in battle: its fort plus finished walls buildings. */
+/** Walls of a region in battle: its base walls (fort, 0–10) plus finished City Walls (+1 per level; below half strength they don't count). */
 function wallsOf(state, key) {
   const r = state.world.regions[key];
   if (!r) return 0;
   let f = num(r.fort);
-  for (const b of r.buildings || []) if (b.status === 'ready' && b.hp >= 50) f += num((state.world.buildingTypes || []).find((x) => x.id === b.typeId)?.fort);
+  for (const b of r.buildings || []) if (b.status === 'ready' && b.hp >= 50) f += num((state.world.buildingTypes || []).find((x) => x.id === b.typeId)?.fort) * num(b.level, 1);
   return f;
 }
 
