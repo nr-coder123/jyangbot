@@ -94,7 +94,7 @@ function normalizeRegion(key, r = {}) {
   return out;
 }
 
-const WORLD_VERSION = 7;
+const WORLD_VERSION = 8;
 /** Put the preset buildings into regions that don't have them yet. */
 function seedBuildings(regions) {
   for (const [key, typeId, level] of W.START_BUILDINGS) {
@@ -105,7 +105,27 @@ function seedBuildings(regions) {
     r.buildings.push(normalizeBuilding({ id: `bd-${slug(key)}-${typeId}`, typeId, level, factionId: r.controller || '', status: 'ready' }));
   }
 }
-const GOOD_NOTE = (g) => `-# **Trade good** — base price ${g.basePrice}. Sell it from your inventory at its average price across the realm (the same wherever you post), give it to anyone, or list it on the player market.`;
+const GOOD_NOTE = (g) => `-# **Raw material** — part of the world's economy (base price ${g.basePrice}). It can't be traded, listed or sold by players; recipes may still use it.`;
+/** v7 → v8: raw materials belong to the economy alone; every sellable item follows a trade good's price. */
+function migrateV8(state, w) {
+  for (const it of state.items || []) {
+    if (!it.tradeGood) continue;
+    it.tradeable = false; it.marketable = false; it.inDropPool = false; it.sellPrice = null;
+    if (it.shop) it.shop.enabled = false;
+    const g = arr(w.goods).find((x) => x.id === it.tradeGood);
+    const i = typeof it.description === 'string' ? it.description.indexOf('-# **Trade good**') : -1;
+    if (i >= 0 && g) it.description = it.description.slice(0, i) + GOOD_NOTE(g);
+  }
+  // Raw materials listed on the player market go back to their sellers.
+  const raw = new Set((state.items || []).filter((i) => i.tradeGood).map((i) => i.id));
+  for (const l of arr(state.market)) {
+    if (!raw.has(l.itemId)) continue;
+    const c = (state.characters || []).find((x) => x.id === l.sellerCharId);
+    if (c) { c.inventory = c.inventory || {}; c.inventory[l.itemId] = num(c.inventory[l.itemId]) + num(l.qty); }
+  }
+  if (Array.isArray(state.market)) state.market = state.market.filter((l) => !raw.has(l.itemId));
+  w.needsAutoLink = true;
+}
 /** v6 → v7: players no longer trade with a province's market (no buying, selling, caravans or travel by channel).
  *  Player caravans still on the road bring their cargo home. */
 function migrateV7(state, w) {
@@ -122,7 +142,7 @@ function migrateV7(state, w) {
     if (!it.tradeGood || typeof it.description !== 'string') continue;
     const i = it.description.indexOf('-# **Trade good** — bought and sold at regional markets');
     const g = arr(w.goods).find((x) => x.id === it.tradeGood);
-    if (i >= 0 && g) { it.description = it.description.slice(0, i) + GOOD_NOTE(g); it.marketable = true; }
+    if (i >= 0 && g) it.description = it.description.slice(0, i) + GOOD_NOTE(g);
   }
   if (w.settings) for (const k of ['travelMode', 'kmPerPx', 'travelSpeeds', 'travelHoursPer100', 'caravanHoursPer100', 'maxPlayerCaravans', 'escortCost', 'maxTradePerTurn', 'playerMarketBuy', 'playerMarketSell', 'playerCaravans', 'baseTariff']) delete w.settings[k];
 }
@@ -333,7 +353,7 @@ function ensureGoodItems(state, world = state.world) {
     const id = g.itemId || `good-${g.id}`;
     if (state.items.some((i) => i.tradeGood === g.id || i.id === id)) continue;
     if (state.items.length >= num(state.settings?.maxItems, 300)) break;
-    state.items.push(defaults.normalizeItem({ id, name: state.items.some((i) => i.name.toLowerCase() === g.name.toLowerCase()) ? `${g.name} (cargo)` : g.name, rarity: state.rarities?.[0]?.name || 'Earthly', type: 'material', emoji: g.emoji, description: `${g.description || `${g.name}: bulk trade cargo.`}\n\n${GOOD_NOTE(g)}`, tradeable: true, marketable: true, inDropPool: false, shop: { enabled: false, price: 0, stock: -1 }, tradeGood: g.id }));
+    state.items.push(defaults.normalizeItem({ id, name: state.items.some((i) => i.name.toLowerCase() === g.name.toLowerCase()) ? `${g.name} (cargo)` : g.name, rarity: state.rarities?.[0]?.name || 'Earthly', type: 'material', emoji: g.emoji, description: `${g.description || `${g.name}: bulk trade cargo.`}\n\n${GOOD_NOTE(g)}`, tradeable: false, marketable: false, inDropPool: false, shop: { enabled: false, price: 0, stock: -1 }, tradeGood: g.id }));
     n++;
   }
   return n;
@@ -381,12 +401,13 @@ function createWorld(state) {
   // Seed stocks at target so prices start near base.
   require('./economy').initMarkets(state, world);
   if (Array.isArray(state.items)) ensureGoodItems(state, world);
+  world.needsAutoLink = true; // linked on the next normalize, once state.world is set
   return world;
 }
 
 /** Upgrade / repair an existing world (called from store.migrate). */
 function normalizeWorld(state) {
-  if (!isPlainObject(state.world)) { state.world = createWorld(state); return state.world; }
+  if (!isPlainObject(state.world)) { state.world = createWorld(state); require('./economy').autoLinkItems(state); delete state.world.needsAutoLink; return state.world; }
   const w = state.world;
   w.version = num(w.version, 1);
   w.turn = num(w.turn);
@@ -419,7 +440,9 @@ function normalizeWorld(state) {
   if (w.version < 5) { migrateV5(state, w); w.version = 5; }
   if (w.version < 6) { migrateV6(state, w); w.version = 6; }
   if (w.version < 7) { migrateV7(state, w); w.version = 7; }
+  if (w.version < 8) { migrateV8(state, w); w.version = 8; }
   if (w.needsBuildingSeed) { seedBuildings(w.regions); delete w.needsBuildingSeed; }
+  if (w.needsAutoLink) { require('./economy').autoLinkItems(state); delete w.needsAutoLink; }
   w.factions = w.factions.map(normalizeFaction);
   const fids = new Set(w.factions.map((f) => f.id));
   w.alliances = w.alliances.map(normalizeAlliance).map((a) => ({ ...a, members: a.members.filter((m) => fids.has(m)) }));

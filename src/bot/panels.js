@@ -224,12 +224,17 @@ function marketEntries(filter = 'all', c = null) {
   const st = store.state;
   const out = [];
   if (filter === 'all' || filter === 'shop') {
-    for (const it of economy.shopItems(st)) out.push({ kind: 'S', id: it.id, it, price: world.economy.dynamicItemPrice(st, it, it.shop.price), base: it.shop.price, qty: it.shop.stock, seller: null });
+    const on = !!st.world?.settings?.enabled;
+    for (const it of economy.shopItems(st)) {
+      if (it.tradeGood) continue;
+      const q = on ? world.economy.itemQuote(st, it, c) : null;
+      out.push({ kind: 'S', id: it.id, it, price: q ? q.yours : it.shop.price, base: q ? q.global : it.shop.price, qty: it.shop.stock, seller: null, quote: q });
+    }
   }
   if (filter === 'all' || filter === 'players') {
     for (const l of st.market) {
       const it = st.items.find((x) => x.id === l.itemId);
-      if (it) out.push({ kind: 'L', id: l.id, it, price: l.price, qty: l.qty, seller: st.characters.find((x) => x.id === l.sellerCharId), listing: l });
+      if (it) out.push({ kind: 'L', id: l.id, it, price: Math.min(l.price, economy.resaleCap(st, it)), qty: l.qty, seller: st.characters.find((x) => x.id === l.sellerCharId), listing: l });
     }
   }
   return out.sort((a, b) => a.it.name.localeCompare(b.it.name) || a.price - b.price);
@@ -245,7 +250,7 @@ function market(c, filter = 'all', page = 0) {
   page = Math.max(0, Math.min(pages - 1, Number(page) || 0));
   const slice = list.slice(page * PER_PAGE, page * PER_PAGE + PER_PAGE);
   const lines = slice.map((x) => (x.kind === 'S'
-    ? `${E('shop')} ${itemIcon(x.it)} **${x.it.name}** — ${E('nyang')} ${fmt(x.price)}${x.price !== x.base ? ` *(base ${fmt(x.base)})*` : ''} · Shop${x.qty >= 0 ? ` (${x.qty} left)` : ''}`
+    ? `${E('shop')} ${itemIcon(x.it)} **${x.it.name}** — ${E('nyang')} ${fmt(x.price)}${x.price !== x.base ? ` *(global ${fmt(x.base)})*` : ''} · Shop${x.qty >= 0 ? ` (${x.qty} left)` : ''}`
     : `${E('player')} ${itemIcon(x.it)} **${x.it.name}** ×${x.qty} — ${E('nyang')} ${fmt(x.price)} each · by ${x.seller?.name || '?'}`));
   const empty = filter === 'players' ? 'No player listings yet. Sell yours from Inventory → List on market.' : 'Nothing for sale yet.';
   return {
@@ -269,9 +274,9 @@ function marketEntry(c, entry) {
     rarity: it.rarity,
     description: truncate(it.description || '*No description.*', 3000),
     price: `${E('nyang')} ${fmt(entry.price)} ${st.settings.currencyName}${entry.kind === 'L' ? ' each' : ''}`,
-    seller: entry.kind === 'S' ? 'Shop' : entry.seller?.name || '?',
+    seller: entry.kind === 'S' ? (entry.quote && entry.quote.yours !== entry.quote.global ? `Shop — your sect's price (global ${fmt(entry.quote.global)})` : 'Shop') : entry.seller?.name || '?',
     available: entry.qty >= 0 ? String(entry.qty) : 'Unlimited',
-    details: itemDetails(it),
+    details: [itemDetails(it), entry.quote ? `-# Resale: at most ${fmt(entry.quote.resaleCap)} on the player market · the shop buys it back for ${fmt(entry.quote.sellback)}.` : ''].filter(Boolean).join('\n'),
     nyang: fmt(c.nyang),
     currency: st.settings.currencyName,
   }, { color: rarityOf(it.rarity).color });

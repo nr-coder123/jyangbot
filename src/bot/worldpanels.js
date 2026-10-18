@@ -52,7 +52,7 @@ function regionPanel(key, c) {
     region: geo.label(state, key), province: key.includes('/') ? regionName(geo.provinceOf(key)) : (g?.historicalName || ''), hanzi: g?.hanzi || '',
     controller: factionLabel(f) + occ, terrain: `${t.emoji || ''} ${t.label || r.terrain}`, population: fmt(r2(r.population)), prosperity: fmt(Math.round(r.prosperity)),
     prosperityBar: bar(r.prosperity), security: fmt(Math.round(r.security)), fort: fmt(Math.round(C.wallsOf(state, key))), buildings: buildings.join(' · ') || 'None',
-    coffers: big(r.coffers), calendar: C.calendar(state).text, events: events.join('\n'), policies: policies.join(' · '), armies: armies.join('\n'),
+    coffers: big(r.coffers), gdp: big(r.last?.gdp), taxes: big(r.last?.taxes), calendar: C.calendar(state).text, events: events.join('\n'), policies: policies.join(' · '), armies: armies.join('\n'),
     you: youLine(c, key), notes: r.notes || g?.description || '', currency: cur(),
     trend: `${dP >= 0.3 ? '📈' : dP <= -0.3 ? '📉' : '➖'} ${dP >= 0 ? '+' : ''}${fmt(r2(dP))} / turn${r.last?.food !== undefined && r.last.food < 0.9 ? ` · 🥣 food ${Math.round(r.last.food * 100)}%` : ''}`,
   }, { color: f?.color });
@@ -82,11 +82,8 @@ function goodPanel(key, c, gid) {
   const r = state.world.regions[key];
   const g = E.good(state, gid);
   if (!g || !r) return { content: 'Unknown good.', embeds: [] };
-  const it = E.itemForGood(state, gid);
-  const have = it ? num(c.inventory[it.id]) : 0;
   const list = geo.marketKeys(state).map((k) => ({ k, p: num(state.world.regions[k]?.prices?.[gid]) })).filter((x) => x.p > 0).sort((a, b) => b.p - a.p);
   const fmtList = (xs) => xs.map((x) => `${regionName(x.k)} **${fmt(x.p)}**`).join(' · ');
-  const sell = it ? require('../engine/economy').shopSellPrice(state, it) : 0;
   const e = new EmbedBuilder().setTitle(`${g.emoji} ${g.name} — ${regionName(key)}`).setColor(0xc0a062)
     .setDescription([
       g.description ? `-# ${g.description}` : '',
@@ -96,8 +93,7 @@ function goodPanel(key, c, gid) {
       `**Dearest:** ${fmtList(list.slice(0, 3)) || '—'}`,
       `**Cheapest:** ${fmtList(list.slice(-3).reverse()) || '—'}`,
       '',
-      have ? `You have **${fmt(have)}** — sell them from \`/menu\` → Inventory for ${fmt(sell)} each (the realm price, wherever you are).` : '',
-      '-# Province markets are traded by merchants and faction caravans; players don\'t buy or sell here.',
+      '-# A raw material: it belongs to the world economy. Merchants and faction caravans trade it; players don\'t. Its price moves the items that follow it (pills, weapons…).',
     ].filter(Boolean).join('\n'));
   return { embeds: [e] };
 }

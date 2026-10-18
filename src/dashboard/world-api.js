@@ -79,6 +79,8 @@ function mount(app, { wrap, bot, diff }) {
     for (const k of ['localPrices', 'shopSalesTax', 'madeHereDiscount']) delete next[k];
     next.powerWeights = Object.fromEntries(Object.entries({ ...before.powerWeights, ...(next.powerWeights || {}) }).map(([k, v]) => [k, Math.max(0, num(v))]));
     next.representativeRoleIds = arr(next.representativeRoleIds).map(String).filter(Boolean);
+    next.itemValueByRarity = arr(next.itemValueByRarity).map((x) => Math.max(1, num(x, 50)));
+    if (!next.itemValueByRarity.length) next.itemValueByRarity = clone(W.defaults.DEFAULT_WORLD_SETTINGS.itemValueByRarity);
     next.realmWorth = arr(next.realmWorth).map((x) => Math.max(0, num(x, 1)));
     if (!next.realmWorth.length) next.realmWorth = clone(W.defaults.DEFAULT_WORLD_SETTINGS.realmWorth);
     next.taxEveryTurns = Math.max(1, Math.floor(next.taxEveryTurns));
@@ -224,6 +226,22 @@ function mount(app, { wrap, bot, diff }) {
     w().terrains = req.body;
     log(req, 'world.terrains', 'updated');
     return { terrains: w().terrains };
+  }));
+  // ----- item prices (the shop, sell-back and resale caps follow the economy) -----
+  app.get('/api/world/item-prices', wrap(async () => {
+    const s = store.state;
+    const sects = w().factions.filter((f) => f.active && E.sectMarkets(s, f.id));
+    const rows = s.items.filter((i) => !i.tradeGood && (i.shop?.enabled || (i.tradeable !== false && i.marketable !== false) || (i.sellPrice !== null && i.sellPrice !== undefined))).map((it) => {
+      const q = E.itemQuote(s, it, null);
+      const per = q.good ? sects.map((f) => E.itemPriceForFaction(s, it, f.id)) : [];
+      return { id: it.id, name: it.name, type: it.type, rarity: it.rarity, inShop: !!it.shop?.enabled, good: q.good, sensitivity: it.economy?.sensitivity || 0, base: q.base, global: q.global, cheapest: q.cheapest, resaleCap: q.resaleCap, sellback: q.sellback, dearest: per.length ? Math.max(q.global, ...per) : q.global };
+    });
+    return { rows };
+  }));
+  app.post('/api/world/items/autolink', wrap(async (req) => {
+    const n = E.autoLinkItems(store.state, { overwrite: !!req.body?.overwrite });
+    log(req, 'world.goods', `linked ${n} item(s) to trade goods${req.body?.overwrite ? ' (all re-picked)' : ''}`);
+    return { linked: n };
   }));
   app.post('/api/world/goods/items', wrap(async (req) => {
     const n = WS.ensureGoodItems(store.state);

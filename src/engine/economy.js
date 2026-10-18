@@ -36,15 +36,22 @@ function positiveInt(n, label = 'Quantity') {
 // ---------- Shop ----------
 const shopItems = (state) => state.items.filter((i) => i.shop?.enabled);
 
+const W_ECON = () => require('../world/economy');
+const worldOn = (state) => !!state.world?.settings?.enabled;
+/** Raw materials (trade goods) belong to the world economy: players can't trade, list or sell them. */
+const isRaw = (item) => !!item?.tradeGood;
+/** What the shop pays for one item (0 = it doesn't buy it). With the World on it follows the economy (see world/economy itemQuote). */
 function shopSellPrice(state, item) {
+  if (isRaw(item)) return 0;
+  if (worldOn(state)) return W_ECON().itemQuote(state, item, null).sellback;
   if (item.sellPrice !== null && item.sellPrice !== undefined) return num(item.sellPrice);
-  // Trade goods sell at their average price across the realm, less the merchants' spread — the same wherever you post.
-  if (item.tradeGood && state.world?.settings?.enabled) {
-    const p = require('../world/economy').realmPrice(state, item.tradeGood);
-    return Math.max(0, Math.round(p * (1 - num(state.world.settings.spread, 8) / 100) * 100) / 100);
-  }
   if (item.shop?.enabled && item.shop.price > 0) return Math.floor((item.shop.price * num(state.settings.shopSellbackPercent)) / 100);
   return 0;
+}
+/** Highest price an item may be resold for on the player market (Infinity when the World is off). */
+function resaleCap(state, item) {
+  if (!worldOn(state)) return Infinity;
+  return W_ECON().itemQuote(state, item, null).resaleCap;
 }
 
 function buyFromShop(state, c, item, qty, unitPrice = null) {
@@ -63,6 +70,7 @@ function buyFromShop(state, c, item, qty, unitPrice = null) {
 function sellToShop(state, c, item, qty) {
   qty = positiveInt(qty);
   const price = shopSellPrice(state, item);
+  if (isRaw(item)) throw new UserError(`**${item.name}** is a raw material: it belongs to the world's economy and can't be sold.`);
   if (!(price > 0)) throw new UserError(`The shop doesn't buy **${item.name}**. Try the player market (\`/market list\`).`);
   removeItem(state, c, item.id, qty);
   const total = r2(price * qty);
@@ -75,7 +83,7 @@ function validateSide(state, c, side, label, other) {
   if (side.itemId) {
     const it = state.items.find((i) => i.id === side.itemId);
     if (!it) throw new UserError(`${label}: item no longer exists.`);
-    if (!it.tradeable) throw new UserError(`**${it.name}** cannot be traded.`);
+    if (!it.tradeable || isRaw(it)) throw new UserError(isRaw(it) ? `**${it.name}** is a raw material: it belongs to the world's economy and can't change hands.` : `**${it.name}** cannot be traded.`);
     if (qtyOf(c, side.itemId) < side.qty) throw new UserError(`${label}: **${c.name}** doesn't have ${side.qty}× ${it.name}.`);
   }
   if (side.nyang > 0 && c.nyang < side.nyang) throw new UserError(`${label}: **${c.name}** doesn't have ${fmt(side.nyang)} ${state.settings.currencyName}.`);
@@ -137,10 +145,16 @@ function listOnMarket(state, c, item, qty, price) {
   qty = positiveInt(qty);
   price = r2(price);
   if (!(price > 0)) throw new UserError('Price must be above 0.');
+  if (isRaw(item)) throw new UserError(`**${item.name}** is a raw material: it belongs to the world's economy and can't be sold.`);
   if (!item.tradeable || item.marketable === false) throw new UserError(`**${item.name}** can't be sold on the player market.`);
+  // Nobody can resell for more than the cheapest honest source (see world/economy itemQuote): the price is corrected down.
+  const cap = resaleCap(state, item);
+  const asked = price;
+  if (price > cap) price = r2(cap);
   removeItem(state, c, item.id, qty); // escrow
   const l = { id: newId('L').slice(0, 7).toUpperCase(), sellerCharId: c.id, sellerUserId: c.ownerId, itemId: item.id, qty, price, createdAt: new Date().toISOString() };
   state.market.unshift(l);
+  if (asked > price) l.corrected = asked;
   return l;
 }
 
@@ -148,6 +162,8 @@ function buyFromMarket(state, buyer, listing, qty) {
   qty = positiveInt(qty);
   if (listing.sellerCharId === buyer.id || listing.sellerUserId === buyer.ownerId) throw new UserError("You can't buy your own listing — use `/market cancel`.");
   if (qty > listing.qty) throw new UserError(`Only ${listing.qty} available in that listing.`);
+  const item = state.items.find((i) => i.id === listing.itemId);
+  if (item) { const cap = resaleCap(state, item); if (listing.price > cap) listing.price = r2(cap); }
   const cost = r2(listing.price * qty);
   spendNyang(state, buyer, cost);
   const seller = state.characters.find((c) => c.id === listing.sellerCharId);
@@ -167,6 +183,6 @@ function cancelListing(state, listing) {
 }
 
 module.exports = {
-  qtyOf, addItem, removeItem, addNyang, spendNyang, positiveInt, shopItems, shopSellPrice, buyFromShop, sellToShop,
+  qtyOf, addItem, removeItem, addNyang, spendNyang, positiveInt, shopItems, shopSellPrice, resaleCap, isRaw, buyFromShop, sellToShop,
   createTrade, settleTrade, describeSide, listOnMarket, buyFromMarket, cancelListing,
 };

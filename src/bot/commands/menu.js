@@ -169,7 +169,7 @@ VIEWS.item = (ctx, itemId) => {
     const sell = economy.shopSellPrice(st(), it);
     if (sell > 0) buttons.push(btn(cid('a', ctx, 'sell', it.id), 'sellShop', { vars: { price: fmt(sell) } }));
     if (sell > 0 && it.tradeGood && q > 1) buttons.push(btn(cid('a', ctx, 'sellall', it.id), 'sellShopAll', { vars: { qty: fmt(q), total: fmt(Math.round(sell * q * 100) / 100) } }));
-    if (it.tradeable && it.marketable) buttons.push(btn(cid('a', ctx, 'list', it.id), 'list'));
+    if (it.tradeable && it.marketable && !it.tradeGood) buttons.push(btn(cid('a', ctx, 'list', it.id), 'list'));
   }
   return { ...panels.itemInfo(it, c), components: [navRow(ctx, 'inv'), row(...buttons.slice(0, 5)), row(btn(cid('v', ctx, 'inv'), 'back'))].filter(Boolean) };
 };
@@ -404,10 +404,11 @@ async function onButton(i) {
     case 'list': {
       const it = state.items.find((x) => x.id === arg);
       if (!it) throw new UserError('Item not found.');
-      if (!it.tradeable || !it.marketable) throw new UserError(`**${it.name}** can't be sold on the player market.`);
+      if (!it.tradeable || !it.marketable || it.tradeGood) throw new UserError(`**${it.name}** can't be sold on the player market.`);
+      const cap = economy.resaleCap(state, it);
       const input = (id, label, value) => new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId(id).setLabel(label).setStyle(TextInputStyle.Short).setRequired(true).setValue(value));
       return i.showModal(new ModalBuilder().setCustomId(['mm', 'list', ctx.viewer, c.id, it.id].join(':')).setTitle(truncate(`Sell ${it.name}`, 45)).addComponents(
-        input('price', `Price per item (${S().currencyName})`.slice(0, 45), String(economy.shopSellPrice(state, it) || it.shop?.price || 10)),
+        input('price', (Number.isFinite(cap) ? `Price each (max ${fmt(cap)})` : `Price per item (${S().currencyName})`).slice(0, 45), String(Number.isFinite(cap) ? cap : economy.shopSellPrice(state, it) || it.shop?.price || 10)),
         input('qty', `How many? (you have ${economy.qtyOf(c, it.id)})`.slice(0, 45), '1'),
       ));
     }
@@ -509,7 +510,7 @@ async function onModal(i) {
     if (!it) throw new UserError('Item not found.');
     const l = economy.listOnMarket(state, c, it, Math.floor(numIn('qty')), numIn('price'));
     store.log(actor(i), 'market.list', `${c.name}: ${l.qty}× ${it.name} @ ${l.price}`);
-    return i.update(render(ctx, 'entry', `L.${l.id}`, `🏷️ Listed ${l.qty}× **${it.name}** at ${ui.emoji(state, 'nyang')} ${fmt(l.price)} each. Anyone can buy it from the Market.`, [], 'players'));
+    return i.update(render(ctx, 'entry', `L.${l.id}`, `🏷️ Listed ${l.qty}× **${it.name}** at ${ui.emoji(state, 'nyang')} ${fmt(l.price)} each. Anyone can buy it from the Market.${l.corrected ? `\n-# You asked ${fmt(l.corrected)}, but the world's market rules cap its resale at ${fmt(l.price)} (it can't be resold for more than it costs to get honestly).` : ''}`, [], 'players'));
   }
 }
 

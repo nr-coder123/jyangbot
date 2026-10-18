@@ -829,9 +829,10 @@ function editItem(item, prefill = null) {
     { k: 'weapon.grade', label: 'Grade', t: 'select', opts: () => D.constants.WEAPON_GRADES, show: ['weapon'], help: 'Spiritual < Dharma < Numinous < Immortal Treasure' },
     ...D.constants.BONUS_KEYS.map((k) => ({ k: `bonuses.${k}`, label: `+ ${({ strength: 'Strength', endurance: 'Endurance', mobility: 'Mobility', qi: 'Qi', qiBars: 'Qi Bars' })[k]} while equipped`, t: 'number', show: ['weapon'] })),
     { section: 'World economy' },
-    { k: 'tradeGood', label: 'This item IS a trade good', t: 'select', opts: () => [['', '— no —'], ...(D.goods || []).map((g) => [g.id, `${g.emoji} ${g.name}`])], help: 'Bought and sold at regional markets (/world → Market). Leave the shop off.' },
-    { k: 'economy.good', label: 'Shop price follows this good', t: 'select', opts: () => [['', '— fixed price —'], ...(D.goods || []).map((g) => [g.id, `${g.emoji} ${g.name}`])], help: 'e.g. pills follow Elixir Stock: dearer when elixirs are scarce across the realm. Same price for everyone, wherever they post' },
-    { k: 'economy.sensitivity', label: 'How strongly (0–1)', t: 'number', step: 0.05, help: '0.3 = 30% of the good\'s price swing. Capped by World → Settings → max shop swing.' },
+    { k: 'tradeGood', label: 'This item IS a raw material (trade good)', t: 'select', opts: () => [['', '— no —'], ...(D.goods || []).map((g) => [g.id, `${g.emoji} ${g.name}`])], help: 'Raw materials belong to the world economy: players can\'t trade, list or sell them (recipes may still use them)' },
+    { k: 'economy.good', label: 'Prices follow this trade good', t: 'select', opts: () => [['', '— pick one for me —'], ['none', '— fixed price —'], ...(D.goods || []).map((g) => [g.id, `${g.emoji} ${g.name}`])], help: 'Pills follow Elixir Stock, weapons Arms… Your sect\'s markets (and free-trade partners\') decide what you pay in the shop; resale and sell-back follow the whole realm' },
+    { k: 'economy.sensitivity', label: 'How strongly (0–1)', t: 'number', step: 0.05, help: '0.5 = half of the good\'s price swing. Capped by World → Settings → max shop swing.' },
+    { k: 'economy.base', label: 'Reference value (items the shop doesn\'t sell)', t: 'number', help: 'Sets the player-market resale cap for drops and crafted items. Empty = by rarity (World settings)' },
     { section: 'Custom code' },
     { k: 'scriptId', label: 'Script (runs while known / when consumed)', t: 'select', opts: () => [['', '— none —'], ...D.scripts.map((s) => [s.id, s.name])], help: 'Write scripts in the Custom Code tab' },
   ];

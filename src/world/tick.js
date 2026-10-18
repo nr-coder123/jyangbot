@@ -43,6 +43,9 @@ function runTurn(state, { by = 'system' } = {}) {
   const avgP = regionResults.length ? r2(regionResults.reduce((a, x) => a + w.regions[x.key].prosperity, 0) / regionResults.length) : 0;
   const hungry = regionResults.filter((x) => x.food < 0.8).map((x) => x.key);
   const summary = { turn: w.turn, at: w.lastTurnAt, by, calendar: C.calendar(state).text, events: started.map((e) => e.eventId), caravansSent: sent, localTrade: peddled, caravansArrived: arrived.length, avgProsperity: avgP, hungry, notes: [...factionNotes, ...armyNotes].slice(0, 20), players: ledger.players.length, trade: tradeArrived.length, autoTrade: autoSent, stipends: stipends.map((x) => x.total) };
+  // The player market follows the world's rules: listings above an item's resale cap are corrected down.
+  const EE = require('../engine/economy');
+  for (const l of state.market || []) { const it = (state.items || []).find((x) => x.id === l.itemId); if (!it) continue; const cap = EE.resaleCap(state, it); if (l.price > cap) l.price = r2(cap); }
   w.history.unshift(summary);
   if (w.history.length > 200) w.history.length = 200;
   if (C.calendar(state).day === 1 && w.turn > 0) (w.announceQueue ||= []).push({ kind: 'season', text: `${C.calendar(state).emoji} **${C.calendar(state).seasonName}** has come — ${C.calendar(state).text}.` });

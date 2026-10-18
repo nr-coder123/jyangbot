@@ -461,22 +461,59 @@ test('world: 300 turns stay stable (no negative stock, prosperity moves, no fami
   for (const f of state.world.factions) assert.ok(f.treasury >= 0, `${f.name} treasury`);
 });
 
-test('world: trade goods have no location — sold at the realm price, handed over anywhere', () => {
+test('world: raw materials belong to the economy — players cannot trade, list or sell them', () => {
   const { state, c, d } = worldFresh();
   const it = state.items.find((i) => i.tradeGood === 'silk');
-  assert.ok(it && it.marketable, 'trade goods can be listed on the player market');
+  assert.ok(it && !it.tradeable && !it.marketable);
+  c.inventory[it.id] = 5;
+  assert.strictEqual(economy.shopSellPrice(state, it), 0);
+  assert.throws(() => economy.sellToShop(state, c, it, 1), /raw material/);
+  assert.throws(() => economy.listOnMarket(state, c, it, 1, 10), /raw material/);
+  assert.throws(() => economy.createTrade(state, c, d, { itemId: it.id, qty: 1 }, {}), /raw material/);
   for (const k of ['buyGood', 'sellGood', 'sendCaravan', 'startTravel', 'requireAt']) assert.ok(!W.economy[k], `${k} is gone`);
-  c.location = '河南'; const here = economy.shopSellPrice(state, it);
-  c.location = '广东'; const there = economy.shopSellPrice(state, it);
-  assert.strictEqual(here, there, 'the same price wherever you post');
-  const realm = W.economy.realmPrice(state, 'silk');
-  assert.ok(Math.abs(here - realm * (1 - state.world.settings.spread / 100)) < 0.02);
-  c.inventory[it.id] = 10; const before = c.nyang;
-  const r = economy.sellToShop(state, c, it, 10);
-  assert.ok(Math.abs(c.nyang - before - r.total) < 0.01 && !c.inventory[it.id]);
-  // Moving between channels only changes which region /world opens on.
-  state.world.regions['江苏'].categoryId = 'cat-js';
-  assert.deepStrictEqual(W.territory.notePresence(state, c, { id: 'chan', parentId: 'cat-js' }), { from: '广东', to: '江苏' });
+});
+
+test('world: item prices — sect markets, cheapest source, resale cap, sell-back; no money from reselling', () => {
+  const { state, c, d } = worldFresh();
+  const E = W.economy; const w = state.world;
+  const pill = defaults.normalizeItem({ id: 'test-pill', name: 'Test Pill', type: 'pill', rarity: 'Earthly', shop: { enabled: true, price: 100, stock: -1 } });
+  state.items.push(pill);
+  assert.strictEqual(E.autoLinkItems(state), 1);
+  assert.strictEqual(pill.economy.good, 'elixirs');
+  pill.economy.sensitivity = 0.3;
+  const f = W.common.factionOfChar(state, c); const g = W.common.factionOfChar(state, d);
+  W.territory.paint(state, ['湖北'], f.id); W.territory.paint(state, ['四川'], g.id);
+  // Hubei is flooded with elixir stock, Sichuan has none.
+  const hb = w.regions['湖北']; hb.stock.elixirs = hb.targets.elixirs * 4; E.updatePrices(state, '湖北', W.common.emptyMods());
+  const sc = w.regions['四川']; sc.stock.elixirs = sc.targets.elixirs * 0.6; E.updatePrices(state, '四川', W.common.emptyMods());
+  const qc = E.itemQuote(state, pill, c); const qd = E.itemQuote(state, pill, d);
+  assert.ok(qc.yours < qc.global && qd.yours > qd.global, `sect prices: ${qc.yours} < ${qc.global} < ${qd.yours}`);
+  assert.strictEqual(qc.cheapest, qc.yours, 'the cheapest source is the Hubei sect');
+  assert.strictEqual(qc.resaleCap, qc.cheapest, 'nobody can resell above the cheapest source');
+  assert.ok(qc.sellback < qc.cheapest, 'the shop always pays less than anyone pays it');
+  // Buy cheap through the sect, try to resell dear: the listing is corrected down to the cap.
+  c.nyang = 10000; economy.buyFromShop(state, c, pill, 2, qc.yours);
+  const l = economy.listOnMarket(state, c, pill, 2, qd.yours * 2);
+  assert.strictEqual(l.price, qc.resaleCap); assert.ok(l.corrected);
+  // A gift resold to the shop can't make money out of nothing either.
+  d.inventory[pill.id] = 1; const before = d.nyang;
+  economy.sellToShop(state, d, pill, 1);
+  assert.ok(d.nyang - before < qc.cheapest);
+  // Free trade gives access to the partner's markets: the Sichuan sect pays less.
+  W.diplomacy.makeAgreement(state, { parties: [f.id, g.id], perks: { freeTrade: true } });
+  assert.ok(E.itemQuote(state, pill, d).yours < qd.yours);
+});
+
+test('world: taxes come from GDP — production, building value added and trade', () => {
+  const { state } = worldFresh();
+  const w = state.world;
+  W.territory.paint(state, ['四川'], w.factions[0].id);
+  for (let i = 0; i < 3; i++) W.tick.runTurn(state);
+  const r = w.regions['四川'];
+  assert.ok(r.last.gdp > 0 && r.last.produced > 0);
+  assert.ok(Math.abs(r.last.taxes - Math.min(r.last.gdp * r.taxRate / 100, r.last.taxes)) < 0.01);
+  const rich = w.regions['四川'].last.gdp; const poor = w.regions['青海'].last.gdp;
+  assert.ok(rich > poor, 'a productive province has a bigger economy');
 });
 
 test('world: painting, split provinces, takeovers and revert', () => {
@@ -543,14 +580,7 @@ test('world: old saves — player caravans on the road bring their cargo home, t
   assert.strictEqual(c.inventory[it.id], 12);
   assert.ok(!w.caravans.some((x) => x.id === 'cv-x') && !c.travel);
   assert.ok(!('playerMarketBuy' in w.settings) && !('travelMode' in w.settings));
-  assert.ok(it.marketable && !/where you are/.test(it.description));
-});
-
-test('world: trade goods can be handed over wherever both characters post', () => {
-  const { state, c, d } = worldFresh();
-  c.inventory['good-silk'] = 3;
-  c.location = '河南'; d.location = '四川';
-  assert.ok(economy.createTrade(state, c, d, { itemId: 'good-silk', qty: 1 }, {}));
+  assert.ok(!it.marketable && !it.tradeable && !/where you are/.test(it.description));
 });
 
 test('world: forced events apply effects; drought can chain', () => {
@@ -561,28 +591,6 @@ test('world: forced events apply effects; drought can chain', () => {
   assert.ok(mods.production.food < 1 && mods.prosperity < 0);
   W.events.startEvent(state, 'drought', '山东', { forced: true });
   assert.ok(state.world.pendingChains.some((p) => p.eventId === 'famine'));
-});
-
-test('world: the shop has one price for everyone, wherever they post; linked items follow the realm', () => {
-  const { state, c, d } = worldFresh();
-  const E = W.economy; const w = state.world;
-  const f = W.common.factionOfChar(state, c);
-  const it = state.items.find((x) => !x.tradeGood) || state.items[0];
-  it.economy = {};
-  W.territory.paint(state, ['湖北'], f.id);
-  c.location = '湖北'; d.location = '广东';
-  assert.strictEqual(E.dynamicItemPrice(state, it, 100, c), 100);
-  assert.strictEqual(E.dynamicItemPrice(state, it, 100, d), 100);
-  // Linked to medicine: a shortage in one market barely moves it; a shortage everywhere does — for everyone alike.
-  it.economy = { good: 'medicine', sensitivity: 1 };
-  const before = E.dynamicItemPrice(state, it, 100, c);
-  for (const k of W.geo.marketKeys(state)) { const r = w.regions[k]; r.stock.medicine = Math.max(1, (r.targets.medicine || 10) * 0.3); E.updatePrices(state, k, W.common.emptyMods()); }
-  const after = E.dynamicItemPrice(state, it, 100, c);
-  assert.ok(after > before && after <= 125, `${before} → ${after}`);
-  c.location = '广东';
-  assert.strictEqual(E.dynamicItemPrice(state, it, 100, c), after, 'moving does not change the price');
-  const ml = W.politics.policyDef(state, 'martial-law');
-  assert.ok(W.common.policyStrength(ml, 30) < W.common.policyStrength(ml, 2));
 });
 
 test('world: walls — base walls 0–10, City Walls add +1 per level, old saves migrate', () => {

@@ -64,6 +64,7 @@ function unitPrice(state, r, g, stock) {
   return g.basePrice * mul * num(r.priceMods?.[g.id], 1);
 }
 function updatePrices(state, key, mods) {
+  PRICE_GEN++;
   const r = state.world.regions[key];
   r.targets = targetsFor(state, key, mods);
   r.priceMods = {};
@@ -158,6 +159,8 @@ function runBuilding(state, key, r, b, t, mods, ledger) {
     owner.treasury = r2(owner.treasury + p);
     ledger.buildings[owner.id] = r2((ledger.buildings[owner.id] || 0) + p);
   } else r.coffers = r2(r.coffers + Math.max(0, profit));
+  // Value added to the region's economy (its GDP): what the building makes, less what it uses up.
+  b.valueAdded = r2(Math.max(0, valueOut + service - costIn));
   b.lastRun = r2(f); b.lastProfit = profit;
 }
 const isProducer = (t) => !!(t && (Object.keys(t.outputs || {}).length || num(t.service)));
@@ -193,6 +196,8 @@ function tickRegion(state, key, ledger) {
   const mods = C.regionMods(state, key);
   const pf = prosperityFactor(r.prosperity);
   const sat = {};
+  // GDP (Victoria 3 style): the value the region's economy creates this turn. Taxes are a share of it.
+  let produced = 0;
   // Production
   // Producers respond to prices: they plant, mine and breed less when prices crash and more when they soar.
   for (const g of goods(state)) {
@@ -201,13 +206,15 @@ function tickRegion(state, key, ledger) {
     const seasonal = Array.isArray(g.seasonal) ? num(g.seasonal[cal.season], 1) : 1;
     const idx = num(r.prices[g.id], g.basePrice) / g.basePrice / Math.max(0.1, num(r.priceMods?.[g.id], 1));
     const response = clamp(Math.pow(idx, num(s.supplyResponse, 0.4)), 0.55, 1.3);
-    r.stock[g.id] = r2(num(r.stock[g.id]) + base * pf * seasonal * response * C.mulFor(mods.production, g));
+    const made = base * pf * seasonal * response * C.mulFor(mods.production, g);
+    r.stock[g.id] = r2(num(r.stock[g.id]) + made);
+    produced += made * num(r.prices[g.id], g.basePrice);
   }
   // Production buildings
   for (const b of r.buildings || []) {
     if (b.status !== 'ready') continue;
     const t = (w.buildingTypes || []).find((x) => x.id === b.typeId);
-    if (isProducer(t)) runBuilding(state, key, r, b, t, mods, ledger);
+    if (isProducer(t)) { runBuilding(state, key, r, b, t, mods, ledger); produced += num(b.valueAdded); }
   }
   // Armies standing here eat grain
   const an = armyNeeds(state, key);
@@ -229,7 +236,11 @@ function tickRegion(state, key, ledger) {
   }
   // Households buy what they consume from the merchants, plus a little base trade: that fills the coffers.
   const income = (spent * num(s.spendingToCoffers, 0.9) + r.population * num(s.householdIncome, 1) * pf) * mods.income;
-  const taxes = income * num(r.taxRate) / 100 * mods.tax;
+  // Taxes come from the circulation of the economy, not from a flat head count:
+  //   GDP = value of what the land and its workshops produced + a share of the trade that passed through its market (last turn).
+  const traded = num(r.last?.tradeValue) * num(s.gdpTradeShare, 0.25);
+  const gdp = (produced + traded) * mods.income;
+  const taxes = Math.min(Math.max(0, r.coffers + income), gdp * num(r.taxRate) / 100 * mods.tax);
   r.coffers = r2(Math.min(r.population * num(s.maxCoffersPerPop, 60), Math.max(0, r.coffers + income - taxes + num(mods.coffers))));
   ledger.tax += taxes;
   // Spoilage
@@ -261,7 +272,7 @@ function tickRegion(state, key, ledger) {
   const dPop = (food - 0.95) * 0.8 + (r.prosperity - 50) / 50 * 0.1 - 0.4 * Math.max(0, r.population / Math.max(1, num(r.basePop, r.population)) - 1) + num(mods.population);
   r.population = r2(Math.max(1, r.population * (1 + dPop / 100)));
   if (mods.fortGrowth) r.fort = r2(clamp(num(r.fort) + mods.fortGrowth, 0, Math.max(5, num(r.fort))));
-  r.last = { ...r.last, food: r2(food), staple: r2(staple), lux: r2(lux), income: r2(income), taxes: r2(taxes), spent: r2(spent), dP: r2(dP), growth: r2(growth), drag: r2(drag), sources: mods.sources, notes: mods.notes || [], caravanRisk: r2(num(mods.caravanRisk)), tariff: r2(num(mods.tariff)), noGuild: num(mods.noGuildCaravans) > 0, tradeValue: 0, trade: r2(trade) };
+  r.last = { ...r.last, food: r2(food), staple: r2(staple), lux: r2(lux), income: r2(income), taxes: r2(taxes), spent: r2(spent), gdp: r2(gdp), produced: r2(produced), traded: r2(traded), dP: r2(dP), growth: r2(growth), drag: r2(drag), sources: mods.sources, notes: mods.notes || [], caravanRisk: r2(num(mods.caravanRisk)), tariff: r2(num(mods.tariff)), noGuild: num(mods.noGuildCaravans) > 0, tradeValue: 0, trade: r2(trade) };
   r.history.push({ t: w.turn, p: r.prosperity, s: r.security, f: r2(food) });
   if (r.history.length > 60) r.history.splice(0, r.history.length - 60);
   // Controller (or occupier) collects the taxes
@@ -320,6 +331,7 @@ function peddlerTrade(state, ledger = null) {
     }
   }
   for (const k of geo.marketKeys(state)) { const r = w.regions[k]; for (const g of goods(state)) r.prices[g.id] = r2(unitPrice(state, r, g, num(r.stock[g.id]))); }
+  PRICE_GEN++;
   return r2(moved);
 }
 
@@ -463,48 +475,155 @@ function itemForGood(state, goodId) {
   return state.items.find((i) => i.tradeGood === goodId) || (g?.itemId && state.items.find((i) => i.id === g.itemId)) || null;
 }
 function refreshPrice(state, key, goodId) {
+  PRICE_GEN++;
   const r = state.world.regions[key]; const g = good(state, goodId);
   r.prices[goodId] = r2(unitPrice(state, r, g, num(r.stock[goodId])));
 }
 
-// ─────────── the shop ───────────
+// ─────────── item prices (shop, sell-back, player market) ───────────
 /**
- * The shop has one price for everyone, wherever they post (in a text RP anyone can "be" anywhere, so local prices
- * would only invite abuse). An item linked to a trade good follows that good's price across the whole realm —
- * the average of every market, weighted by its people — bounded by World settings → shopSwingMax.
+ * Items follow the economy, but nothing depends on where a character posts.
+ *   base      = the item's reference value (shop price, else its own reference value, else by rarity)
+ *   mult(idx) = clamp(1 + sensitivity × (idx − 1), 1 − swing, 1 + swing)   idx = linked good's price ÷ its base price
+ *   global    = base × mult(realm index)            — the good's average price over every market, weighted by people
+ *   yours     = base × mult(your sect's index)      — over the markets your sect rules plus those of its free-trade partners
+ *                                                    (a sect without land, or a character without a sect, pays the global price)
+ *   cheapest  = the lowest of global and every sect's price — the cheapest anyone can buy it from the shop
+ *   resale cap (player market) = cheapest for shop items, global × resaleCap% for everything else
+ *   sell-back (to the shop)    = min(global, cheapest) × sell-back %
+ * So whatever someone paid — or if the item was a gift — reselling it can never earn more than the cheapest honest source:
+ * buying cheap through one's sect and reselling dear is impossible, and the shop always pays less than anyone pays it.
+ * Raw materials (trade goods) belong to the economy alone: players can't trade, list or sell them.
  */
-function realmPriceIndex(state, goodId) {
-  const w = state.world;
+let PRICE_GEN = 0;
+const bumpPrices = () => { PRICE_GEN++; };
+let PCACHE = { gen: -1, map: new Map() };
+function cached(key, fn) {
+  if (PCACHE.gen !== PRICE_GEN) PCACHE = { gen: PRICE_GEN, map: new Map() };
+  if (!PCACHE.map.has(key)) PCACHE.map.set(key, fn());
+  return PCACHE.map.get(key);
+}
+function weightedIndex(state, keys, goodId) {
   let sum = 0; let wt = 0;
-  for (const k of geo.marketKeys(state)) {
-    const r = w.regions[k]; if (!r) continue;
+  for (const k of keys) {
+    const r = state.world.regions[k]; if (!r) continue;
     const p = Math.max(1, num(r.population, 1));
     sum += priceIndex(state, k, goodId) * p; wt += p;
   }
-  return wt ? sum / wt : 1;
+  return wt ? sum / wt : null;
 }
-/** Price of a shop item: the same for every buyer. (The last argument is ignored; kept for old callers.) */
-/**
- * What a trade good is worth to a player, wherever they post: its average price across the realm.
- * Players never trade goods with a particular province's market; they sell what they own to the shop at this price
- * (less the merchants' spread), give it to other players, or list it on the player market.
- */
+function realmPriceIndex(state, goodId) {
+  return cached(`realm|${goodId}`, () => weightedIndex(state, geo.marketKeys(state), goodId) ?? 1);
+}
+/** The markets a sect buys through: its own and those of its free-trade partners (none → null). */
+function sectMarkets(state, fid) {
+  const w = state.world;
+  const partners = new Set(w.factions.filter((o) => o.id !== fid && o.active && C.hasPerk(state, fid, o.id, 'freeTrade')).map((o) => o.id));
+  const keys = geo.marketKeys(state).filter((k) => { const c = w.regions[k]?.controller; return c && (c === fid || partners.has(c)); });
+  return keys.length ? keys : null;
+}
+function sectPriceIndex(state, fid, goodId) {
+  const keys = fid ? sectMarkets(state, fid) : null;
+  if (!keys) return realmPriceIndex(state, goodId);
+  return cached(`sect|${goodId}|${keys.join(',')}`, () => weightedIndex(state, keys, goodId) ?? realmPriceIndex(state, goodId));
+}
 function realmPrice(state, goodId) {
   const g = good(state, goodId);
   return g ? r2(num(g.basePrice) * realmPriceIndex(state, goodId)) : 0;
 }
-function dynamicItemPrice(state, item, basePrice) {
-  basePrice = num(basePrice);
-  if (!item?.economy?.good || !num(item.economy.sensitivity) || !state.world?.settings?.enabled) return basePrice;
-  const idx = realmPriceIndex(state, item.economy.good);
+const linkedGood = (state, item) => (item?.economy?.good && item.economy.good !== 'none' && good(state, item.economy.good) ? item.economy.good : null);
+function goodMult(state, item, idx) {
+  const sens = num(item?.economy?.sensitivity);
+  if (!sens) return 1;
   const max = num(state.world.settings.shopSwingMax, 25) / 100;
-  const mult = clamp(1 + num(item.economy.sensitivity) * (idx - 1), 1 - max, 1 + max);
-  return Math.max(1, Math.round(basePrice * mult));
+  return clamp(1 + sens * (idx - 1), 1 - max, 1 + max);
+}
+/** Reference value of an item before the economy moves it. */
+function itemBase(state, item) {
+  if (num(item.shop?.price) > 0) return num(item.shop.price);
+  if (num(item.economy?.base) > 0) return num(item.economy.base);
+  const back = num(state.settings?.shopSellbackPercent, 50) / 100;
+  if (item.sellPrice !== null && item.sellPrice !== undefined && num(item.sellPrice) > 0) return num(item.sellPrice) / Math.max(0.05, back);
+  const byRarity = state.world?.settings?.itemValueByRarity || [50, 250, 1000];
+  const i = Math.max(0, (state.rarities || []).findIndex((r) => r.name === item.rarity));
+  return num(byRarity[Math.min(i, byRarity.length - 1)], 50);
+}
+/** Every price of one item for one character (c may be null). */
+function itemQuote(state, item, c = null) {
+  const settingsOn = !!state.world?.settings?.enabled;
+  const back = num(state.settings?.shopSellbackPercent, 50) / 100;
+  const inShop = !!item.shop?.enabled && num(item.shop?.price) > 0;
+  const explicitSell = item.sellPrice !== null && item.sellPrice !== undefined;
+  if (item.tradeGood) return { raw: true, base: 0, global: 0, yours: 0, cheapest: 0, resaleCap: 0, sellback: 0, good: item.tradeGood };
+  if (!settingsOn) {
+    const base = num(item.shop?.price);
+    const sellback = explicitSell ? num(item.sellPrice) : inShop ? Math.floor(base * back) : 0;
+    return { base, global: base, yours: base, cheapest: base, resaleCap: Infinity, sellback, good: null };
+  }
+  const base = itemBase(state, item);
+  const gid = linkedGood(state, item);
+  const at = (idx) => Math.max(1, Math.round(base * (gid ? goodMult(state, item, idx) : 1)));
+  const global = at(gid ? realmPriceIndex(state, gid) : 1);
+  const fid = c ? C.factionOfChar(state, c)?.id : null;
+  const yours = gid ? at(sectPriceIndex(state, fid, gid)) : global;
+  let cheapest = global;
+  if (gid) for (const f of state.world.factions) if (f.active) cheapest = Math.min(cheapest, at(sectPriceIndex(state, f.id, gid)));
+  const resaleCap = inShop ? cheapest : Math.max(1, Math.round(global * num(state.world.settings.resaleCap, 100) / 100));
+  let sellback = 0;
+  if (explicitSell) sellback = Math.round(num(item.sellPrice) * (gid ? goodMult(state, item, realmPriceIndex(state, gid)) : 1) * 100) / 100;
+  else if (inShop) sellback = Math.floor(Math.min(global, cheapest) * back);
+  if (inShop) sellback = Math.min(sellback, Math.floor(cheapest * Math.min(0.95, Math.max(back, 0.5))));
+  return { base: r2(base), global, yours, cheapest, resaleCap, sellback: Math.max(0, sellback), good: gid };
+}
+/** Shop price of an item for members of one faction. */
+function itemPriceForFaction(state, item, fid) {
+  const base = itemBase(state, item); const gid = linkedGood(state, item);
+  return Math.max(1, Math.round(base * (gid ? goodMult(state, item, sectPriceIndex(state, fid, gid)) : 1)));
+}
+/** Shop price of an item for a buyer (their sect's markets decide it). */
+function dynamicItemPrice(state, item, basePrice, c = null) {
+  if (!state.world?.settings?.enabled) return num(basePrice);
+  return itemQuote(state, item, c).yours;
+}
+
+/** Pick the trade good an item's price should follow (by type, then by words in its name). */
+const LINK_WORDS = [
+  [/\bjade\b/i, 'jade'], [/pearl/i, 'pearls'], [/cinnabar/i, 'cinnabar'], [/spirit|lingzhi|ginseng|lotus/i, 'spiritherbs'], [/herb|root|leaf|flower|grass|moss/i, 'herbs'],
+  [/silk/i, 'silk'], [/iron|steel|metal|\bore\b|bronze|blade|sword|sabre|saber|spear|armou?r/i, 'arms'], [/wood|timber|bamboo/i, 'timber'],
+  [/horse|steed/i, 'horses'], [/fur|pelt|hide|leather/i, 'furs'], [/porcelain|\bjar\b|\bbowl\b/i, 'porcelain'], [/\btea\b/i, 'tea'], [/\bwine\b|liquor/i, 'wine'],
+  [/\bsalt\b/i, 'salt'], [/spice|pepper/i, 'spices'], [/paper|scroll|book|manual|talisman|ink/i, 'paper'], [/elixir|\bpills?\b|pellet|\bdan\b|\bcore\b|essence/i, 'elixirs'],
+  [/medicine|salve|balm|antidote|remedy|poultice/i, 'medicine'], [/poison|venom|toxin/i, 'herbs'],
+];
+const LINK_TYPES = { pill: 'elixirs', purification: 'medicine', poison: 'herbs', weapon: 'arms', manual: 'paper', treasure: 'jade' };
+function pickGoodFor(state, item) {
+  const has = (id) => !!good(state, id);
+  const text = `${item.name || ''} ${item.description || ''}`;
+  if (LINK_TYPES[item.type] && has(LINK_TYPES[item.type]) && item.type !== 'material' && item.type !== 'misc') return LINK_TYPES[item.type];
+  for (const [re, id] of LINK_WORDS) if (re.test(item.name || '') && has(id)) return id;
+  for (const [re, id] of LINK_WORDS) if (re.test(text) && has(id)) return id;
+  const rare = Math.max(0, (state.rarities || []).findIndex((r) => r.name === item.rarity));
+  return has(rare > 0 ? 'spiritherbs' : 'herbs') ? (rare > 0 ? 'spiritherbs' : 'herbs') : (goods(state)[0]?.id || '');
+}
+/** Give every sellable item without a linked good one (or all of them with overwrite). Returns how many changed. */
+function autoLinkItems(state, { overwrite = false } = {}) {
+  let n = 0;
+  const sens = num(state.world?.settings?.autoLinkSensitivity, 0.5);
+  for (const it of state.items || []) {
+    if (it.tradeGood) continue;
+    const sellable = it.shop?.enabled || (it.tradeable !== false && it.marketable !== false) || (it.sellPrice !== null && it.sellPrice !== undefined);
+    if (!sellable) continue;
+    if (!overwrite && it.economy?.good) continue;
+    const gid = pickGoodFor(state, it);
+    if (!gid) continue;
+    it.economy = { ...(it.economy || {}), good: gid, sensitivity: num(it.economy?.sensitivity) > 0 ? num(it.economy.sensitivity) : sens };
+    n++;
+  }
+  return n;
 }
 
 module.exports = {
   LEVEL_MULT, goods, good, prosperityFactor, popDemand, targetsFor, unitPrice, updatePrices, priceIndex, initMarkets,
   buildingNeeds, runBuilding, isProducer, collectTax, border, tickRegion, peddlerTrade, dispatchNpcCaravans, arriveNpcCaravans, raidRisk, embargoed, armyMen, journeyLoss, banditsTake,
   locationOf, quote, itemForGood, refreshPrice,
-  dynamicItemPrice, realmPriceIndex, realmPrice, caravanTurns,
+  dynamicItemPrice, realmPriceIndex, sectPriceIndex, sectMarkets, realmPrice, itemBase, itemQuote, itemPriceForFaction, pickGoodFor, autoLinkItems, bumpPrices, caravanTurns,
 };

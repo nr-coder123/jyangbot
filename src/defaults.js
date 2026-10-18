@@ -341,9 +341,10 @@ function normalizeItem(i = {}) {
     purification: { tier: 1, element: '', gimmick: '', ...(i.purification || {}) },
     scriptId: i.scriptId || '',
     // World economy: tradeGood links the item to a regional trade good (bought/sold in /world markets);
-    // economy.good + sensitivity lets the good's average price across the realm move this item's shop price (bounded in World settings).
+    // economy.good + sensitivity: the item's prices follow that trade good (see world/economy itemQuote).
     tradeGood: i.tradeGood || '',
-    economy: { good: i.economy?.good || '', sensitivity: Math.max(0, Math.min(1, num(i.economy?.sensitivity))) },
+    // good: '' = pick one automatically, 'none' = fixed price. base: reference value for items the shop doesn't sell.
+    economy: { good: i.economy?.good || '', sensitivity: Math.max(0, Math.min(1, num(i.economy?.sensitivity))), base: Math.max(0, num(i.economy?.base)) },
     createdAt: i.createdAt || now,
     updatedAt: i.updatedAt || now,
   };

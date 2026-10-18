@@ -258,12 +258,19 @@ function create(bot) {
     return { sects: list };
   }));
 
+  /** Items left on "auto" get a trade good to follow (raw materials never do). */
+  const autoLink = (st, it) => {
+    if (it.tradeGood || (it.economy?.good && it.economy.good !== '')) return;
+    const gid = require('../world/economy').pickGoodFor(st, it);
+    if (gid) it.economy = { ...(it.economy || {}), good: gid, sensitivity: Number(it.economy?.sensitivity) > 0 ? it.economy.sensitivity : Number(st.world?.settings?.autoLinkSensitivity ?? 0.5) };
+  };
   // ----- items -----
   app.post('/api/items', wrap(async (req) => {
     const st = store.state;
     if (st.items.length >= num(st.settings.maxItems, 300)) throw new UserError(`Item limit reached (${st.settings.maxItems}). Raise it in Settings or delete items.`);
     const it = sanitizeItem(req.body || {});
     if (st.items.some((x) => x.id === it.id)) it.id = newId('it-');
+    autoLink(st, it);
     st.items.push(it);
     store.log(req.actor, 'item.create', `${it.name} (${it.rarity} ${it.type})`);
     return { item: it };
@@ -274,6 +281,7 @@ function create(bot) {
     if (idx < 0) throw new UserError('Item not found.');
     const before = st.items[idx];
     const it = sanitizeItem(req.body || {}, before);
+    autoLink(st, it);
     st.items[idx] = it;
     store.log(req.actor, 'item.update', `${it.name}: ${diff(before, it)}`);
     return { item: it };
@@ -357,12 +365,14 @@ function create(bot) {
           if (idx >= 0) {
             if (mode === 'skip') { report.skipped.push(body.name); continue; }
             const it = sanitizeItem({ ...body, id: st.items[idx].id }, st.items[idx]);
+            autoLink(st, it);
             st.items[idx] = it;
             report.updated.push(it.name);
           } else {
             if (st.items.length >= num(st.settings.maxItems, 300)) { report.errors.push(`${body.name}: item limit (${st.settings.maxItems}) reached`); continue; }
             if (st.items.some((x) => x.id === body.id)) delete body.id;
             const it = sanitizeItem(body);
+            autoLink(st, it);
             st.items.push(it);
             report.created.push(it.name);
           }
