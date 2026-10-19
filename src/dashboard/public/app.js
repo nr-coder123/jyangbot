@@ -965,13 +965,13 @@ VIEWS.sects = () => {
         { k: 'description', label: 'Description', t: 'textarea', rows: 2 },
       ], s);
       forms.push([s, f]);
-      return h('div', { class: 'card' }, f.el, h('div', { class: 'toolbar', style: 'margin-top:8px' }, h('button', { class: 'btn small danger', onclick: () => { collect(); rows.splice(idx, 1); draw(); } }, 'Remove sect')));
+      return h('div', { class: 'card' }, f.el, h('div', { class: 'toolbar', style: 'margin-top:8px' }, h('button', { class: 'btn small danger', onclick: () => { if (s.id && !confirm(`Remove ${s.name}? When you save, its world faction is deleted too (its land becomes unclaimed) and its members are left without a sect.`)) return; collect(); rows.splice(idx, 1); draw(); } }, 'Remove sect')));
     }));
   };
   const collect = () => forms.forEach(([s, f]) => Object.assign(s, deepMerge(s, f.read())));
   draw();
   return [
-    h('p', { class: 'muted' }, 'Sects/clans players can pick. Non-playable ones (Beggar Sect, Moyong, Demon Cult) can only be set by staff. Drop bonuses are added to the rarity weights on drop rolls (e.g. The 72 Strongholds).'),
+    h('p', { class: 'muted' }, 'Every sect is also a faction on the world map (Politics) with the same name: renaming or removing one here does the same to the other, and a faction made on the map appears here. Sects/clans players can pick. Non-playable ones (Beggar Sect, Moyong, Demon Cult) can only be set by staff. Drop bonuses are added to the rarity weights on drop rolls (e.g. The 72 Strongholds).'),
     wrap,
     h('div', { class: 'toolbar' },
       h('button', { class: 'btn', onclick: () => { collect(); rows.push({ name: 'New sect', titleName: '', alignment: 'Orthodox', playable: true, roleId: '', rarityBonus: {}, coreArtId: '', joinNyang: 0, description: '' }); draw(); } }, '+ Add sect'),

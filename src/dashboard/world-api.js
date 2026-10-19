@@ -250,37 +250,26 @@ function mount(app, { wrap, bot, diff }) {
   }));
 
   // ----- factions -----
-  /** A sect entry (Sects tab) for a faction, so players can join it. */
-  const makeSect = (f) => {
-    const s = store.state;
-    if (!s.sects.some((x) => norm(x.name) === norm(f.name))) {
-      const used = new Set(s.sects.map((x) => x.id));
-      let id = slug(f.name) || 'sect'; while (used.has(id)) id += '-2';
-      s.sects.push({ id, name: f.name, alignment: f.alignment || 'Neutral', titleName: f.name, description: f.description || '', playable: true, roleId: '', rarityBonus: {}, coreArtId: '', joinNyang: 0 });
-    }
-    f.sect = s.sects.find((x) => norm(x.name) === norm(f.name)).name;
-    f.npc = false;
-  };
+  // Factions and sects are connected (see world/state.js syncSects): a faction players can join IS a sect.
+  const sectTaken = (name, exceptFid) => store.state.sects.some((x) => norm(x.name) === norm(name) && !w().factions.some((f) => f.id === exceptFid && f.sect === x.name));
   app.post('/api/world/factions', wrap(async (req) => {
-    const b = req.body || {};
+    const b = { ...(req.body || {}) };
+    delete b.addSect;
+    if (!String(b.name || '').trim()) throw new UserError('Name it first.');
+    if (!b.npc && sectTaken(b.name, null)) throw new UserError(`There already is a sect called "${b.name}" (Sects tab) with its own faction. Pick another name, or use that faction.`);
     let id = b.id || slug(b.name || 'faction') || 'faction';
     while (C.faction(store.state, id)) id += '-2';
-    const f = WS.normalizeFaction({ ...b, id });
-    if (b.addSect) {
-      const other = w().factions.find((x) => x.sect && norm(x.sect) === norm(f.name));
-      if (other) throw new UserError(`The sect "${other.sect}" already has a faction (${other.name}). Use that one, or delete it first.`);
-      makeSect(f);
-    }
+    const f = WS.normalizeFaction({ ...b, id, sect: '' });
     w().factions.push(f);
-    log(req, 'world.faction', `created ${f.name}${b.addSect ? ' (and its sect)' : ''}`);
+    WS.syncSects(store.state);
+    log(req, 'world.faction', `created ${f.name}${f.sect ? ' (and its sect)' : ' (staff-run)'}`);
     return { faction: f };
   }));
   app.post('/api/world/factions/:id/make-sect', wrap(async (req) => {
     const f = faction(req.params.id);
-    if (f.sect && store.state.sects.some((s) => s.name === f.sect)) throw new UserError(`${f.name} is already the sect "${f.sect}".`);
-    const other = w().factions.find((x) => x !== f && x.sect && norm(x.sect) === norm(f.name));
-    if (other) throw new UserError(`The sect "${other.sect}" already belongs to another faction (${other.name}). Delete that faction and hand the sect to this one.`);
-    makeSect(f);
+    if (sectTaken(f.name, f.id)) throw new UserError(`There already is a sect called "${f.name}". Rename this faction first.`);
+    f.npc = false;
+    WS.syncSects(store.state);
     log(req, 'world.faction', `${f.name} is now a sect players can join`);
     return { faction: f };
   }));
@@ -291,8 +280,11 @@ function mount(app, { wrap, bot, diff }) {
     if (b.scriptId) scriptOk(b.scriptId);
     if (b.hq && !geo.get(b.hq)) throw new UserError('Unknown HQ region.');
     delete b.shop;
+    if (b.name && b.name !== before.name && f.sect && sectTaken(b.name, f.id)) throw new UserError(`There already is a sect called "${b.name}".`);
+    delete b.sect; // the link to its sect is kept by the bot
     const next = WS.normalizeFaction({ ...before, ...b, id: f.id, decrees: before.decrees });
     Object.assign(f, next);
+    WS.syncSects(store.state); // a renamed faction renames its sect (and its members' sect)
     log(req, 'world.faction', `${f.name}: ${diff(before, f, ['lastIncome'])}`);
     return { faction: f };
   }));
@@ -300,31 +292,31 @@ function mount(app, { wrap, bot, diff }) {
     const f = faction(req.params.id);
     const s = store.state;
     let note = '';
-    // A faction that is a sect: hand the sect (and its members) to another faction, or delete the sect too.
+    // A faction that is a sect: merge its members into another faction's sect, or delete the sect too.
     if (f.sect && s.sects.some((x) => x.name === f.sect)) {
       const mode = String(req.query.sect || '');
       if (mode === 'move') {
         const to = faction(String(req.query.to || ''));
         if (to.id === f.id) throw new UserError('Pick another faction.');
-        if (to.sect && to.sect !== f.sect && s.sects.some((x) => x.name === to.sect)) throw new UserError(`${to.name} is already the sect "${to.sect}".`);
-        to.sect = f.sect; to.npc = false;
+        to.npc = false; WS.syncSects(s);
+        const from = s.sects.find((x) => x.name === f.sect); const into = s.sects.find((x) => x.name === to.sect);
+        let n = 0;
+        for (const c of s.characters) if (c.sect === f.sect) { c.sect = to.sect; n++; if (bot.applySectRoles && c.ownerId) bot.applySectRoles(c.ownerId, c.sect).catch(() => {}); }
+        for (const a of s.applications || []) if (a.sect === f.sect) a.sect = to.sect;
+        if (into && from && !into.roleId) into.roleId = from.roleId;
         for (const [k, v] of Object.entries(f.repRanks || {})) if (!to.repRanks[k]) to.repRanks[k] = v;
         to.representatives = [...new Set([...(to.representatives || []), ...(f.representatives || [])])];
         if (!to.leaderCharId) to.leaderCharId = f.leaderCharId || '';
-        note = ` (its sect "${f.sect}" now belongs to ${to.name})`;
+        s.sects = s.sects.filter((x) => x.name !== f.sect);
+        note = ` (its ${n} member${n === 1 ? '' : 's'} joined ${to.name})`;
       } else if (mode === 'delete') {
         const name = f.sect; let n = 0;
         s.sects = s.sects.filter((x) => x.name !== name);
-        for (const c of s.characters) if (c.sect === name) { c.sect = ''; n++; }
-        note = ` and the sect "${name}" (${n} member${n === 1 ? '' : 's'} left without a sect)`;
-      } else throw new UserError(`${f.name} is the sect "${f.sect}". Choose whether to hand the sect to another faction or delete the sect too.`);
+        for (const c of s.characters) if (c.sect === name) { c.sect = ''; n++; if (bot.applySectRoles && c.ownerId) bot.applySectRoles(c.ownerId, '').catch(() => {}); }
+        note = ` and its sect (${n} member${n === 1 ? '' : 's'} left without a sect)`;
+      } else throw new UserError(`${f.name} is a sect players can join. Choose whether its members join another faction or the sect is deleted too.`);
     }
-    w().factions = w().factions.filter((x) => x.id !== f.id);
-    for (const r of Object.values(w().regions)) { if (r.controller === f.id) r.controller = null; if (r.occupiedBy === f.id) r.occupiedBy = null; }
-    w().agreements = w().agreements.filter((t) => !t.parties.includes(f.id));
-    w().armies = w().armies.filter((a) => a.factionId !== f.id);
-    for (const al of [...w().alliances]) if (al.members.includes(f.id)) D.removeMember(store.state, al.id, f.id, { silent: true });
-    w().wars = w().wars.map((x) => ({ ...x, attackers: x.attackers.filter((m) => m !== f.id), defenders: x.defenders.filter((m) => m !== f.id) })).filter((x) => x.attackers.length && x.defenders.length);
+    WS.removeFaction(s, f.id);
     log(req, 'world.faction', `deleted ${f.name}${note}`);
     return { ok: true, note };
   }));

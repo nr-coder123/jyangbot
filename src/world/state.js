@@ -2,7 +2,7 @@
 /** Creates and upgrades state.world. Everything stays editable in the dashboard. */
 const geo = require('./geo');
 const W = require('./defaults');
-const { clone, num, arr, slug, isPlainObject, deepMerge, r2 } = require('../utils');
+const { clone, num, arr, slug, norm, isPlainObject, deepMerge, r2 } = require('../utils');
 
 const FACTION_KINDS = ['sect', 'clan', 'palace', 'cult', 'court', 'guild', 'bandits', 'other'];
 const PLAYABLE_KINDS = ['sect', 'clan', 'palace', 'cult', 'bandits'];
@@ -450,7 +450,8 @@ function normalizeWorld(state) {
   for (const s of state.sects || []) {
     if (!w.factions.some((f) => f.sect === s.name)) {
       const seed = W.FACTION_SEEDS[s.name] || {};
-      w.factions.push(normalizeFaction({ id: factionIdForSect(s.name), name: s.name, sect: s.name, kind: kindOfSect(s.name), alignment: s.alignment, color: seed.color, hanzi: seed.hanzi, treasury: 2500, description: s.description }));
+      let fid = factionIdForSect(s.name) || 'faction'; while (w.factions.some((x) => x.id === fid)) fid += '-2';
+      w.factions.push(normalizeFaction({ id: fid, name: s.name, sect: s.name, kind: kindOfSect(s.name), alignment: s.alignment, color: seed.color, hanzi: seed.hanzi, treasury: 2500, description: s.description }));
     }
   }
   if (w.version < 4 && w.version >= 1) migrateV4(state, w);
@@ -478,8 +479,72 @@ function normalizeWorld(state) {
   for (const r of Object.values(regions)) if (r.key.includes('/') && !r.ownController) r.controller = regions[geo.provinceOf(r.key)]?.controller || null;
   for (const r of Object.values(regions)) if (r.controller && !w.factions.some((f) => f.id === r.controller)) r.controller = null;
   w.takeovers = w.takeovers.slice(0, 200);
+  syncSects(state);
   require('./economy').initMarkets(state, w, { onlyMissing: true });
   return w;
+}
+
+// ─────────── factions ↔ sects (always connected) ───────────
+/**
+ * Every faction players can join IS a sect (Sects tab) and the two stay connected:
+ *   · a faction that isn't staff-run gets a sect entry with its name (players can join it, it can have a Discord role);
+ *   · faction and sect always share one name — renaming either renames both (and the characters in it);
+ *   · deleting either deletes the other (the dashboard asks what happens to the members first);
+ *   · a sect added in the Sects tab gets its faction (normalizeWorld).
+ * Staff-run powers (npc) without a sect stay off the Sects tab.
+ */
+function newSect(state, name, f = {}) {
+  const used = new Set((state.sects || []).map((x) => x.id));
+  let id = slug(name) || 'sect'; while (used.has(id)) id += '-2';
+  const s = { id, name, alignment: f.alignment || 'Neutral', titleName: name, description: f.description || '', playable: true, roleId: '', rarityBonus: {}, coreArtId: '', joinNyang: 0 };
+  state.sects.push(s);
+  return s;
+}
+/** Rename a sect everywhere (sect entry, its faction, characters, pending applications). */
+function renameSect(state, oldName, newName) {
+  if (!oldName || !newName || oldName === newName) return;
+  const s = (state.sects || []).find((x) => x.name === oldName);
+  if (s) { if (!s.titleName || s.titleName === oldName) s.titleName = newName; s.name = newName; }
+  for (const f of state.world?.factions || []) if (f.sect === oldName) f.sect = newName;
+  for (const c of state.characters || []) if (c.sect === oldName) c.sect = newName;
+  for (const a of state.applications || []) if (a.sect === oldName) a.sect = newName;
+}
+/** Remove a faction and everything that points at it (land becomes unclaimed). Its sect is handled by the caller. */
+function removeFaction(state, fid) {
+  const w = state.world;
+  const f = w.factions.find((x) => x.id === fid);
+  if (!f) return null;
+  w.factions = w.factions.filter((x) => x !== f);
+  for (const r of Object.values(w.regions)) { if (r.controller === f.id) r.controller = null; if (r.occupiedBy === f.id) r.occupiedBy = null; }
+  w.agreements = w.agreements.filter((t) => !t.parties.includes(f.id));
+  w.armies = w.armies.filter((a) => a.factionId !== f.id);
+  for (const al of [...w.alliances]) if (al.members.includes(f.id)) require('./diplomacy').removeMember(state, al.id, f.id, { silent: true });
+  w.wars = w.wars.map((x) => ({ ...x, attackers: x.attackers.filter((m) => m !== f.id), defenders: x.defenders.filter((m) => m !== f.id) })).filter((x) => x.attackers.length && x.defenders.length);
+  for (const o of w.factions) o.embargoes = (o.embargoes || []).filter((x) => x !== f.id);
+  return f;
+}
+function syncSects(state) {
+  const w = state.world;
+  if (!w || !Array.isArray(state.sects)) return;
+  for (const f of w.factions) {
+    let s = f.sect ? state.sects.find((x) => x.name === f.sect) : null;
+    if (!s && f.npc && !f.sect) continue; // staff-run power, not a sect
+    if (!s) {
+      // A sect with the faction's name that no other faction owns, else a new one.
+      s = state.sects.find((x) => norm(x.name) === norm(f.name) && !w.factions.some((o) => o !== f && o.sect === x.name));
+      if (!s) {
+        let name = f.name; let n = 2;
+        while (state.sects.some((x) => norm(x.name) === norm(name))) name = `${f.name} (${n++})`;
+        s = newSect(state, name, f);
+      }
+      f.sect = s.name;
+    }
+    // One name for both: the faction's (rename in Politics → both follow; rename in Sects → the faction follows there).
+    if (f.name !== s.name) {
+      if (state.sects.some((x) => x !== s && norm(x.name) === norm(f.name))) f.name = s.name;
+      else renameSect(state, s.name, f.name);
+    }
+  }
 }
 
 /** Make a prefecture special (its own market) or not. Moves a share of the province's people and production. */
@@ -509,4 +574,4 @@ function setSpecial(state, key, on, share = 0.12) {
   return w.regions[key];
 }
 
-module.exports = { normalizeBuilding, normalizeAlliance, normalizeAgreement, normalizeWar, WORLD_VERSION, DEFAULT_SPLIT, ensureGoodItems, normalizeFaction, normalizeRegion, createWorld, normalizeWorld, setSpecial, pairKey, factionIdForSect, kindOfSect, FACTION_KINDS, PLAYABLE_KINDS };
+module.exports = { syncSects, renameSect, newSect, removeFaction, normalizeBuilding, normalizeAlliance, normalizeAgreement, normalizeWar, WORLD_VERSION, DEFAULT_SPLIT, ensureGoodItems, normalizeFaction, normalizeRegion, createWorld, normalizeWorld, setSpecial, pairKey, factionIdForSect, kindOfSect, FACTION_KINDS, PLAYABLE_KINDS };

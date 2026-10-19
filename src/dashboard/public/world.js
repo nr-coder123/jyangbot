@@ -737,14 +737,14 @@ function deleteFaction(f) {
     if (!confirm(`Delete ${f.name}? Its land becomes unclaimed; its armies, agreements and alliance membership go.`)) return;
     return run(async () => { await api(`/world/factions/${f.id}`, { method: 'DELETE' }); closeModal(); render(); toast(`${f.name} deleted.`); })();
   }
-  const others = W_().factions.filter((x) => x.id !== f.id && !isSect(x));
+  const others = W_().factions.filter((x) => x.id !== f.id);
   const same = others.find((x) => x.name.toLowerCase() === f.name.toLowerCase());
   const to = select(others.map((x) => [x.id, `${x.name} — ${landsOf(x.id).length} region(s), ${x.kind}`]), same?.id || others[0]?.id);
   const members = WD.characters.filter((c) => c.sect === f.sect).length;
   openModal(`Delete ${f.name}`, h('div', { style: 'display:grid;gap:12px' },
     h('p', {}, `${f.name} is the sect "${f.sect}" (${members} member${members === 1 ? '' : 's'}). What happens to the sect?`),
-    others.length ? h('div', { class: 'card' }, h('b', {}, 'Hand the sect to another faction'), h('p', { class: 'muted small' }, 'Its members, representatives and leader now belong to that faction (its land, treasury and treaties are kept). Use this when you made a duplicate on the map.'),
-      h('div', { class: 'toolbar' }, to, h('button', { class: 'btn primary', onclick: run(async () => { const r = await api(`/world/factions/${f.id}?sect=move&to=${encodeURIComponent(to.value)}`, { method: 'DELETE' }); await load().catch(() => {}); closeModal(); render(); toast(`Deleted${r.note}.`); }) }, 'Hand over and delete'))) : null,
+    others.length ? h('div', { class: 'card' }, h('b', {}, 'Its members join another faction'), h('p', { class: 'muted small' }, 'Members, representatives and the leader move to that faction\'s sect (its land, treasury and treaties are kept); this sect disappears from the Sects tab. Use this when you made a duplicate on the map.'),
+      h('div', { class: 'toolbar' }, to, h('button', { class: 'btn primary', onclick: run(async () => { const r = await api(`/world/factions/${f.id}?sect=move&to=${encodeURIComponent(to.value)}`, { method: 'DELETE' }); await load().catch(() => {}); closeModal(); render(); toast(`Deleted ${f.name}${r.note}.`); }) }, 'Move members and delete'))) : null,
     h('div', { class: 'card warn' }, h('b', {}, 'Delete the sect too'), h('p', { class: 'muted small' }, `Removes "${f.sect}" from the Sects tab; its ${members} member(s) are left without a sect.`),
       h('button', { class: 'btn danger', onclick: run(async () => { if (!confirm(`Delete ${f.name} AND the sect "${f.sect}"?`)) return; const r = await api(`/world/factions/${f.id}?sect=delete`, { method: 'DELETE' }); await load().catch(() => {}); closeModal(); render(); toast(`Deleted ${f.name}${r.note}.`); }) }, 'Delete faction and sect'))),
   [h('button', { class: 'btn', onclick: closeModal }, 'Cancel')]);
@@ -755,13 +755,12 @@ function newFaction(done) {
     { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字 (optional)' },
     { k: 'color', label: 'Colour', t: 'color' },
     { k: 'kind', label: 'Kind', t: 'select', opts: [['other', 'Other'], ['court', 'Imperial court'], ['guild', 'Merchant guild'], ['bandits', 'Bandits'], ['sect', 'Sect'], ['clan', 'Clan'], ['palace', 'Palace'], ['cult', 'Cult']] },
-    { k: 'addSect', label: 'Players can join it (adds it to the Sects tab)', t: 'check' },
-    { k: 'npc', label: 'Run by staff (not a player sect)', t: 'check' },
+    { k: 'npc', label: 'Staff-run power (players can\'t join it — not in the Sects tab)', t: 'check' },
     { k: 'description', label: 'Description', t: 'textarea', wide: true },
-  ], { name: '', hanzi: '', color: `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')}`, kind: 'sect', addSect: true, npc: false, description: '' });
-  openModal('New faction', h('div', {}, f.el, h('p', { class: 'muted small' }, 'With "Players can join it", it also appears in the Sects tab (set its Discord role there). It starts with no land, no relations and no treaties.')), [
+  ], { name: '', hanzi: '', color: `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')}`, kind: 'sect', npc: false, description: '' });
+  openModal('New faction', h('div', {}, f.el, h('p', { class: 'muted small' }, 'Every faction players can join is also a sect in the Sects tab (same name, set its Discord role there) — renaming or deleting one does the same to the other. It starts with no land, no relations and no treaties.')), [
     h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
-    h('button', { class: 'btn primary', onclick: run(async () => { const v = f.read(); if (!v.name) throw new Error('Name it first.'); const r = await api('/world/factions', { method: 'POST', body: { ...v, treasury: 0 } }); if (v.addSect) await load().catch(() => {}); MAPV.paintF = r.faction.id; MAPV.tool = 'paint'; saveMapPrefs(); closeModal(); toast(`${v.name} created — paint its land.`); done(); }) }, 'Create'),
+    h('button', { class: 'btn primary', onclick: run(async () => { const v = f.read(); if (!v.name) throw new Error('Name it first.'); const r = await api('/world/factions', { method: 'POST', body: { ...v, treasury: 0 } }); await load().catch(() => {}); MAPV.paintF = r.faction.id; MAPV.tool = 'paint'; saveMapPrefs(); closeModal(); toast(`${v.name} created — paint its land.`); done(); }) }, 'Create'),
   ]);
 }
 
@@ -1569,8 +1568,8 @@ function openRealm(f, start = 'overview') {
       { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字' }, { k: 'color', label: 'Colour', t: 'color' },
       { k: 'colorStyle', label: 'On the map', t: 'select', opts: [['', 'Map default'], ['washed', 'Washed'], ['vivid', 'Vivid']] },
       { k: 'kind', label: 'Kind', t: 'select', opts: ['sect', 'clan', 'palace', 'cult', 'court', 'guild', 'bandits', 'other'] }, { k: 'alignment', label: 'Alignment', t: 'select', opts: ['Orthodox', 'Unorthodox', 'Neutral', 'Imperial', 'Demonic'] },
-      { k: 'sect', label: 'Linked sect (members)', t: 'select', opts: () => [['', '— none —'], ...WD.sects.map((x) => [x.name, x.name])] }, { k: 'hq', label: 'Seat', t: 'select', opts: () => [['', '—'], ...marketOpts()] },
-      { k: 'active', label: 'Active', t: 'check' }, { k: 'npc', label: 'Run by staff (not a player sect)', t: 'check' }, { k: 'tradeCharter', label: 'Trade charter (sends caravans like a guild)', t: 'check' },
+      { k: 'hq', label: 'Seat', t: 'select', opts: () => [['', '—'], ...marketOpts()] },
+      { k: 'active', label: 'Active', t: 'check' }, { k: 'npc', label: 'Staff-run power', t: 'check' }, { k: 'tradeCharter', label: 'Trade charter (sends caravans like a guild)', t: 'check' },
       { k: 'treasury', label: 'Treasury', t: 'number' },
       { k: 'icon', label: 'Icon in Discord menus (optional)' },
       { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (factionTick, regionTick, diplomacy, battleRound)', t: 'select', opts: scriptOpts, wide: true },
@@ -1578,6 +1577,7 @@ function openRealm(f, start = 'overview') {
     const al = allianceOfF(f.id);
     return [
       h('div', { class: 'kv small' },
+        h('span', { class: 'muted' }, 'Sect'), h('span', {}, isSect(f) ? `${f.sect} — players can join it (Sects tab); renaming the faction renames the sect` : 'none — a staff-run power'),
         h('span', { class: 'muted' }, 'Lands'), h('span', {}, lands.map((r) => rname(r.key)).join(', ') || '—'),
         h('span', { class: 'muted' }, 'Alliance'), h('span', {}, al ? al.name : '—'),
         h('span', { class: 'muted' }, 'Wars'), h('span', {}, warsOfF(f.id).map((x) => x.name).join(', ') || 'at peace'),
@@ -1590,7 +1590,7 @@ function openRealm(f, start = 'overview') {
       h('div', { class: 'toolbar' }, h('button', { class: 'btn danger', onclick: () => deleteFaction(f) }, 'Delete faction'),
         isSect(f) ? null : h('button', { class: 'btn', title: 'Adds it to the Sects tab so players can join it', onclick: run(async () => { await api(`/world/factions/${f.id}/make-sect`, { method: 'POST', body: {} }); toast(`${f.name} is now a sect players can join (Sects tab).`); await load().catch(() => {}); done(); }) }, 'Make it a joinable sect'),
         h('span', { class: 'grow' }),
-        h('button', { class: 'btn primary', onclick: run(async () => { await api(`/world/factions/${f.id}`, { method: 'PUT', body: form.read() }); toast('Saved.'); done(); }) }, 'Save')),
+        h('button', { class: 'btn primary', onclick: run(async () => { await api(`/world/factions/${f.id}`, { method: 'PUT', body: form.read() }); await load().catch(() => {}); toast(isSect(f) ? 'Saved — its sect follows.' : 'Saved.'); done(); }) }, 'Save')),
     ];
   };
   const council = () => {

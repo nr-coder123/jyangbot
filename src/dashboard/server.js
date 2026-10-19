@@ -246,15 +246,30 @@ function create(bot) {
       joinNyang: Math.max(0, num(s.joinNyang)),
     }));
     if (list.some((s) => !s.name)) throw new UserError('Every sect needs a name.');
-    // Renamed sects (same id) keep their world faction.
+    // Sects and factions are connected: a renamed sect renames its faction and its members' sect;
+    // a deleted sect deletes its faction (its land becomes unclaimed) and its members are left without a sect.
+    const WS = require('../world/state');
     const beforeSects = store.state.sects;
+    const lower = list.map((s) => s.name.toLowerCase());
+    if (new Set(lower).size !== lower.length) throw new UserError('Two sects have the same name.');
     for (const s of list) {
       const old = beforeSects.find((x) => (x.id || slug(x.name)) === s.id);
-      if (old && old.name !== s.name) for (const f of store.state.world?.factions || []) if (f.sect === old.name) { f.sect = s.name; if (f.name === old.name) f.name = s.name; }
+      if (old && old.name !== s.name) {
+        WS.renameSect(store.state, old.name, s.name);
+        for (const f of store.state.world?.factions || []) if (f.sect === s.name) f.name = s.name;
+      }
+    }
+    const removed = beforeSects.filter((x) => !list.some((s) => s.id === (x.id || slug(x.name))));
+    const notes = [];
+    for (const old of removed) {
+      const name = list.some((s) => s.name === old.name) ? null : old.name;
+      if (!name) continue;
+      for (const f of [...(store.state.world?.factions || [])].filter((x) => x.sect === name)) { WS.removeFaction(store.state, f.id); notes.push(`faction ${f.name} deleted`); }
+      for (const c of store.state.characters) if (c.sect === name) { c.sect = ''; if (bot.applySectRoles && c.ownerId) bot.applySectRoles(c.ownerId, '').catch(() => {}); }
     }
     store.state.sects = list;
     require('../world/state').normalizeWorld(store.state); // new sects get a faction
-    store.log(req.actor, 'sects.update', `${list.length} sects saved`);
+    store.log(req.actor, 'sects.update', `${list.length} sects saved${notes.length ? ` (${notes.join(', ')})` : ''}`);
     return { sects: list };
   }));
 

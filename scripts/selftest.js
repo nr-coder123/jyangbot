@@ -609,6 +609,32 @@ test('world: decrees — staff give RP decisions simple effects; requests always
   assert.ok(w.settings.repRanks.every((rk) => !('policies' in rk.powers) && rk.powers.decree));
 });
 
+test('world: factions and sects stay connected — create, rename, merge, delete', () => {
+  const { state, c } = worldFresh();
+  const w = state.world; const WS = W.state;
+  // A faction made on the map is a sect players can join.
+  const f = WS.normalizeFaction({ id: 'iron-fist', name: 'Iron Fist Hall', kind: 'sect' });
+  w.factions.push(f); WS.syncSects(state);
+  assert.ok(state.sects.some((s) => s.name === 'Iron Fist Hall') && f.sect === 'Iron Fist Hall');
+  // Staff-run powers are not.
+  const g = WS.normalizeFaction({ id: 'court', name: 'Court', npc: true }); w.factions.push(g); WS.syncSects(state);
+  assert.ok(!state.sects.some((s) => s.name === 'Court'));
+  // Renaming the faction renames the sect and its members.
+  const mh = W.common.factionOfChar(state, c);
+  mh.name = 'DELETEME'; WS.syncSects(state);
+  assert.ok(state.sects.some((s) => s.name === 'DELETEME') && !state.sects.some((s) => s.name === 'Mount Hua Sect'));
+  assert.strictEqual(c.sect, 'DELETEME'); assert.strictEqual(mh.sect, 'DELETEME');
+  // Renaming the sect renames the faction (the Sects tab does this with renameSect + the faction's name).
+  WS.renameSect(state, 'DELETEME', 'Mount Hua Sect'); mh.name = 'Mount Hua Sect'; WS.syncSects(state);
+  assert.strictEqual(c.sect, 'Mount Hua Sect');
+  // A sect with no faction gets one; a faction can be removed cleanly.
+  state.sects.push({ id: 'new-one', name: 'New One', playable: true }); WS.normalizeWorld(state);
+  assert.ok(w.factions.some((x) => x.sect === 'New One'));
+  W.territory.paint(state, ['湖北'], 'iron-fist');
+  WS.removeFaction(state, 'iron-fist');
+  assert.ok(!w.factions.some((x) => x.id === 'iron-fist') && !w.regions['湖北'].controller);
+});
+
 test('world: walls — base walls 0–10, City Walls add +1 per level, old saves migrate', () => {
   const { state } = worldFresh();
   const w = state.world;
