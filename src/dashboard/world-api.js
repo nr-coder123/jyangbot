@@ -11,7 +11,7 @@ const { UserError, num, clone, arr, slug, norm, truncate, newId, isPlainObject, 
 
 const { geo, economy: E, events: EV, politics: P, diplomacy: D, military: M, power, common: C, territory: T, realm: R } = W;
 const MAPFILE = path.join(__dirname, '../world/mapdata.json');
-const LISTS = ['goods', 'events', 'policies', 'buildingTypes', 'unitTypes', 'formations', 'routes'];
+const LISTS = ['goods', 'events', 'buildingTypes', 'unitTypes', 'formations', 'routes'];
 
 const w = () => store.state.world;
 const region = (key) => { const r = w().regions[key]; if (!r) throw new UserError('Unknown region.'); return r; };
@@ -57,7 +57,7 @@ function mount(app, { wrap, bot, diff }) {
       items: s.items.map((i) => ({ id: i.id, name: i.name, type: i.type, rarity: i.rarity, price: i.shop?.price, tradeGood: i.tradeGood, economy: i.economy })),
       scripts: s.scripts.map((x) => ({ id: x.id, name: x.name })),
       realms: s.realms.map((r) => r.name),
-      perks: W.defaults.PERKS, powers: W.defaults.POWERS, ranks: R.ranks(s), proposalKinds: D.KINDS,
+      perks: W.defaults.PERKS, powers: W.defaults.POWERS, decreeFields: DC.FIELDS, decreePresets: DC.PRESETS, ranks: R.ranks(s), proposalKinds: D.KINDS,
       rev: store.revision,
     };
   }));
@@ -211,7 +211,7 @@ function mount(app, { wrap, bot, diff }) {
     return { plan };
   }));
 
-  // ----- lists (goods, buildings, events, policies, treaties, actions, troops, formations, tactics, routes) -----
+  // ----- lists (goods, buildings, events, treaties, actions, troops, formations, tactics, routes) -----
   app.put('/api/world/list/:name', wrap(async (req) => {
     const name = req.params.name;
     if (!LISTS.includes(name)) throw new UserError('Unknown list.');
@@ -250,11 +250,38 @@ function mount(app, { wrap, bot, diff }) {
   }));
 
   // ----- factions -----
+  /** A sect entry (Sects tab) for a faction, so players can join it. */
+  const makeSect = (f) => {
+    const s = store.state;
+    if (!s.sects.some((x) => norm(x.name) === norm(f.name))) {
+      const used = new Set(s.sects.map((x) => x.id));
+      let id = slug(f.name) || 'sect'; while (used.has(id)) id += '-2';
+      s.sects.push({ id, name: f.name, alignment: f.alignment || 'Neutral', titleName: f.name, description: f.description || '', playable: true, roleId: '', rarityBonus: {}, coreArtId: '', joinNyang: 0 });
+    }
+    f.sect = s.sects.find((x) => norm(x.name) === norm(f.name)).name;
+    f.npc = false;
+  };
   app.post('/api/world/factions', wrap(async (req) => {
-    const f = WS.normalizeFaction({ ...(req.body || {}), id: req.body?.id || slug(req.body?.name || 'faction') });
-    if (C.faction(store.state, f.id)) throw new UserError('A faction with that id exists.');
+    const b = req.body || {};
+    let id = b.id || slug(b.name || 'faction') || 'faction';
+    while (C.faction(store.state, id)) id += '-2';
+    const f = WS.normalizeFaction({ ...b, id });
+    if (b.addSect) {
+      const other = w().factions.find((x) => x.sect && norm(x.sect) === norm(f.name));
+      if (other) throw new UserError(`The sect "${other.sect}" already has a faction (${other.name}). Use that one, or delete it first.`);
+      makeSect(f);
+    }
     w().factions.push(f);
-    log(req, 'world.faction', `created ${f.name}`);
+    log(req, 'world.faction', `created ${f.name}${b.addSect ? ' (and its sect)' : ''}`);
+    return { faction: f };
+  }));
+  app.post('/api/world/factions/:id/make-sect', wrap(async (req) => {
+    const f = faction(req.params.id);
+    if (f.sect && store.state.sects.some((s) => s.name === f.sect)) throw new UserError(`${f.name} is already the sect "${f.sect}".`);
+    const other = w().factions.find((x) => x !== f && x.sect && norm(x.sect) === norm(f.name));
+    if (other) throw new UserError(`The sect "${other.sect}" already belongs to another faction (${other.name}). Delete that faction and hand the sect to this one.`);
+    makeSect(f);
+    log(req, 'world.faction', `${f.name} is now a sect players can join`);
     return { faction: f };
   }));
   app.put('/api/world/factions/:id', wrap(async (req) => {
@@ -264,33 +291,69 @@ function mount(app, { wrap, bot, diff }) {
     if (b.scriptId) scriptOk(b.scriptId);
     if (b.hq && !geo.get(b.hq)) throw new UserError('Unknown HQ region.');
     delete b.shop;
-    const next = WS.normalizeFaction({ ...before, ...b, id: f.id, policies: b.policies ?? before.policies });
+    const next = WS.normalizeFaction({ ...before, ...b, id: f.id, decrees: before.decrees });
     Object.assign(f, next);
     log(req, 'world.faction', `${f.name}: ${diff(before, f, ['lastIncome'])}`);
     return { faction: f };
   }));
   app.delete('/api/world/factions/:id', wrap(async (req) => {
     const f = faction(req.params.id);
-    if (f.sect && store.state.sects.some((s) => s.name === f.sect)) throw new UserError('This faction belongs to a sect. Delete the sect (Sects tab) or mark the faction inactive instead.');
+    const s = store.state;
+    let note = '';
+    // A faction that is a sect: hand the sect (and its members) to another faction, or delete the sect too.
+    if (f.sect && s.sects.some((x) => x.name === f.sect)) {
+      const mode = String(req.query.sect || '');
+      if (mode === 'move') {
+        const to = faction(String(req.query.to || ''));
+        if (to.id === f.id) throw new UserError('Pick another faction.');
+        if (to.sect && to.sect !== f.sect && s.sects.some((x) => x.name === to.sect)) throw new UserError(`${to.name} is already the sect "${to.sect}".`);
+        to.sect = f.sect; to.npc = false;
+        for (const [k, v] of Object.entries(f.repRanks || {})) if (!to.repRanks[k]) to.repRanks[k] = v;
+        to.representatives = [...new Set([...(to.representatives || []), ...(f.representatives || [])])];
+        if (!to.leaderCharId) to.leaderCharId = f.leaderCharId || '';
+        note = ` (its sect "${f.sect}" now belongs to ${to.name})`;
+      } else if (mode === 'delete') {
+        const name = f.sect; let n = 0;
+        s.sects = s.sects.filter((x) => x.name !== name);
+        for (const c of s.characters) if (c.sect === name) { c.sect = ''; n++; }
+        note = ` and the sect "${name}" (${n} member${n === 1 ? '' : 's'} left without a sect)`;
+      } else throw new UserError(`${f.name} is the sect "${f.sect}". Choose whether to hand the sect to another faction or delete the sect too.`);
+    }
     w().factions = w().factions.filter((x) => x.id !== f.id);
     for (const r of Object.values(w().regions)) { if (r.controller === f.id) r.controller = null; if (r.occupiedBy === f.id) r.occupiedBy = null; }
     w().agreements = w().agreements.filter((t) => !t.parties.includes(f.id));
     w().armies = w().armies.filter((a) => a.factionId !== f.id);
     for (const al of [...w().alliances]) if (al.members.includes(f.id)) D.removeMember(store.state, al.id, f.id, { silent: true });
     w().wars = w().wars.map((x) => ({ ...x, attackers: x.attackers.filter((m) => m !== f.id), defenders: x.defenders.filter((m) => m !== f.id) })).filter((x) => x.attackers.length && x.defenders.length);
-    log(req, 'world.faction', `deleted ${f.name}`);
-    return { ok: true };
+    log(req, 'world.faction', `deleted ${f.name}${note}`);
+    return { ok: true, note };
   }));
-  app.post('/api/world/factions/:id/policies', wrap(async (req) => {
+  // ----- decrees (staff-made effects of what a faction does in RP) -----
+  const DC = W.decrees;
+  const decreeSpec = (b) => ({ name: String(b.name || 'Decree'), emoji: b.emoji || '📜', description: b.description || '', regions: arr(b.regions).filter((k) => geo.get(k)), values: isPlainObject(b.values) ? b.values : {}, effects: isPlainObject(b.effects) ? b.effects : {}, scriptId: b.scriptId || '', turns: Math.max(0, Math.floor(num(b.turns))) });
+  app.post('/api/world/factions/:id/decrees', wrap(async (req) => {
     const f = faction(req.params.id);
-    const def = P.adoptPolicy(store.state, f, req.body?.policyId, req.body?.region || '', { free: !!req.body?.free });
-    log(req, 'world.policy', `${f.name} adopted ${def.name}${req.body?.region ? ` in ${geo.label(store.state, req.body.region)}` : ''}`);
-    return { ok: true };
+    const spec = decreeSpec(req.body || {});
+    if (spec.scriptId) scriptOk(spec.scriptId);
+    const d = DC.issue(store.state, f, spec, { by: `${req.user.username} (staff)`, silent: !!req.body?.silent });
+    log(req, 'world.decree', `${f.name}: ${d.name} — ${DC.describe(store.state, d).join(', ') || 'flavour only'}`);
+    return { decree: d };
   }));
-  app.delete('/api/world/factions/:id/policies/:policyId', wrap(async (req) => {
+  app.put('/api/world/factions/:id/decrees/:did', wrap(async (req) => {
     const f = faction(req.params.id);
-    P.revokePolicy(store.state, f, req.params.policyId, req.query.region || '', { force: true });
-    log(req, 'world.policy', `${f.name} revoked ${req.params.policyId}`);
+    const i = (f.decrees || []).findIndex((x) => x.id === req.params.did);
+    if (i < 0) throw new UserError('Decree not found.');
+    const spec = decreeSpec(req.body || {});
+    if (spec.scriptId) scriptOk(spec.scriptId);
+    const old = f.decrees[i];
+    f.decrees[i] = DC.normalize({ ...old, ...spec, regions: spec.regions.map((k) => geo.marketOf(store.state, k)), id: old.id, since: old.since, until: spec.turns ? w().turn + spec.turns : (req.body?.keepUntil ? old.until : 0) });
+    log(req, 'world.decree', `${f.name}: edited ${f.decrees[i].name}`);
+    return { decree: f.decrees[i] };
+  }));
+  app.delete('/api/world/factions/:id/decrees/:did', wrap(async (req) => {
+    const f = faction(req.params.id);
+    const d = DC.end(store.state, f, req.params.did, { reason: 'is lifted by staff' });
+    log(req, 'world.decree', `${f.name}: lifted ${d.name}`);
     return { ok: true };
   }));
 
@@ -386,7 +449,7 @@ function mount(app, { wrap, bot, diff }) {
   }));
   app.post('/api/world/requests/:id/:answer', wrap(async (req) => {
     const by = { name: `${req.user.username} (dashboard)` };
-    const q = req.params.answer === 'approve' ? R.approveRequest(store.state, req.params.id, by) : R.rejectRequest(store.state, req.params.id, by, req.body?.reason || '');
+    const q = req.params.answer === 'approve' ? R.approveRequest(store.state, req.params.id, by, { payload: isPlainObject(req.body?.payload) ? req.body.payload : undefined }) : R.rejectRequest(store.state, req.params.id, by, req.body?.reason || '');
     log(req, 'world.request', `${req.params.answer}: ${C.faction(store.state, q.factionId)?.name} — ${q.summary}`);
     if (bot.postRequest) bot.postRequest(q).catch(() => {});
     runner.step();
@@ -516,6 +579,21 @@ function mount(app, { wrap, bot, diff }) {
     log(req, 'world.army', `disbanded ${a.name}`);
     return { ok: true };
   }));
+  /** Clear finished battles (their reports) — battles still being prepared stay. */
+  app.delete('/api/world/battles', wrap(async (req) => {
+    const before = w().battles.length;
+    w().battles = w().battles.filter((b) => b.status === 'preparing');
+    log(req, 'world.war', `cleared ${before - w().battles.length} finished battle(s)`);
+    return { cleared: before - w().battles.length };
+  }));
+  /** Clear the world chronicle (optionally only some kinds of entries). */
+  app.delete('/api/world/log', wrap(async (req) => {
+    const kinds = String(req.query.kinds || '').split(',').filter(Boolean);
+    const before = w().log.length;
+    w().log = kinds.length ? w().log.filter((l) => !kinds.includes(l.kind)) : [];
+    log(req, 'world.log', `cleared ${before - w().log.length} chronicle entries`);
+    return { cleared: before - w().log.length };
+  }));
   app.post('/api/world/battles', wrap(async (req) => {
     const b = req.body || {};
     const att = arr(b.attackers).filter((id) => M.army(store.state, id)); const def = arr(b.defenders).filter((id) => M.army(store.state, id));
@@ -548,6 +626,54 @@ function mount(app, { wrap, bot, diff }) {
   app.post('/api/world/simulate', wrap(async (req) => M.simulate(store.state, req.body || {}, Math.max(10, Math.min(1000, num(req.body?.runs, 200))))));
 
   // ----- Discord categories -----
+  // ----- #place-information channels -----
+  const allRegionKeys = () => [...geo.provinces(), ...geo.prefectures()].map((x) => x.key);
+  const ensureRegion = (key) => { if (!w().regions[key]) w().regions[key] = WS.normalizeRegion(key, { controller: null }); return w().regions[key]; };
+  app.post('/api/world/regions/:key/info-post', wrap(async (req) => {
+    const key = decodeURIComponent(req.params.key);
+    if (!geo.get(key)) throw new UserError('Unknown region.');
+    if (!bot.postRegionInfo) throw new UserError('The bot is offline.');
+    const out = await bot.postRegionInfo(key);
+    log(req, 'world.info', `posted the information embed of ${geo.fullLabel(store.state, key)}`);
+    return out;
+  }));
+  app.post('/api/world/info-posts', wrap(async (req) => {
+    if (!bot.postRegionInfo) throw new UserError('The bot is offline.');
+    const want = arr(req.body?.keys);
+    const keys = (want.length ? want : allRegionKeys()).filter((k) => w().regions[k]?.infoChannelId && (want.length || req.body?.all || !w().regions[k].infoMessageId));
+    const sent = []; const errors = [];
+    for (const k of keys) {
+      try { await bot.postRegionInfo(k); sent.push(k); } catch (e) { errors.push(`${geo.label(store.state, k)}: ${e.message}`); }
+      await new Promise((r) => setTimeout(r, 400)); // be gentle with Discord
+    }
+    log(req, 'world.info', `posted ${sent.length} information embed(s)`);
+    return { sent: sent.length, errors };
+  }));
+  /** Find "#luoyang-information"-style channels and link them to their regions. */
+  app.post('/api/world/discord/link-info-channels', wrap(async (req) => {
+    const info = bot.getDiscordInfo();
+    const chans = info.guilds.flatMap((g) => g.channels || []);
+    if (!chans.length) throw new UserError('No channels found — is the bot online and in your server?');
+    const clean = (x) => norm(String(x || '')).replace(/[^a-z0-9\u4e00-\u9fff]/g, '');
+    const keys = allRegionKeys();
+    const names = new Map();
+    for (const k of keys) {
+      const g = geo.get(k); const r = w().regions[k];
+      for (const n of [g?.name, g?.hanzi, r?.displayName]) if (n && clean(n)) { const c = clean(n); if (!names.has(c) || !k.includes('/')) names.set(c, k); }
+    }
+    let n = 0; const found = [];
+    for (const c of chans) {
+      const m = String(c.name).match(/^(.+?)[-_ ]?(information|info|信息|資訊)$/i);
+      if (!m) continue;
+      const k = names.get(clean(m[1]));
+      if (!k) continue;
+      const r = ensureRegion(k);
+      if (r.infoChannelId && !req.body?.overwrite) continue;
+      r.infoChannelId = c.id; n++; found.push(`#${c.name} → ${geo.fullLabel(store.state, k)}`);
+    }
+    log(req, 'world.discord', `linked ${n} information channel(s) by name`);
+    return { linked: n, found };
+  }));
   app.post('/api/world/discord/link-categories', wrap(async (req) => {
     const info = bot.getDiscordInfo();
     const cats = info.guilds.flatMap((g) => g.categories || []);

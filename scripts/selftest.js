@@ -581,6 +581,34 @@ test('world: forced events apply effects; drought can chain', () => {
   assert.ok(state.world.pendingChains.some((p) => p.eventId === 'famine'));
 });
 
+test('world: decrees — staff give RP decisions simple effects; requests always go to staff; old policies become decrees', () => {
+  const { state, c } = worldFresh();
+  const w = state.world; const DC = W.decrees;
+  const f = W.common.factionOfChar(state, c);
+  W.territory.paint(state, ['湖北', '湖南'], f.id);
+  const capBefore = W.common.regionMods(state, '湖北').manpower;
+  const pre = DC.PRESETS.find((p) => p.id === 'conscription');
+  const d = DC.issue(state, f, { name: pre.name, values: pre.values, regions: ['湖北'], turns: 3 });
+  const m = W.common.regionMods(state, '湖北');
+  assert.ok(m.manpower > capBefore && m.recruitCost < 1 && m.prosperity < 0, 'conscription: more men, cheaper, less prosperity');
+  assert.strictEqual(W.common.regionMods(state, '湖南').manpower, 1, 'only where it was decreed');
+  const t0 = f.treasury; W.tick.runTurn(state);
+  assert.ok(f.lastIncome.decrees < 0, 'it costs the treasury every turn');
+  for (let i = 0; i < 3; i++) W.tick.runTurn(state);
+  assert.ok(!f.decrees.some((x) => x.id === d.id), 'it ends after its turns');
+  // A representative asks; it always goes to staff, who set the effects when approving.
+  f.leaderCharId = c.id;
+  const r = W.realm.perform(state, 'decree', f, { name: 'Lantern Festival', description: 'We light the river.' }, { char: c });
+  assert.ok(r.pending);
+  W.realm.approveRequest(state, r.pending.id, { name: 'staff' }, { payload: { values: { prosperity: 0.5 } } });
+  assert.ok(f.decrees.some((x) => x.name === 'Lantern Festival' && x.values.prosperity === 0.5));
+  // Old saves: adopted policies keep working as decrees.
+  w.version = 8; w.policies = W.defaults.POLICIES; w.factions[0].policies = [{ policyId: 'escort-charter', region: '', since: 1 }];
+  W.state.normalizeWorld(state);
+  assert.ok(!w.policies && w.factions[0].decrees.some((x) => x.name === 'Escort Agency Charter'));
+  assert.ok(w.settings.repRanks.every((rk) => !('policies' in rk.powers) && rk.powers.decree));
+});
+
 test('world: walls — base walls 0–10, City Walls add +1 per level, old saves migrate', () => {
   const { state } = worldFresh();
   const w = state.world;
@@ -590,14 +618,12 @@ test('world: walls — base walls 0–10, City Walls add +1 per level, old saves
   r.buildings[0].hp = 40;
   assert.strictEqual(W.common.wallsOf(state, '湖北'), 7, 'broken walls do not count');
   assert.strictEqual(W.state.normalizeRegion('湖北', { ...r, fort: 14 }).fort, 10);
-  // A v4 save: walls max level 1, shop tiers, sect shops, a members-only policy.
+  // A v4 save: walls max level 1, shop tiers, sect shops.
   w.version = 4; w.buildingTypes.find((t) => t.id === 'walls').maxLevel = 1;
   w.settings.shopTiers = { member: -15 }; w.factions[0].shop = { items: [{ itemId: 'x' }] };
-  w.policies.find((p) => p.id === 'closed-gates').shopAccess = 'members'; delete w.policies.find((p) => p.id === 'closed-gates').outsiderMarkup;
   W.state.normalizeWorld(state);
   assert.strictEqual(w.buildingTypes.find((t) => t.id === 'walls').maxLevel, 3);
   assert.ok(!w.settings.shopTiers && !w.factions[0].shop);
-  assert.ok(!('shopAccess' in w.policies.find((p) => p.id === 'closed-gates')) && !('outsiderMarkup' in w.policies.find((p) => p.id === 'closed-gates')));
 });
 
 test('world: diplomacy — agreements, alliances call allies to war, marriage needs consent', () => {

@@ -78,7 +78,7 @@ function recruit(state, f, regionKey, unitId, count, { name, staff = false } = {
   if (!staff && r.controller !== f.id && f.hq !== regionKey) throw new UserError(`${f.name} can only recruit in regions it controls.`);
   // Each market can only raise so many men per turn: a share of its population.
   const raisedThisTurn = num(r.last?.raised?.[w.turn]);
-  const cap = Math.max(300, Math.floor(r.population * 40));
+  const cap = Math.max(300, Math.floor(r.population * 40 * num(C.regionMods(state, regionKey).manpower, 1)));
   if (!staff && raisedThisTurn + count > cap) throw new UserError(`${geo.label(state, regionKey)} can only raise ${cap - raisedThisTurn} more men this turn.`);
   const cost = recruitCost(state, regionKey, f, unitId, count);
   if (!staff && f.treasury < cost.total) throw new UserError(`Costs ${cost.total} (troops ${cost.nyang} + equipment ${cost.goodsCost}). ${f.name} has ${Math.floor(f.treasury)}.`);
@@ -532,8 +532,8 @@ function simulate(state, spec, runs = 200) {
     const w = {
       ...state.world,
       settings: { ...state.world.settings, championRealmMult: [1], championScale: 1, representativesFight: true },
-      regions: { __sim: { key: '__sim', terrain: spec.terrain || 'plains', fort: num(spec.fort), prosperity: 50, security: 50, stock: {}, prices: {}, last: {}, controller: '__D', policies: [] } },
-      factions: [{ id: '__A', name: 'Attacker', policies: [], scriptId: '' }, { id: '__D', name: 'Defender', policies: [], scriptId: '' }],
+      regions: { __sim: { key: '__sim', terrain: spec.terrain || 'plains', fort: num(spec.fort), prosperity: 50, security: 50, stock: {}, prices: {}, last: {}, controller: '__D', decrees: [] } },
+      factions: [{ id: '__A', name: 'Attacker', decrees: [], scriptId: '' }, { id: '__D', name: 'Defender', decrees: [], scriptId: '' }],
       wars: [], alliances: [], agreements: [], log: [], announceQueue: [], activeEvents: [],
     };
     const mk = (id, fid, s) => ({ id, name: id, factionId: fid, region: '__sim', units: { ...(s.units || {}) }, champions: [], morale: num(s.morale, 70), supply: num(s.supply, 100), formationId: s.formationId || 'square', status: 'garrison', scriptId: '' });

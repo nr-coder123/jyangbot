@@ -310,7 +310,7 @@ const POWERS = [
   { id: 'alliance', name: 'Alliances', description: 'Found, join, invite to and leave alliances.' },
   { id: 'war', name: 'War & peace', description: 'Declare war, make peace.' },
   { id: 'army', name: 'Armies', description: 'Recruit troops, march armies, set battle plans.' },
-  { id: 'policies', name: 'Policies', description: 'Adopt and revoke policies.' },
+  { id: 'decree', name: 'Decrees', description: 'Ask staff for a decree (what the sect does in RP, e.g. conscription). Staff always decide its effects.' },
   { id: 'build', name: 'Buildings', description: 'Construct, repair and pull down buildings with the treasury.' },
   { id: 'trade', name: 'Trade', description: 'Send the faction\'s caravans (needs trade rights).' },
   { id: 'treasury', name: 'Treasury', description: 'Stipends and gifts of money to other factions.' },
@@ -318,11 +318,11 @@ const POWERS = [
 ];
 const RANK = (id, name, hanzi, spendLimit, powers, description) => ({ id, name, hanzi, spendLimit, powers, description });
 const REP_RANKS = [
-  RANK('leader', 'Sect Leader', '掌門', 5000, { diplomacy: 'free', alliance: 'free', war: 'staff', army: 'free', policies: 'free', build: 'free', trade: 'free', treasury: 'free', land: 'staff' }, 'Speaks for the whole sect. Wars still go past staff.'),
-  RANK('elder', 'Grand Elder', '太上長老', 2500, { diplomacy: 'free', alliance: 'staff', war: 'staff', army: 'free', policies: 'staff', build: 'free', trade: 'free', treasury: 'staff', land: 'staff' }, 'Runs daily affairs; big decisions go to staff.'),
-  RANK('envoy', 'Envoy', '使節', 0, { diplomacy: 'free', alliance: 'staff', war: 'none', army: 'none', policies: 'none', build: 'none', trade: 'none', treasury: 'none', land: 'staff' }, 'Talks to other factions. Cannot spend.'),
-  RANK('steward', 'Steward', '總管', 1500, { diplomacy: 'none', alliance: 'none', war: 'none', army: 'none', policies: 'staff', build: 'free', trade: 'free', treasury: 'staff', land: 'none' }, 'Keeps the books: buildings and trade.'),
-  RANK('marshal', 'War Elder', '武堂主', 1500, { diplomacy: 'none', alliance: 'none', war: 'staff', army: 'free', policies: 'none', build: 'staff', trade: 'none', treasury: 'none', land: 'staff' }, 'Leads the armies.'),
+  RANK('leader', 'Sect Leader', '掌門', 5000, { diplomacy: 'free', alliance: 'free', war: 'staff', army: 'free', decree: 'staff', build: 'free', trade: 'free', treasury: 'free', land: 'staff' }, 'Speaks for the whole sect. Wars still go past staff.'),
+  RANK('elder', 'Grand Elder', '太上長老', 2500, { diplomacy: 'free', alliance: 'staff', war: 'staff', army: 'free', decree: 'staff', build: 'free', trade: 'free', treasury: 'staff', land: 'staff' }, 'Runs daily affairs; big decisions go to staff.'),
+  RANK('envoy', 'Envoy', '使節', 0, { diplomacy: 'free', alliance: 'staff', war: 'none', army: 'none', decree: 'none', build: 'none', trade: 'none', treasury: 'none', land: 'staff' }, 'Talks to other factions. Cannot spend.'),
+  RANK('steward', 'Steward', '總管', 1500, { diplomacy: 'none', alliance: 'none', war: 'none', army: 'none', decree: 'staff', build: 'free', trade: 'free', treasury: 'staff', land: 'none' }, 'Keeps the books: buildings and trade.'),
+  RANK('marshal', 'War Elder', '武堂主', 1500, { diplomacy: 'none', alliance: 'none', war: 'staff', army: 'free', decree: 'none', build: 'staff', trade: 'none', treasury: 'none', land: 'staff' }, 'Leads the armies.'),
 ];
 
 // Buildings a faction can raise in regions it rules. effects use the same keys as events and policies, per turn.

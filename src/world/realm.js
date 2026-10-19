@@ -4,7 +4,7 @@
  *
  * ─ Ranks & powers ─
  *   Every representative has a rank (World settings → Representative ranks). A rank gives each power
- *   (diplomacy, alliances, war, armies, policies, buildings, trade, treasury, land claims) one of three levels:
+ *   (diplomacy, alliances, war, armies, decrees, buildings, trade, treasury, land claims) one of three levels:
  *     free  — done on the spot        staff — becomes a request staff approve or reject        none — not allowed
  *   and a spending limit: anything that costs more than it goes to staff too. The leader uses the leader rank.
  *   Staff can always act directly. This keeps an angry player from wrecking their sect out of character.
@@ -54,8 +54,9 @@ function powerSummary(state, f, c, member) {
 
 // ─────────── actions & the staff queue ───────────
 const ACTIONS = {
-  policy: { power: 'policies', cost: (s, f, p) => num(s.world.policies.find((x) => x.id === p.policyId)?.cost?.treasury), run: (s, f, p) => { const def = require('./politics').adoptPolicy(s, f, p.policyId, p.region || ''); return `${def.name} is now in force${p.region ? ` in ${geo.label(s, p.region)}` : ''}.`; }, describe: (s, f, p) => `adopt the policy ${s.world.policies.find((x) => x.id === p.policyId)?.name || p.policyId}${p.region ? ` in ${geo.label(s, p.region)}` : ''}` },
-  revoke: { power: 'policies', run: (s, f, p) => { require('./politics').revokePolicy(s, f, p.policyId, p.region || ''); return 'Policy revoked.'; }, describe: (s, f, p) => `revoke ${s.world.policies.find((x) => x.id === p.policyId)?.name || p.policyId}` },
+  // A decree is what the faction does in role-play; staff always decide what (if anything) it does in the game.
+  decree: { power: 'decree', run: (s, f, p, by) => { const d = require('./decrees').issue(s, f, p, { by: by?.char?.name || by?.name || '' }); return `Decree in force: ${d.name}.`; }, describe: (s, f, p) => `issue the decree “${p.name}”${p.description ? ` — ${p.description}` : ''}${p.regions?.length ? ` (in ${p.regions.map((k) => geo.label(s, k)).join(', ')})` : ''}${num(p.turns) ? ` for ${num(p.turns)} turns` : ''}` },
+  'end-decree': { power: 'decree', run: (s, f, p) => { const d = require('./decrees').end(s, f, p.decreeId); return `${d.name} is lifted.`; }, describe: (s, f, p) => `lift the decree ${(f.decrees || []).find((x) => x.id === p.decreeId)?.name || ''}` },
   build: { power: 'build', cost: (s, f, p) => num(buildingType(s, p.typeId)?.cost), run: (s, f, p) => { const b = startBuilding(s, f, p.region, p.typeId); return `Construction of the ${buildingType(s, b.typeId).name} in ${geo.label(s, p.region)} has begun (ready on turn ${b.readyTurn}).`; }, describe: (s, f, p) => `build a ${buildingType(s, p.typeId)?.name || p.typeId} in ${geo.label(s, p.region)} (${fmt(buildingType(s, p.typeId)?.cost)})` },
   repair: { power: 'build', cost: (s, f, p) => repairCost(s, p.region, p.buildingId), run: (s, f, p) => { const c = repairBuilding(s, f, p.region, p.buildingId); return `Repaired for ${fmt(c)}.`; }, describe: (s, f, p) => `repair a building in ${geo.label(s, p.region)}` },
   upgrade: { power: 'build', cost: (s, f, p) => upgradeCost(s, p.region, p.buildingId), run: (s, f, p) => { const b = upgradeBuilding(s, f, p.region, p.buildingId); return `Upgraded to level ${b.level}.`; }, describe: (s, f, p) => `upgrade a building in ${geo.label(s, p.region)} (${fmt(upgradeCost(s, p.region, p.buildingId))})` },
@@ -88,12 +89,14 @@ function perform(state, kind, f, payload, by = {}) {
   const level = powerLevel(state, f, by.char, by.member, power, { staff: by.staff });
   const pname = W.POWERS.find((p) => p.id === power)?.name || power;
   if (level === 'none') throw new UserError(`Your office doesn't allow that (${pname}). Ask your sect's leader or staff.`);
+  if (kind === 'end-decree') return { done: true, text: def.run(state, f, payload, by) };
   const cost = def.cost ? num(def.cost(state, f, payload)) : 0;
   const limit = num(rankOf(state, f, by.char, by.member)?.spendLimit, 0);
   // Claims always go to staff through the takeover queue, so they don't need a second approval here.
-  const needsStaff = !by.staff && kind !== 'claim' && (level === 'staff' || cost > limit);
+  // Decrees always go to staff: they decide what the decree does in the game.
+  const needsStaff = !by.staff && kind !== 'claim' && (level === 'staff' || cost > limit || kind === 'decree');
   if (cost > 0 && f.treasury < cost && !by.staff) throw new UserError(`That costs ${fmt(cost)} and ${f.name}'s treasury has ${fmt(f.treasury)}.`);
-  if (needsStaff) return { pending: request(state, kind, f, payload, by, level === 'staff' ? `${pname} needs staff approval for this rank` : `costs ${fmt(cost)}, over this rank's limit of ${fmt(limit)}`) };
+  if (needsStaff) return { pending: request(state, kind, f, payload, by, kind === 'decree' && level !== 'staff' ? 'staff decide what a decree does in the game' : level === 'staff' ? `${pname} needs staff approval for this rank` : `costs ${fmt(cost)}, over this rank's limit of ${fmt(limit)}`) };
   return { done: true, text: def.run(state, f, payload, by) };
 }
 function request(state, kind, f, payload, by, why) {
@@ -106,9 +109,11 @@ function request(state, kind, f, payload, by, why) {
   return q;
 }
 function findRequest(state, id) { const q = state.world.requests.find((x) => x.id === id); if (!q) throw new UserError('Request not found.'); return q; }
-function approveRequest(state, id, by = {}) {
+function approveRequest(state, id, by = {}, { payload } = {}) {
   const q = findRequest(state, id);
   if (q.status !== 'pending') throw new UserError(`Already ${q.status}.`);
+  // Staff may adjust what was asked before approving (e.g. the effects of a decree).
+  if (payload && typeof payload === 'object') { q.payload = { ...q.payload, ...payload }; q.summary = ACTIONS[q.kind].describe(state, C.faction(state, q.factionId), q.payload); }
   const f = C.faction(state, q.factionId);
   if (!f) throw new UserError('That faction no longer exists.');
   const char = state.characters.find((c) => c.id === q.charId) || null;

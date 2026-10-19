@@ -295,10 +295,16 @@ async function postTakeover(t) {
   return require('./commands/world').postTakeover(client, t);
 }
 
+/** Dashboard: post a region's information embed (only when staff press Send). */
+async function postRegionInfo(key) {
+  if (!client || !status.online) throw new UserError('The bot is offline.');
+  return require('./commands/world').postRegionInfo(client, key);
+}
+
 async function stop() {
   try {
     if (client) await client.destroy();
   } catch {}
 }
 
-module.exports = { start, stop, status, getDiscordInfo, commandJSON, catalog, registerCommands, sendTest, applySectRoles, createCategories, postProposal, syncOffice, postTakeover, postRequest };
+module.exports = { start, stop, status, getDiscordInfo, commandJSON, catalog, registerCommands, sendTest, applySectRoles, createCategories, postProposal, syncOffice, postTakeover, postRequest, postRegionInfo };

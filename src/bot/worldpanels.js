@@ -7,7 +7,7 @@ const ui = require('../engine/ui');
 const W = require('../world');
 const { fmt, truncate, num, r2 } = require('../utils');
 
-const { geo, economy: E, common: C, military: M, politics: P, diplomacy: D, territory: T, realm: R } = W;
+const { geo, economy: E, common: C, military: M, diplomacy: D, territory: T, realm: R } = W;
 const st = () => store.state;
 const msg = (key, vars, opts) => templates.render(st(), key, vars, opts);
 const cur = () => st().settings.currencyName;
@@ -43,7 +43,7 @@ function regionPanel(key, c) {
     const ev = w.events.find((x) => x.id === ae.eventId);
     return `${ev?.emoji || '•'} **${ev?.name || ae.eventId}** — ${truncate(ev?.description || '', 120)} *(${Math.max(0, ae.endTurn - w.turn)} turns left)*`;
   });
-  const policies = C.activePolicyIds(state, key).map((id) => w.policies.find((p) => p.id === id)).filter(Boolean).map((p) => `${p.emoji} ${p.name}`);
+  const decrees = C.activeDecrees(state, key).map((d) => `${d.emoji} ${d.name}${d.until ? ` *(${Math.max(0, d.until - w.turn)} turns left)*` : ''}`);
   const armies = w.armies.filter((a) => a.region === key && a.status !== 'disbanded').map((a) => `${factionLabel(C.faction(state, a.factionId))}: **${big(M.men(a))}** men${a.status === 'marching' ? ' (marching)' : a.status === 'battle' ? ' (in battle)' : ''}`);
   const t = w.terrains[r.terrain] || {};
   const dP = num(r.last?.dP);
@@ -52,7 +52,7 @@ function regionPanel(key, c) {
     region: geo.label(state, key), province: key.includes('/') ? regionName(geo.provinceOf(key)) : (g?.historicalName || ''), hanzi: g?.hanzi || '',
     controller: factionLabel(f) + occ, terrain: `${t.emoji || ''} ${t.label || r.terrain}`, population: fmt(r2(r.population)), prosperity: fmt(Math.round(r.prosperity)),
     prosperityBar: bar(r.prosperity), security: fmt(Math.round(r.security)), fort: fmt(Math.round(C.wallsOf(state, key))), buildings: buildings.join(' · ') || 'None',
-    coffers: big(r.coffers), calendar: C.calendar(state).text, events: events.join('\n'), policies: policies.join(' · '), armies: armies.join('\n'),
+    coffers: big(r.coffers), calendar: C.calendar(state).text, events: events.join('\n'), decrees: decrees.join(' · '), policies: decrees.join(' · '), armies: armies.join('\n'),
     you: youLine(c, key), notes: r.notes || g?.description || '', currency: cur(),
     trend: `${dP >= 0.3 ? '📈' : dP <= -0.3 ? '📉' : '➖'} ${dP >= 0 ? '+' : ''}${fmt(r2(dP))} / turn${r.last?.food !== undefined && r.last.food < 0.9 ? ` · 🥣 food ${Math.round(r.last.food * 100)}%` : ''}`,
   }, { color: f?.color });
@@ -119,7 +119,7 @@ function realmPanel(c, member) {
   const al = C.allianceOf(state, f.id);
   const wars = C.warsOf(state, f.id);
   const ags = w.agreements.filter((t) => t.parties.includes(f.id));
-  const pols = P.factionPolicies(state, f).map((x) => `${x.def.name}${x.region ? ` (${regionName(x.region)})` : ''}`);
+  const decs = W.decrees.active(state, f).map((d) => `${d.emoji} ${d.name}${d.regions.length ? ` (${d.regions.map(regionName).join(', ')})` : ''}`);
   const inc = f.lastIncome || {};
   const net = Object.entries(inc).reduce((a, [, v]) => a + num(v), 0);
   const lines = [
@@ -131,7 +131,7 @@ function realmPanel(c, member) {
     `**Alliance** ${al ? `**${al.name}** — ${sideNames(state, al.members.filter((m) => m !== f.id)) || 'no other members yet'}` : '*none*'}`,
     `**War** ${wars.length ? wars.map((x) => `${x.name}: ${sideNames(state, x.attackers)} vs ${sideNames(state, x.defenders)}`).join('\n') : '*at peace*'}`,
     ags.length ? `**Agreements** ${ags.map((t) => `${t.name} (${perkLine(t)})`).join(' · ')}` : '',
-    pols.length ? `**Policies** ${pols.join(' · ')}` : '',
+    decs.length ? `**Decrees** ${decs.join(' · ')}` : '',
   ].filter(Boolean);
   const e = new EmbedBuilder().setTitle(`${f.name}${f.hanzi ? ` ${f.hanzi}` : ''}`).setColor(f.color ? parseInt(f.color.replace('#', ''), 16) : 0x2980b9).setDescription(truncate(lines.join('\n'), 4000));
   const ps = R.powerSummary(state, f, c, member);
@@ -310,7 +310,7 @@ function requestPost(q) {
   const lines = [
     `**${f?.name || '?'}** — ${q.byName ? `${q.byName} wants to ` : ''}**${q.summary}**`,
     `-# ${q.why}`,
-    q.status === 'pending' ? 'Staff: approve or reject.' : `**${q.status}**${q.decidedBy ? ` by ${q.decidedBy}` : ''}${q.result ? ` — ${q.result}` : ''}`,
+    q.status === 'pending' ? (q.kind === 'decree' ? 'Staff: give it effects in the dashboard (Politics → Waiting for staff → Set effects), or approve here as flavour only.' : 'Staff: approve or reject.') : `**${q.status}**${q.decidedBy ? ` by ${q.decidedBy}` : ''}${q.result ? ` — ${q.result}` : ''}`,
   ];
   return { content: truncate(lines.join('\n'), 1900) };
 }

@@ -166,7 +166,7 @@ function migrate(data) {
   s.users = isPlainObject(s.users) ? s.users : {};
   s.templates = isPlainObject(s.templates) ? s.templates : {};
   // Walls are no longer capped at 5.
-  for (const [k, t] of Object.entries(s.templates)) { const j = JSON.stringify(t); if (j.includes('{fort}/5')) s.templates[k] = JSON.parse(j.split('{fort}/5').join('{fort}')); }
+  for (const [k, t] of Object.entries(s.templates)) { const j = JSON.stringify(t); if (j.includes('{fort}/5') || j.includes('"name":"Policies","value":"{policies}"')) s.templates[k] = JSON.parse(j.split('{fort}/5').join('{fort}').split('"name":"Policies","value":"{policies}"').join('"name":"Decrees","value":"{decrees}"')); }
   s.commandAccess = isPlainObject(s.commandAccess) ? s.commandAccess : {};
   s.combat = isPlainObject(s.combat) ? { ...d.combat, ...s.combat } : d.combat;
   s.recipes = s.recipes.map((r) => defaults.normalizeRecipe(r));

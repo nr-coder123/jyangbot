@@ -13,5 +13,6 @@ module.exports = {
   power: require('./power'),
   territory: require('./territory'),
   realm: require('./realm'),
+  decrees: require('./decrees'),
   tick: require('./tick'),
 };

@@ -213,6 +213,22 @@ function table(columns, rows, onClick) {
   ));
 }
 
+/** A table that shows `per` rows at a time with page buttons (for long lists, e.g. hundreds of characters). */
+function pagedTable(columns, rows, onClick, { per = 50, page = 0, onPage = null } = {}) {
+  const wrap = h('div');
+  let p = page;
+  const draw = () => {
+    const pages = Math.max(1, Math.ceil(rows.length / per));
+    p = Math.max(0, Math.min(p, pages - 1));
+    const pager = pages > 1 ? h('div', { class: 'toolbar small', style: 'margin:6px 0' }, h('span', { class: 'muted grow' }, `${rows.length} · page ${p + 1} of ${pages}`),
+      h('button', { class: 'btn small', disabled: p <= 0, onclick: () => { p--; onPage?.(p); draw(); } }, '◀'),
+      h('button', { class: 'btn small', disabled: p >= pages - 1, onclick: () => { p++; onPage?.(p); draw(); } }, '▶')) : null;
+    wrap.replaceChildren(...[pager, table(columns, rows.slice(p * per, p * per + per), onClick)].filter(Boolean));
+  };
+  draw();
+  return wrap;
+}
+
 // ---------- navigation ----------
 function renderNav() {
   const pending = D.applications.filter((a) => a.status === 'pending').length;
@@ -317,10 +333,12 @@ VIEWS.characters = () => {
   const search = h('input', { placeholder: 'Search name, owner, sect…', class: 'grow' });
   const status = h('select', {}, h('option', { value: 'active' }, 'Active'), h('option', { value: 'retired' }, 'Retired'), h('option', { value: '' }, 'All'));
   const wrap = h('div');
-  const draw = () => {
+  let page = 0;
+  const draw = (reset = true) => {
+    if (reset) page = 0;
     const q = search.value.toLowerCase();
     const list = D.characters.filter((c) => (!status.value || c.status === status.value) && (!q || `${c.name} ${c.ownerTag} ${c.ownerId} ${c.sect}`.toLowerCase().includes(q)));
-    wrap.replaceChildren(table([
+    wrap.replaceChildren(pagedTable([
       ['Name', (c) => h('strong', {}, c.name)],
       ['Owner', (c) => `${c.ownerTag || ''} (${c.ownerId})`],
       ['Realm', (c) => D.realms[c.realm]?.name || c.realm],
@@ -331,7 +349,7 @@ VIEWS.characters = () => {
       ['Impurity', (c) => fmt(c.impurity)],
       [D.settings.currencyName, (c) => fmt(c.nyang)],
       ['Approved by', (c) => `${c.approvedBy?.name || '—'}${c.approvedAt ? ` · ${new Date(c.approvedAt).toLocaleDateString()}` : ''}`],
-    ], list, editCharacter));
+    ], list, editCharacter, { per: 50, page, onPage: (p) => { page = p; } }));
   };
   search.oninput = draw;
   status.onchange = draw;
@@ -1153,7 +1171,7 @@ VIEWS.settings = () => {
     { k: 'channels.announcements', label: 'Announcements channel (approvals, reports, breakthroughs)', t: 'channel' },
     { k: 'channels.log', label: 'Changelog channel — EVERY change is posted here (optional)', t: 'channel' },
     { k: 'channels.consumption', label: 'Consumption log — every pill consumed, with where and when (optional)', t: 'channel' },
-    { k: 'channels.world', label: 'World news — events, policies, wars, new seasons (optional)', t: 'channel' },
+    { k: 'channels.world', label: 'World news — events, decrees, wars, new seasons (optional)', t: 'channel' },
     { k: 'channels.diplomacy', label: 'Diplomacy — proposals with Accept/Decline buttons for representatives', t: 'channel' },
     { k: 'channels.war', label: 'War — battle posts (join, battle plan, record duel) and battle reports', t: 'channel' },
     { k: 'staffRoleIds', label: 'Staff roles', t: 'roles', help: 'Used by commands set to "Staff" (Commands tab). Members with Manage Server always count as staff. Ctrl/Cmd-click for several.' },

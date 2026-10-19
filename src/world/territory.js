@@ -14,7 +14,7 @@
  *
  * ─ Coffers, treasury and stipends ─
  *   Region coffers = the local merchants' and households' purse. It pays players who sell goods and fills when they buy.
- *   Taxes move part of it each turn to the ruling faction's treasury. The treasury pays armies, policies and diplomacy.
+ *   Taxes move part of it each turn to the ruling faction's treasury. The treasury pays armies, decrees and diplomacy.
  *   A faction may set aside `stipendRate`% of each turn's positive net income into a stipend fund; every season the fund
  *   is shared among active members by weight (member 1, representative 2, leader 3) with a soft cap per person:
  *        raw_i  = fund × w_i ÷ Σw

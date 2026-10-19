@@ -40,7 +40,8 @@ function normalizeFaction(f = {}) {
     // Rank of each representative (see settings.repRanks): what they may do on their own, with staff approval, or not at all.
     repRanks: isPlainObject(f.repRanks) ? Object.fromEntries(Object.entries(f.repRanks).map(([k, v]) => [String(k), String(v)])) : {},
     repRoleId: f.repRoleId || '',
-    policies: arr(f.policies).filter((p) => p && p.policyId).map((p) => ({ policyId: p.policyId, region: p.region || '', since: num(p.since) })),
+    // Decrees: staff-made effects of what the faction does in role-play (see world/decrees.js).
+    decrees: arr(f.decrees).filter((d) => d && d.name).map((d) => require('./decrees').normalize(d)),
     // Stipends: a share of each turn's net income set aside and paid to members every season (see world/territory.js).
     stipendRate: Math.max(0, Math.min(100, num(f.stipendRate, 0))),
     stipendFund: r2(Math.max(0, num(f.stipendFund, 0))),
@@ -61,6 +62,8 @@ function normalizeRegion(key, r = {}) {
     categoryId: r.categoryId || '',
     channelIds: arr(r.channelIds).map(String),
     announceChannelId: r.announceChannelId || '',
+    // Optional "#place-information" channel: staff press Send in the dashboard to post one embed with an Information button.
+    infoChannelId: r.infoChannelId || '', infoMessageId: r.infoMessageId || '', infoSentAt: r.infoSentAt || '',
     special: isProv ? false : !!r.special,
     // Prefectures follow their province's ruler unless painted on their own.
     ownController: isProv ? false : !!r.ownController,
@@ -83,7 +86,6 @@ function normalizeRegion(key, r = {}) {
       targets: isPlainObject(r.targets) ? r.targets : {},
       priceMods: isPlainObject(r.priceMods) ? r.priceMods : {},
       priceHistory: isPlainObject(r.priceHistory) ? r.priceHistory : {},
-      policies: arr(r.policies).filter((p) => p && p.policyId).map((p) => ({ policyId: p.policyId, factionId: p.factionId || '', since: num(p.since) })),
       buildings: arr(r.buildings).filter((b) => b && b.typeId).map(normalizeBuilding),
       occupiedBy: r.occupiedBy || null,
       occupiedSince: num(r.occupiedSince, 0),
@@ -94,7 +96,7 @@ function normalizeRegion(key, r = {}) {
   return out;
 }
 
-const WORLD_VERSION = 8;
+const WORLD_VERSION = 9;
 /** Put the preset buildings into regions that don't have them yet. */
 function seedBuildings(regions) {
   for (const [key, typeId, level] of W.START_BUILDINGS) {
@@ -106,6 +108,27 @@ function seedBuildings(regions) {
   }
 }
 const GOOD_NOTE = (g) => `-# **Raw material** — part of the world's economy (base price ${g.basePrice}). It can't be traded, listed or sold by players; recipes may still use it.`;
+/** v8 → v9: policies become decrees (staff-made effects of what a faction does in RP). Adopted policies keep working as decrees. */
+function migrateV9(state, w) {
+  const old = w._oldPolicies || { defs: [], factions: {}, regions: {} };
+  delete w._oldPolicies;
+  const def = (id) => old.defs.find((p) => p.id === id);
+  const landsOf = (fid) => Object.values(w.regions || {}).filter((r) => r.controller === fid).length;
+  const toDecree = (p, fid, regions) => {
+    const d = def(p.policyId); if (!d) return null;
+    const eff = { ...(d.effects || {}) };
+    const perTurn = num(eff.treasury) * (regions.length ? 1 : Math.max(1, landsOf(fid))) - num(d.upkeep?.treasury);
+    delete eff.treasury;
+    return require('./decrees').normalize({ name: d.name, emoji: d.emoji || '📜', description: d.description || '', regions, effects: eff, values: perTurn ? { treasury: r2(perTurn) } : {}, since: num(p.since), scriptId: d.scriptId || '', by: 'policy' });
+  };
+  for (const f of arr(w.factions)) {
+    f.decrees = arr(f.decrees);
+    for (const p of arr(old.factions[f.id])) { const d = toDecree(p, f.id, p.region ? [p.region] : []); if (d) f.decrees.push(d); }
+  }
+  for (const [k, list] of Object.entries(old.regions)) for (const p of list) { const f = arr(w.factions).find((x) => x.id === p.factionId); const d = f && toDecree(p, f.id, [k]); if (d) f.decrees.push(d); }
+  delete w.policies;
+  for (const rk of arr(w.settings?.repRanks)) if (rk.powers) { const lv = rk.powers.policies; delete rk.powers.policies; if (rk.powers.decree === undefined) rk.powers.decree = lv === 'none' || !lv ? 'none' : 'staff'; }
+}
 /** v7 → v8: raw materials belong to the economy alone; every sellable item follows a trade good's price. */
 function migrateV8(state, w) {
   for (const it of state.items || []) {
@@ -375,7 +398,6 @@ function createWorld(state) {
     goods: clone(W.GOODS),
     terrains: clone(W.TERRAINS),
     events: clone(W.EVENTS),
-    policies: clone(W.POLICIES),
     buildingTypes: clone(W.BUILDING_TYPES),
     unitTypes: clone(W.UNIT_TYPES),
     formations: clone(W.FORMATIONS),
@@ -412,10 +434,12 @@ function normalizeWorld(state) {
   w.version = num(w.version, 1);
   w.turn = num(w.turn);
   w.settings = deepMerge(W.DEFAULT_WORLD_SETTINGS, w.settings || {});
+  // Keep what was adopted under the old policies (normalizing factions and regions drops them) for migrateV9.
+  if (w.version < 9 && !w._oldPolicies) w._oldPolicies = { defs: arr(w.policies), factions: Object.fromEntries(arr(w.factions).map((f) => [f.id, arr(f.policies)])), regions: Object.fromEntries(Object.entries(isPlainObject(w.regions) ? w.regions : {}).map(([k, r]) => [k, arr(r.policies)])) };
   w.map = { title: '', subtitle: '', era: '', lang: 'english', layers: {}, landmarks: [], frontiers: [], ...(w.map || {}) };
   w.map.landmarks = arr(w.map.landmarks); w.map.frontiers = arr(w.map.frontiers);
   w.map.split = Array.isArray(w.map.split) ? w.map.split.filter((k) => geo.isProvince(k)) : [...DEFAULT_SPLIT];
-  for (const [k, def] of [['goods', W.GOODS], ['events', W.EVENTS], ['policies', W.POLICIES], ['buildingTypes', W.BUILDING_TYPES], ['unitTypes', W.UNIT_TYPES], ['formations', W.FORMATIONS], ['routes', W.ROUTES]]) {
+  for (const [k, def] of [['goods', W.GOODS], ['events', W.EVENTS], ['buildingTypes', W.BUILDING_TYPES], ['unitTypes', W.UNIT_TYPES], ['formations', W.FORMATIONS], ['routes', W.ROUTES]]) {
     if (!Array.isArray(w[k])) w[k] = clone(def);
   }
   if (!isPlainObject(w.terrains)) w.terrains = clone(W.TERRAINS);
@@ -441,6 +465,7 @@ function normalizeWorld(state) {
   if (w.version < 6) { migrateV6(state, w); w.version = 6; }
   if (w.version < 7) { migrateV7(state, w); w.version = 7; }
   if (w.version < 8) { migrateV8(state, w); w.version = 8; }
+  if (w.version < 9) { migrateV9(state, w); w.version = 9; }
   if (w.needsBuildingSeed) { seedBuildings(w.regions); delete w.needsBuildingSeed; }
   if (w.needsAutoLink) { require('./economy').autoLinkItems(state); delete w.needsAutoLink; }
   w.factions = w.factions.map(normalizeFaction);

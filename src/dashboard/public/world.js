@@ -6,7 +6,7 @@ let MAPDATA = null; // /api/world/mapdata (geometry, cached by the browser)
 let WSEL = null; // selected region key on the map
 const SVGNS = 'http://www.w3.org/2000/svg';
 
-TABS.splice(TABS.findIndex(([id]) => id === 'sects') + 1, 0, ['map', '🗺️ Map'], ['economy', 'Economy'], ['events', 'Events'], ['politics', 'Politics'], ['war', 'War'], ['balance', 'Balance']);
+TABS.splice(TABS.findIndex(([id]) => id === 'sects') + 1, 0, ['map', '🗺️ Map'], ['regions', 'Regions'], ['economy', 'Economy'], ['events', 'Events'], ['politics', 'Politics'], ['war', 'War'], ['balance', 'Balance']);
 
 async function loadWorld() {
   const [w, m] = await Promise.all([api('/world'), MAPDATA ? Promise.resolve(MAPDATA) : api('/world/mapdata')]);
@@ -730,17 +730,38 @@ function holdingsOf(fid) {
   return out;
 }
 
+const isSect = (f) => !!(f?.sect && (WD.sects || []).some((s) => s.name === f.sect));
+/** Delete a faction; one that is a sect hands the sect to another faction or deletes it too. */
+function deleteFaction(f) {
+  if (!isSect(f)) {
+    if (!confirm(`Delete ${f.name}? Its land becomes unclaimed; its armies, agreements and alliance membership go.`)) return;
+    return run(async () => { await api(`/world/factions/${f.id}`, { method: 'DELETE' }); closeModal(); render(); toast(`${f.name} deleted.`); })();
+  }
+  const others = W_().factions.filter((x) => x.id !== f.id && !isSect(x));
+  const same = others.find((x) => x.name.toLowerCase() === f.name.toLowerCase());
+  const to = select(others.map((x) => [x.id, `${x.name} — ${landsOf(x.id).length} region(s), ${x.kind}`]), same?.id || others[0]?.id);
+  const members = WD.characters.filter((c) => c.sect === f.sect).length;
+  openModal(`Delete ${f.name}`, h('div', { style: 'display:grid;gap:12px' },
+    h('p', {}, `${f.name} is the sect "${f.sect}" (${members} member${members === 1 ? '' : 's'}). What happens to the sect?`),
+    others.length ? h('div', { class: 'card' }, h('b', {}, 'Hand the sect to another faction'), h('p', { class: 'muted small' }, 'Its members, representatives and leader now belong to that faction (its land, treasury and treaties are kept). Use this when you made a duplicate on the map.'),
+      h('div', { class: 'toolbar' }, to, h('button', { class: 'btn primary', onclick: run(async () => { const r = await api(`/world/factions/${f.id}?sect=move&to=${encodeURIComponent(to.value)}`, { method: 'DELETE' }); await load().catch(() => {}); closeModal(); render(); toast(`Deleted${r.note}.`); }) }, 'Hand over and delete'))) : null,
+    h('div', { class: 'card warn' }, h('b', {}, 'Delete the sect too'), h('p', { class: 'muted small' }, `Removes "${f.sect}" from the Sects tab; its ${members} member(s) are left without a sect.`),
+      h('button', { class: 'btn danger', onclick: run(async () => { if (!confirm(`Delete ${f.name} AND the sect "${f.sect}"?`)) return; const r = await api(`/world/factions/${f.id}?sect=delete`, { method: 'DELETE' }); await load().catch(() => {}); closeModal(); render(); toast(`Deleted ${f.name}${r.note}.`); }) }, 'Delete faction and sect'))),
+  [h('button', { class: 'btn', onclick: closeModal }, 'Cancel')]);
+}
+
 function newFaction(done) {
   const f = buildForm([
     { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字 (optional)' },
     { k: 'color', label: 'Colour', t: 'color' },
-    { k: 'kind', label: 'Kind', t: 'select', opts: [['other', 'Other'], ['court', 'Imperial court'], ['guild', 'Merchant guild'], ['bandits', 'Bandits'], ['sect', 'Sect (without a sect entry)'], ['clan', 'Clan'], ['palace', 'Palace'], ['cult', 'Cult']] },
+    { k: 'kind', label: 'Kind', t: 'select', opts: [['other', 'Other'], ['court', 'Imperial court'], ['guild', 'Merchant guild'], ['bandits', 'Bandits'], ['sect', 'Sect'], ['clan', 'Clan'], ['palace', 'Palace'], ['cult', 'Cult']] },
+    { k: 'addSect', label: 'Players can join it (adds it to the Sects tab)', t: 'check' },
     { k: 'npc', label: 'Run by staff (not a player sect)', t: 'check' },
     { k: 'description', label: 'Description', t: 'textarea', wide: true },
-  ], { name: '', hanzi: '', color: `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')}`, kind: 'other', npc: true, description: '' });
-  openModal('New faction', h('div', {}, f.el, h('p', { class: 'muted small' }, 'Sects already have their own faction (it follows the sect\'s name and members). Use this for powers that are not sects. It starts with no land, no relations and no treaties.')), [
+  ], { name: '', hanzi: '', color: `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')}`, kind: 'sect', addSect: true, npc: false, description: '' });
+  openModal('New faction', h('div', {}, f.el, h('p', { class: 'muted small' }, 'With "Players can join it", it also appears in the Sects tab (set its Discord role there). It starts with no land, no relations and no treaties.')), [
     h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
-    h('button', { class: 'btn primary', onclick: run(async () => { const v = f.read(); if (!v.name) throw new Error('Name it first.'); const r = await api('/world/factions', { method: 'POST', body: { ...v, treasury: 0 } }); MAPV.paintF = r.faction.id; MAPV.tool = 'paint'; saveMapPrefs(); closeModal(); toast(`${v.name} created — paint its land.`); done(); }) }, 'Create'),
+    h('button', { class: 'btn primary', onclick: run(async () => { const v = f.read(); if (!v.name) throw new Error('Name it first.'); const r = await api('/world/factions', { method: 'POST', body: { ...v, treasury: 0 } }); if (v.addSect) await load().catch(() => {}); MAPV.paintF = r.faction.id; MAPV.tool = 'paint'; saveMapPrefs(); closeModal(); toast(`${v.name} created — paint its land.`); done(); }) }, 'Create'),
   ]);
 }
 
@@ -872,7 +893,7 @@ function editLandmark(l, done) {
 }
 
 /** Side panel for one region. */
-function regionDrawer(key, reload) {
+function regionDrawer(key, reload, { modal = false } = {}) {
   const w = W_();
   const g = geoOf(key);
   const market = marketOf(key);
@@ -880,7 +901,7 @@ function regionDrawer(key, reload) {
   const isM = isMarket(key);
   const mr = w.regions[market];
   const out = [];
-  out.push(h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, `${rname(key)} ${g?.hanzi || ''}`), h('button', { class: 'btn small ghost', onclick: () => { WSEL = null; MAPV.side = 'factions'; render(); } }, '✕')));
+  if (!modal) out.push(h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, `${rname(key)} ${g?.hanzi || ''}`), h('button', { class: 'btn small ghost', onclick: () => { WSEL = null; MAPV.side = 'factions'; render(); } }, '✕')));
   out.push(h('p', { class: 'muted small', style: 'margin:0' }, [key.includes('/') ? `Prefecture of ${rname(provinceOf(key))}` : g?.historicalName || '', r.special ? ' · ★ special (own market)' : !isM ? ` · served by the ${rname(market)} market` : ''].join('')));
   if (g?.description) out.push(h('p', { class: 'small' }, r.notes || g.description));
   if (mr) {
@@ -915,6 +936,7 @@ function regionDrawer(key, reload) {
         !key.includes('/') ? { k: 'categoryId', label: 'Discord category', t: categoryOpts().length > 1 ? 'select' : 'text', opts: categoryOpts } : null,
         { k: 'channelIds', label: 'Discord channels in this region', t: 'channels', help: key.includes('/') ? 'Channels for this prefecture (e.g. #luoyang-market)' : 'Extra channels that belong here (the category already counts)' },
         { k: 'announceChannelId', label: 'Post this region\'s events in', t: 'channel' },
+        { k: 'infoChannelId', label: 'Information channel (#place-information)', t: 'channel', help: 'Optional. Press “Send information post” to put the embed with an Information button there (only when you press it).' },
         { k: 'notes', label: 'Notes / description', t: 'textarea', wide: true },
         isM ? { k: 'scriptId', label: 'Custom code', t: 'select', opts: scriptOpts, help: 'regionTick hook: change this region\'s modifiers every turn' } : null,
         isM ? { section: 'Land & people' } : null,
@@ -932,6 +954,7 @@ function regionDrawer(key, reload) {
       return [f.el, h('div', { class: 'toolbar', style: 'margin-top:8px' },
         key.includes('/') ? h('button', { class: 'btn', onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(key)}/special`, { method: 'POST', body: { on: !r.special } }); toast('Done.'); reload(); }) }, r.special ? 'Make ordinary' : 'Give it its own market') : null,
         !key.includes('/') ? h('button', { class: 'btn', title: 'Show and paint this province prefecture by prefecture', onclick: run(async () => { await api('/world/split', { method: 'POST', body: { province: key, on: !splitOn } }); reload(); }) }, splitOn ? 'Show whole' : 'Split into prefectures') : null,
+        r.infoChannelId ? h('button', { class: 'btn', title: r.infoSentAt ? `Last sent ${new Date(r.infoSentAt).toLocaleString()} — sending again replaces it` : 'Not sent yet', onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(key)}/info-post`, { method: 'POST', body: {} }); toast('Information post sent.'); reload(); }) }, r.infoSentAt ? '📜 Re-send information post' : '📜 Send information post') : null,
         h('span', { class: 'grow' }),
         h('button', { class: 'btn primary', onclick: run(async () => { const v = f.read(); const ruler = v.ruler; delete v.ruler; if (ruler === '__follow') v.followProvince = true; else v.controller = ruler || null; await api(`/world/regions/${encodeURIComponent(key)}`, { method: 'PUT', body: v }); toast('Saved.'); reload(); }) }, 'Save'))];
     },
@@ -985,7 +1008,7 @@ function regionDrawer(key, reload) {
     people: () => {
       const here = WD.characters.filter((c) => marketOf(c.location || '') === market);
       const armies = w.armies.filter((a) => a.region === market);
-      return [h('p', {}, h('b', {}, 'Characters here: '), here.map((c) => c.name).join(', ') || '—'), h('p', {}, h('b', {}, 'Armies: '), armies.map((a) => `${a.name} (${facName(a.factionId)}, ${fmtN(Object.values(a.units).reduce((s, n) => s + n, 0))} men)`).join('; ') || '—')];
+      return [h('p', {}, h('b', {}, `Characters who last posted here (${here.length}): `), here.slice(0, 60).map((c) => c.name).join(', ') + (here.length > 60 ? ` and ${here.length - 60} more` : '') || '—'), h('p', {}, h('b', {}, 'Armies: '), armies.map((a) => `${a.name} (${facName(a.factionId)}, ${fmtN(Object.values(a.units).reduce((s, n) => s + n, 0))} men)`).join('; ') || '—')];
     },
   };
   const names = [['edit', 'Edit'], ...(mr ? [['market', 'Market'], ['buildings', 'Buildings'], ['event', 'Force event'], ['people', 'Who\'s here']] : [])];
@@ -994,6 +1017,97 @@ function regionDrawer(key, reload) {
   setTimeout(() => show('edit'), 0);
   return out;
 }
+
+// ════════════════════════════════════════ REGIONS ════════════════════════════════════════
+/** Every region as a list: search, filter, quick edits, and the information posts. */
+const REGV = { q: '', filter: 'markets', ruler: '', page: 0 };
+VIEWS.regions = async () => {
+  await loadWorld();
+  const w = W_();
+  const chanName = (id) => { for (const g of DISCORD.guilds || []) { const c = (g.channels || []).find((x) => x.id === id); if (c) return `#${c.name}`; } return id ? `#${id}` : ''; };
+  const all = [...MAPDATA.provinces.map((p) => p.key), ...MAPDATA.prefectures.map((p) => p.key)];
+  const wrap = h('div');
+  const PER = 40;
+  const search = h('input', { placeholder: 'Search regions…', value: REGV.q, style: 'min-width:220px' });
+  const filt = select([['markets', 'Markets (provinces + special prefectures)'], ['provinces', 'Provinces'], ['special', 'Special prefectures'], ['prefectures', 'All prefectures'], ['all', 'Everything'], ['info', 'With an information channel'], ['noinfo', 'Markets without an information channel'], ['unsent', 'Information channel, not sent yet']], REGV.filter);
+  const rulerSel = select([['', 'Any ruler'], ['__none', 'Unclaimed'], ...w.factions.map((f) => [f.id, f.name])], REGV.ruler);
+  const save = (key, body, note = 'Saved.') => run(async () => { await api(`/world/regions/${encodeURIComponent(key)}`, { method: 'PUT', body: body() }); await loadWorld(); toast(note); draw(); });
+  const num = (key, k, v, attrs = {}) => { const i = h('input', { type: 'number', value: Math.round(Number(v || 0) * 100) / 100, style: 'width:70px', ...attrs }); i.onchange = save(key, () => ({ [k]: Number(i.value) })); return i; };
+  const rulerFor = (key) => {
+    const w = W_();
+    const r = w.regions[key] || {};
+    const opts = key.includes('/') ? [['__follow', `same as ${rname(provinceOf(key))}`], ['', '— no one —'], ...factionOpts().slice(1)] : factionOpts('— no one —');
+    const sl = select(opts, key.includes('/') && !r.ownController ? '__follow' : ctlOf(key) || '');
+    sl.onchange = save(key, () => (sl.value === '__follow' ? { followProvince: true } : { controller: sl.value || null }), 'Ruler changed.');
+    return sl;
+  };
+  const edit = (key) => openModal(`${rfull(key)} ${geoOf(key)?.hanzi || ''}`, h('div', {}, ...regionDrawer(key, async () => { await loadWorld(); closeModal(); edit(key); draw(); }, { modal: true })), [h('button', { class: 'btn', onclick: () => { closeModal(); draw(); } }, 'Close')]);
+  const draw = () => {
+    const w = W_();
+    REGV.q = search.value; REGV.filter = filt.value; REGV.ruler = rulerSel.value;
+    const q = REGV.q.trim().toLowerCase();
+    let list = all.filter((k) => {
+      const r = w.regions[k]; const isM = isMarket(k);
+      switch (REGV.filter) {
+        case 'markets': if (!isM) return false; break;
+        case 'provinces': if (k.includes('/')) return false; break;
+        case 'special': if (!(k.includes('/') && r?.special)) return false; break;
+        case 'prefectures': if (!k.includes('/')) return false; break;
+        case 'info': if (!r?.infoChannelId) return false; break;
+        case 'noinfo': if (!isM || r?.infoChannelId) return false; break;
+        case 'unsent': if (!r?.infoChannelId || r.infoSentAt) return false; break;
+        default:
+      }
+      if (REGV.ruler === '__none' && ctlOf(k)) return false;
+      if (REGV.ruler && REGV.ruler !== '__none' && ctlOf(k) !== REGV.ruler) return false;
+      if (q && !`${rfull(k)} ${geoOf(k)?.hanzi || ''} ${facName(ctlOf(k))}`.toLowerCase().includes(q)) return false;
+      return true;
+    }).sort((a, b) => rfull(a).localeCompare(rfull(b)));
+    const pages = Math.max(1, Math.ceil(list.length / PER));
+    REGV.page = Math.min(REGV.page, pages - 1);
+    const slice = list.slice(REGV.page * PER, REGV.page * PER + PER);
+    const rows = slice.map((k) => {
+      const r = w.regions[k] || {}; const isM = isMarket(k); const mr = w.regions[marketOf(k)] || {};
+      return h('tr', {},
+        h('td', {}, h('b', {}, rname(k)), ' ', h('span', { class: 'muted small' }, `${geoOf(k)?.hanzi || ''}${k.includes('/') ? ` · ${rname(provinceOf(k))}` : ''}${r.special ? ' ★' : ''}`)),
+        h('td', {}, rulerFor(k)),
+        h('td', {}, isM ? num(k, 'fort', r.fort, { min: 0, max: 10 }) : h('span', { class: 'muted small' }, fmt(mr.fort))),
+        h('td', {}, isM ? num(k, 'taxRate', r.taxRate, { min: 0, max: 60 }) : ''),
+        h('td', {}, isM ? num(k, 'prosperity', r.prosperity, { min: 0, max: 100 }) : ''),
+        h('td', {}, isM ? num(k, 'security', r.security, { min: 0, max: 100 }) : ''),
+        h('td', {}, isM ? fmt(r.population) : ''),
+        h('td', {}, isM ? String((r.buildings || []).length) : ''),
+        h('td', { class: 'small' }, r.infoChannelId ? h('span', {}, chanName(r.infoChannelId), r.infoSentAt ? h('span', { class: 'muted' }, ' · sent') : h('span', { class: 'bad' }, ' · not sent')) : h('span', { class: 'muted' }, '—')),
+        h('td', { style: 'white-space:nowrap' },
+          r.infoChannelId ? h('button', { class: 'btn small', title: 'Post the information embed (replaces the old one)', onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(k)}/info-post`, { method: 'POST', body: {} }); await loadWorld(); toast(`Sent to ${chanName(r.infoChannelId)}.`); draw(); }) }, 'Send') : null, ' ',
+          h('button', { class: 'btn small', onclick: () => edit(k) }, 'Edit'), ' ',
+          h('button', { class: 'btn small ghost', title: 'Show on the map', onclick: () => { WSEL = k; MAPV.side = 'region'; MAPV.sideOpen = true; location.hash = 'map'; } }, '🗺️')));
+    });
+    wrap.replaceChildren(
+      h('div', { class: 'toolbar' }, h('span', { class: 'muted small grow' }, `${list.length} region${list.length === 1 ? '' : 's'} · page ${REGV.page + 1} of ${pages}`),
+        h('button', { class: 'btn small', disabled: REGV.page <= 0, onclick: () => { REGV.page--; draw(); } }, '◀'), h('button', { class: 'btn small', disabled: REGV.page >= pages - 1, onclick: () => { REGV.page++; draw(); } }, '▶')),
+      h('div', { class: 'table-wrap' }, h('table', {}, h('thead', {}, h('tr', {}, ['Region', 'Ruler', 'Walls', 'Tax %', 'Prosperity', 'Security', 'People (k)', 'Buildings', 'Information channel', ''].map((x) => h('th', {}, x)))), h('tbody', {}, rows))));
+  };
+  let t = null;
+  search.oninput = () => { clearTimeout(t); t = setTimeout(() => { REGV.page = 0; draw(); }, 200); };
+  filt.onchange = () => { REGV.page = 0; draw(); }; rulerSel.onchange = () => { REGV.page = 0; draw(); };
+  draw();
+  const withInfo = all.filter((k) => w.regions[k]?.infoChannelId);
+  const unsent = withInfo.filter((k) => !w.regions[k].infoSentAt);
+  return [
+    h('div', { class: 'card' },
+      h('div', { class: 'toolbar' }, search, filt, rulerSel),
+      h('p', { class: 'muted small' }, 'Change a ruler, walls, tax, prosperity or security right here (saved as you change them). Edit opens everything else: name, terrain, people, channels, buildings, market, events.'),
+      wrap),
+    h('div', { class: 'card' }, h('h3', {}, '📜 Information channels'),
+      h('p', { class: 'muted small' }, 'Optional, per region. Make channels like #luoyang-information, link them here (or in a region\'s Edit), then press Send: the bot posts one embed with an Information button. Anyone who presses it sees that region\'s live information, only to them — nothing is ever edited afterwards, so it costs nothing to keep up. Send again only if you change the embed (Messages → "Region information post").'),
+      h('div', { class: 'toolbar' },
+        h('button', { class: 'btn', onclick: run(async () => { const r = await api('/world/discord/link-info-channels', { method: 'POST', body: {} }); toast(r.linked ? `Linked ${r.linked} channel(s).` : 'No new "…-information" channels found.'); if (r.found?.length) console.log(r.found); render(); }) }, 'Find #…-information channels by name'),
+        h('span', { class: 'grow' }), h('span', { class: 'muted small' }, `${withInfo.length} linked · ${unsent.length} not sent`),
+        h('button', { class: 'btn primary', disabled: !unsent.length, onclick: run(async () => { if (!confirm(`Send the information post to ${unsent.length} channel(s)?`)) return; const r = await api('/world/info-posts', { method: 'POST', body: {} }); toast(`Sent ${r.sent}.${r.errors.length ? ` ${r.errors.length} failed: ${r.errors.slice(0, 2).join('; ')}` : ''}`, !!r.errors.length); render(); }) }, `Send to the ${unsent.length} not sent`),
+        h('button', { class: 'btn', disabled: !withInfo.length, onclick: run(async () => { if (!confirm(`Re-send the information post to all ${withInfo.length} channel(s)? Old posts are replaced.`)) return; const r = await api('/world/info-posts', { method: 'POST', body: { all: true } }); toast(`Sent ${r.sent}.${r.errors.length ? ` ${r.errors.length} failed.` : ''}`, !!r.errors.length); render(); }) }, 'Re-send all'))),
+  ];
+};
 
 // ════════════════════════════════════════ ECONOMY ════════════════════════════════════════
 VIEWS.economy = async () => {
@@ -1061,7 +1175,7 @@ function itemPricesCard(rows) {
 function economyFormulas() {
   return h('div', { class: 'card ref' }, h('h3', {}, 'How the economy works'),
     h('details', {}, h('summary', {}, 'Prices, supply and demand'),
-      h('p', {}, h('code', {}, 'price = base × (target ÷ stock)^elasticity'), ' — clamped between ×', W_().settings.minPriceMul, ' and ×', W_().settings.maxPriceMul, ', then × event/policy modifiers.'),
+      h('p', {}, h('code', {}, 'price = base × (target ÷ stock)^elasticity'), ' — clamped between ×', W_().settings.minPriceMul, ' and ×', W_().settings.maxPriceMul, ', then × event/decree modifiers.'),
       h('p', {}, h('code', {}, 'target = (people × eaten per pop × luxury factor × winter + building inputs + armies) × stock turns'), ` (stock turns = ${W_().settings.stockTurns}).`),
       h('p', {}, 'Producers answer prices: production × (price ÷ base)^', W_().settings.supplyResponse, ' (between ×0.55 and ×1.3). Gluts above 3× the target rot 5% a turn.')),
     h('details', {}, h('summary', {}, 'Trade: the normal market, trade deals and caravans'),
@@ -1075,7 +1189,7 @@ function economyFormulas() {
     h('details', {}, h('summary', {}, 'Prosperity'),
       h('p', {}, h('code', {}, 'growth = 3×(food − 0.85) + 1.5×(staples − 0.8) + 0.8×luxuries + trade + (security − 50) ÷ 25')),
       h('p', {}, h('code', {}, 'drag = 5×(prosperity ÷ 100)²')),
-      h('p', {}, 'Δ prosperity = growth − drag + events + policies + buildings (± a little luck). A region settles where its food and trade can carry it; famine, war and disasters knock it down. Security (bandits on the roads) rises with walls and garrisons and falls with hunger.'),
+      h('p', {}, 'Δ prosperity = growth − drag + events + decrees + buildings (± a little luck). A region settles where its food and trade can carry it; famine, war and disasters knock it down. Security (bandits on the roads) rises with walls and garrisons and falls with hunger.'),
       h('p', {}, 'Production and building output scale with prosperity (×0.75 at 0, ×1 at 50, ×1.25 at 100). Population grows with food and prosperity but the land only feeds so many (its base population).')),
     h('details', {}, h('summary', {}, 'Production buildings'),
       h('p', {}, 'A brewery, smithy, apothecary… buys its inputs from its market and sells its output back every turn (× 1 / 1.8 / 2.5 at level 1 / 2 / 3, × prosperity). The profit goes to whoever rules the region; in unclaimed land it stays in the town\'s coffers. It cuts back when the output is worth less than the inputs plus wages. Every map starts with some preset buildings; factions build and upgrade more from their treasury.')),
@@ -1219,7 +1333,8 @@ VIEWS.events = async () => {
 
 function worldLogCard(kinds) {
   const list = (W_().log || []).filter((l) => !kinds || kinds.includes(l.kind)).slice(0, 80);
-  return h('div', { class: 'card' }, h('h3', {}, 'World chronicle'), h('div', { class: 'list' }, list.map((l) => h('div', { class: 'small' }, h('span', { class: 'muted' }, `T${l.turn} · ${new Date(l.at).toLocaleString()} · `), plain(l.text)))));
+  return h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, 'World chronicle'),
+    list.length ? h('button', { class: 'btn small ghost', onclick: run(async () => { if (!confirm('Clear these chronicle entries?')) return; await api(`/world/log${kinds ? `?kinds=${kinds.join(',')}` : ''}`, { method: 'DELETE' }); toast('Cleared.'); render(); }) }, 'Clear') : null), h('div', { class: 'list' }, list.map((l) => h('div', { class: 'small' }, h('span', { class: 'muted' }, `T${l.turn} · ${new Date(l.at).toLocaleString()} · `), plain(l.text)))));
 }
 
 // ════════════════════════════════════════ POLITICS ════════════════════════════════════════
@@ -1244,7 +1359,7 @@ VIEWS.politics = async () => {
   const w = W_();
   const members = (f) => WD.characters.filter((c) => f.sect && c.sect === f.sect).length;
   const inbox = [
-    ...w.requests.filter((q) => q.status === 'pending').map((q) => ({ what: `${fac(q.factionId)?.name}: ${q.byName ? `${q.byName} wants to ` : ''}${q.summary}`, why: q.why, approve: () => api(`/world/requests/${q.id}/approve`, { method: 'POST', body: {} }), reject: () => api(`/world/requests/${q.id}/reject`, { method: 'POST', body: {} }) })),
+    ...w.requests.filter((q) => q.status === 'pending').map((q) => ({ what: `${fac(q.factionId)?.name}: ${q.byName ? `${q.byName} wants to ` : ''}${q.summary}`, why: q.why, setup: q.kind === 'decree' && fac(q.factionId) ? () => editDecree(fac(q.factionId), null, q) : null, approve: () => api(`/world/requests/${q.id}/approve`, { method: 'POST', body: {} }), reject: () => api(`/world/requests/${q.id}/reject`, { method: 'POST', body: {} }) })),
     ...w.proposals.filter((p) => p.status === 'awaiting-staff').map((p) => ({ what: `${WD.proposalKinds?.[p.kind]?.name || p.kind}: ${facName(p.from)} → ${facName(p.to)}`, why: p.note || 'accepted by both sides, waiting for staff', approve: () => api(`/world/proposals/${p.id}/approve`, { method: 'POST', body: {} }), reject: () => api(`/world/proposals/${p.id}/reject`, { method: 'POST', body: {} }) })),
     ...(w.takeovers || []).filter((t) => t.status === 'pending').map((t) => ({ what: `Takeover: ${t.regions.map(rfull).join(', ')} → ${fac(t.to)?.name || 'unclaimed'}`, why: t.reason || (t.source === 'conquest' ? 'long occupation' : ''), approve: () => api(`/world/takeovers/${t.id}/approve`, { method: 'POST', body: {} }), reject: () => api(`/world/takeovers/${t.id}/reject`, { method: 'POST', body: {} }) })),
   ];
@@ -1262,11 +1377,12 @@ VIEWS.politics = async () => {
   return [
     inbox.length ? h('div', { class: 'card warn' }, h('h3', {}, `Waiting for staff (${inbox.length})`),
       h('div', { class: 'list' }, inbox.map((x) => h('div', { class: 'toolbar' }, h('div', { class: 'grow' }, h('b', {}, x.what), x.why ? h('div', { class: 'muted small' }, x.why) : null),
-        h('button', { class: 'btn small primary', onclick: run(async () => { await x.approve(); toast('Approved.'); render(); }) }, 'Approve'),
+        x.setup ? h('button', { class: 'btn small primary', onclick: x.setup }, 'Set effects & approve') : null,
+        h('button', { class: `btn small${x.setup ? '' : ' primary'}`, title: x.setup ? 'Approve as flavour only (no game effect)' : '', onclick: run(async () => { await x.approve(); toast('Approved.'); render(); }) }, x.setup ? 'Approve (no effect)' : 'Approve'),
         h('button', { class: 'btn small danger', onclick: run(async () => { await x.reject(); toast('Rejected.'); render(); }) }, 'Reject'))))) : null,
     h('div', { class: 'card' },
       h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, 'Realms'), h('button', { class: 'btn', onclick: () => newFaction(render) }, '+ New faction')),
-      h('p', { class: 'muted small' }, 'Click a realm to see its council, lands, buildings, policies and shop. Land is painted on the Map. Factions start empty; how they feel about each other is role-played — only wars, alliances and agreements are recorded.'),
+      h('p', { class: 'muted small' }, 'Click a realm to see its council, lands, buildings and decrees. Land is painted on the Map. Factions start empty; how they feel about each other is role-played — only wars, alliances and agreements are recorded.'),
       h('div', { class: 'realm-grid' }, w.factions.map(card))),
     alliancesCard(),
     warsCard(),
@@ -1278,24 +1394,17 @@ VIEWS.politics = async () => {
     h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, `Marriages (${w.marriages.length})`), h('button', { class: 'btn small', onclick: recordMarriage }, '+ Record a marriage')),
       table([['Couple', (m) => `${charName(m.a)} & ${charName(m.b)}`], ['Houses', (m) => m.factions.map(facName).join(' & ')], ['Since', (m) => `turn ${m.turn}`], ['', (m) => h('button', { class: 'btn small ghost', onclick: run(async () => { if (!confirm('Dissolve this marriage?')) return; await api(`/world/marriages/${m.a}`, { method: 'DELETE' }); render(); }) }, 'Dissolve')]], w.marriages)),
     officesCard(),
-    h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Rules: representative ranks, policies, buildings')),
+    h('details', { class: 'card' }, h('summary', {}, h('b', {}, 'Rules: representative ranks, buildings')),
       h('div', { style: 'display:grid;gap:12px;margin-top:10px' },
         ranksCard(),
-        listEditorCard('Policies', 'policies', [
-          { k: 'id', label: 'Id' }, { k: 'name', label: 'Name' }, { k: 'enabled', label: 'Available', t: 'check' },
-          { k: 'scope', label: 'Applies to', t: 'select', opts: [['faction', 'All the faction\'s land'], ['region', 'One region']] },
-          { k: 'cost.treasury', label: 'Cost to adopt', t: 'number' }, { k: 'upkeep.treasury', label: 'Upkeep / turn', t: 'number' },
-          { k: 'fatigue', label: 'Fatigue / turn (0–1)', t: 'number', step: 0.01, help: 'Weakens every turn after the grace period' }, { k: 'grace', label: 'Grace (turns)', t: 'number' }, { k: 'floor', label: 'Never below', t: 'number', step: 0.05 }, { k: 'minTurns', label: 'Minimum turns', t: 'number' },
-          { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (regionTick)', t: 'select', opts: scriptOpts },
-        ], (p) => `${p.name} — ${p.scope} · ${p.cost?.treasury || 0}${p.upkeep?.treasury ? ` · ${p.upkeep.treasury}/turn` : ''}`, { json: [['effects', 'Effects per turn (treasury goes to the faction once; the rest to each region)', 6], ['kinds', 'Faction kinds allowed (empty = all)', 2], ['exclusive', 'Can\'t combine with (policy ids)', 2]] }),
         listEditorCard('Buildings', 'buildingTypes', [
           { k: 'id', label: 'Id' }, { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字' },
           { k: 'cost', label: 'Cost', t: 'number' }, { k: 'turns', label: 'Turns to build', t: 'number' }, { k: 'upkeep', label: 'Upkeep / wages per turn', t: 'number' }, { k: 'fort', label: '+ Walls in battle', t: 'number' },
           { k: 'maxLevel', label: 'Max level (1–3)', t: 'number', help: 'Each level makes a production building produce more (×1 / ×1.8 / ×2.5)' }, { k: 'service', label: 'Service income per turn (inns, escort agencies)', t: 'number' },
           { k: 'description', label: 'Description', t: 'textarea', wide: true }, { k: 'scriptId', label: 'Custom code (regionTick)', t: 'select', opts: scriptOpts },
         ], (b) => `${b.name} ${b.hanzi || ''} — ${b.cost}, ${b.turns} turns, ${b.upkeep}/turn${b.fort ? ` · +${b.fort} walls` : ''}${Object.keys(b.outputs || {}).length ? ` · ${Object.entries(b.inputs || {}).map(([g, q]) => `${q} ${goodOf(g)?.name || g}`).join(' + ') || 'nothing'} → ${Object.entries(b.outputs).map(([g, q]) => `${q} ${goodOf(g)?.name || g}`).join(' + ')}` : ''}${b.service ? ` · service ${b.service}` : ''}`,
-        { json: [['effects', 'Effects on the region every turn (same keys as policies)', 5], ['inputs', 'Production: inputs per turn bought from the market { goodId: qty }', 2], ['outputs', 'Production: outputs per turn sold to the market { goodId: qty }', 2], ['requires', 'Requires { terrains: [...], anyProduction: [goodIds] }', 2]] }))),
-    worldLogCard(['diplomacy', 'alliance', 'war', 'request', 'policy', 'build', 'takeover', 'trade']),
+        { json: [['effects', 'Effects on the region every turn (same keys as events)', 5], ['inputs', 'Production: inputs per turn bought from the market { goodId: qty }', 2], ['outputs', 'Production: outputs per turn sold to the market { goodId: qty }', 2], ['requires', 'Requires { terrains: [...], anyProduction: [goodIds] }', 2]] }))),
+    worldLogCard(['diplomacy', 'alliance', 'war', 'request', 'decree', 'policy', 'build', 'takeover', 'trade']),
   ].filter(Boolean);
 };
 
@@ -1324,7 +1433,7 @@ function editAlliance(a) {
     { k: 'scriptId', label: 'Custom code (regionTick for members\' lands)', t: 'select', opts: scriptOpts },
   ], v);
   const boxes = h('div', { class: 'wm-checks' }, w.factions.map((x) => { const c = h('input', { type: 'checkbox', value: x.id }); c.checked = v.members.includes(x.id); return h('label', {}, c, ' ', x.name); }));
-  const eff = jsonField('Effects on every member\'s regions each turn (same keys as policies)', v.effects || {}, 3);
+  const eff = jsonField('Effects on every member\'s regions each turn (same keys as events)', v.effects || {}, 3);
   openModal(a ? a.name : 'New alliance', h('div', { style: 'display:grid;gap:10px' }, f.el, h('div', {}, h('b', {}, 'Members'), boxes), eff), [
     a ? h('button', { class: 'btn danger left', onclick: run(async () => { if (!confirm(`Dissolve the ${a.name}?`)) return; await api(`/world/alliances/${a.id}`, { method: 'DELETE' }); closeModal(); render(); }) }, 'Dissolve') : null,
     h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
@@ -1437,7 +1546,7 @@ function ranksCard() {
       }) }, 'Save ranks')));
 }
 
-/** One realm, CK3-style: overview, council, buildings, policies, shop. */
+/** One realm, CK3-style: overview, council, buildings, decrees. */
 /** Embargoes: factions whose merchants may not trade in this faction's lands (the normal market and caravans stop between them). */
 function embargoRow(f) {
   const w = W_();
@@ -1478,7 +1587,9 @@ function openRealm(f, start = 'overview') {
         h('span', { class: 'muted' }, 'Trade'), h('span', {}, `${(w.caravans || []).filter((c) => c.auto && c.owner?.id === f.id && c.status === 'travelling').length} automatic caravan(s) on the road · free trade with ${w.factions.filter((x) => x.id !== f.id && w.agreements.some((t) => t.parties.includes(f.id) && t.parties.includes(x.id) && t.perks?.freeTrade) || (al && al.terms?.freeTrade && al.members.includes(x.id) && x.id !== f.id)).map((x) => x.name).join(', ') || 'nobody (normal market, ' + w.settings.borderTariff + '% border tariff)'}`)),
       embargoRow(f),
       form.el,
-      h('div', { class: 'toolbar' }, f.sect ? null : h('button', { class: 'btn danger', onclick: run(async () => { if (!confirm(`Delete ${f.name}?`)) return; await api(`/world/factions/${f.id}`, { method: 'DELETE' }); done(); }) }, 'Delete faction'), h('span', { class: 'grow' }),
+      h('div', { class: 'toolbar' }, h('button', { class: 'btn danger', onclick: () => deleteFaction(f) }, 'Delete faction'),
+        isSect(f) ? null : h('button', { class: 'btn', title: 'Adds it to the Sects tab so players can join it', onclick: run(async () => { await api(`/world/factions/${f.id}/make-sect`, { method: 'POST', body: {} }); toast(`${f.name} is now a sect players can join (Sects tab).`); await load().catch(() => {}); done(); }) }, 'Make it a joinable sect'),
+        h('span', { class: 'grow' }),
         h('button', { class: 'btn primary', onclick: run(async () => { await api(`/world/factions/${f.id}`, { method: 'PUT', body: form.read() }); toast('Saved.'); done(); }) }, 'Save')),
     ];
   };
@@ -1489,7 +1600,7 @@ function openRealm(f, start = 'overview') {
     const stip = buildForm([{ k: 'stipendRate', label: `Stipends: % of net income (max ${w.settings.maxStipendRate})`, t: 'number' }, { k: 'stipendFund', label: 'Stipend fund now', t: 'number' }, { k: 'repRoleId', label: 'Representative Discord role (optional)', t: 'role' }], v);
     return [
       h('p', { class: 'muted small' }, 'The leader and representatives act for the realm in /world → Realm. Their rank decides what they may do alone, with staff approval, or not at all (ranks are edited under Politics → Rules).'),
-      mem.length ? table([['Character', (c) => h('b', {}, c.name)], ['Player', (c) => c.ownerTag || ''], ['Office', rankSel], ['Purse', (c) => fmtN(c.nyang)]], mem) : h('p', { class: 'muted' }, 'No members (link a sect in Overview).'),
+      mem.length ? officeList([['Character', (c) => h('b', {}, c.name)], ['Player', (c) => c.ownerTag || ''], ['Office', rankSel], ['Purse', (c) => fmtN(c.nyang)]], mem) : h('p', { class: 'muted' }, 'No members (link a sect in Overview).'),
       stip.el, h('div', { class: 'toolbar' }, h('span', { class: 'grow' }), h('button', { class: 'btn primary', onclick: run(async () => { await api(`/world/factions/${f.id}`, { method: 'PUT', body: stip.read() }); toast('Saved.'); }) }, 'Save stipends')),
     ];
   };
@@ -1511,20 +1622,107 @@ function openRealm(f, start = 'overview') {
         h('button', { class: 'btn', onclick: run(async () => { await api(`/world/regions/${encodeURIComponent(regSel.value)}/buildings`, { method: 'POST', body: { typeId: typeSel.value, factionId: f.id, free: true, ready: ready.checked } }); toast('Added (free, by staff).'); await loadWorld(); openRealm(fac(f.id), 'buildings'); }) }, '+ Add (free)')),
     ];
   };
-  const policies = () => {
-    const adopted = [...f.policies.map((p) => ({ ...p, region: '' })), ...Object.entries(w.regions).flatMap(([k, r]) => (r.policies || []).filter((p) => p.factionId === f.id).map((p) => ({ ...p, region: k })))];
-    const polSel = select(w.policies.map((p) => [p.id, `${p.name} (${p.scope})`]));
-    const regSel = select([['', '— (faction-wide) —'], ...lands.map((r) => [r.key, rfull(r.key)])]);
-    const free = h('input', { type: 'checkbox' });
+  const decrees = () => {
+    const list = (f.decrees || []);
     return [
-      h('div', { class: 'list' }, adopted.map((p) => { const d = w.policies.find((x) => x.id === p.policyId); return h('div', { class: 'toolbar small' }, h('span', { class: 'grow' }, `${d?.name || p.policyId}${p.region ? ` — ${rname(p.region)}` : ''} · since turn ${p.since}`), h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/factions/${f.id}/policies/${p.policyId}?region=${encodeURIComponent(p.region)}`, { method: 'DELETE' }); done(); }) }, 'Revoke')); })),
-      adopted.length ? null : h('p', { class: 'muted small' }, 'No policies.'),
-      h('div', { class: 'toolbar' }, polSel, regSel, h('label', { class: 'field check' }, free, h('span', {}, 'free')), h('button', { class: 'btn small', onclick: run(async () => { await api(`/world/factions/${f.id}/policies`, { method: 'POST', body: { policyId: polSel.value, region: regSel.value, free: free.checked } }); toast('Adopted.'); done(); }) }, 'Adopt')),
+      h('p', { class: 'muted small' }, 'Decrees are what the faction does in role-play (conscription, a festival, closing its gates…), given effects by staff. Representatives ask for them in /world → Realm → Decrees; they show up in "Waiting for staff". You can also add one here directly.'),
+      list.length ? h('div', { class: 'list' }, list.map((d) => h('div', { class: 'toolbar small' },
+        h('div', { class: 'grow' }, h('b', {}, `${d.emoji} ${d.name}`), h('span', { class: 'muted' }, ` — ${d.regions.length ? d.regions.map(rname).join(', ') : 'all its lands'}${d.until ? ` · ends turn ${d.until}` : ''}`), h('div', { class: 'muted small' }, decreeLine(d))),
+        h('button', { class: 'btn small', onclick: () => editDecree(f, d) }, 'Edit'),
+        h('button', { class: 'btn small danger', onclick: run(async () => { if (!confirm(`Lift ${d.name}?`)) return; await api(`/world/factions/${f.id}/decrees/${d.id}`, { method: 'DELETE' }); await loadWorld(); openRealm(fac(f.id), 'decrees'); }) }, 'Lift')))) : h('p', { class: 'muted' }, 'No decrees in force.'),
+      h('div', { class: 'toolbar' }, h('button', { class: 'btn primary', onclick: () => editDecree(f, null) }, '+ New decree')),
     ];
   };
-  openModal(`${f.name}${f.hanzi ? ` ${f.hanzi}` : ''}`, tabsEl([['overview', 'Overview', overview], ['council', 'Council', council], ['buildings', 'Buildings', buildings], ['policies', 'Policies', policies]], start), [h('button', { class: 'btn', onclick: done }, 'Close')]);
+  openModal(`${f.name}${f.hanzi ? ` ${f.hanzi}` : ''}`, tabsEl([['overview', 'Overview', overview], ['council', 'Council', council], ['buildings', 'Buildings', buildings], ['decrees', 'Decrees', decrees]], start), [h('button', { class: 'btn', onclick: done }, 'Close')]);
 }
 const editFaction = (f) => (f ? openRealm(f) : newFaction(render));
+
+/** One line describing what a decree does. */
+function decreeLine(d) {
+  const v = d.values || {};
+  const sign = (x) => (Number(x) > 0 ? `+${fmt(Number(x))}` : fmt(Number(x)));
+  const out = (WD.decreeFields || []).filter((x) => Number(v[x.k])).map((x) => `${x.label} ${sign(v[x.k])}${x.unit === '%' ? '%' : x.unit ? ` ${x.unit}` : ''}`);
+  if (v.good && Number(v.goodPct)) out.push(`${goodOf(v.good)?.name || v.good} production ${sign(v.goodPct)}%`);
+  if (d.effects && Object.keys(d.effects).length) out.push('extra effects');
+  if (d.scriptId) out.push('custom code');
+  return out.join(' · ') || 'flavour only (no effect)';
+}
+
+/**
+ * Decree editor: a preset, plain numbers, where and how long. No code needed.
+ * request: a representative's request to approve with these effects.
+ */
+function editDecree(f, d, request = null) {
+  const w = W_();
+  const v = d ? clone(d) : { name: request?.payload?.name || '', emoji: '📜', description: request?.payload?.description || '', regions: request?.payload?.regions || [], values: {}, turns: request?.payload?.turns || 0, scriptId: '' };
+  if (d && d.until) v.turns = Math.max(0, d.until - w.turn);
+  const lands = landsOf(f.id);
+  const fieldsBox = h('div', { class: 'form' });
+  const inputs = {};
+  const drawFields = () => fieldsBox.replaceChildren(...(WD.decreeFields || []).map((x) => {
+    const i = h('input', { type: 'number', step: 'any', value: v.values?.[x.k] ?? '', placeholder: '0' });
+    inputs[x.k] = i;
+    return h('label', { class: 'field' }, h('span', {}, `${x.label}${x.unit ? ` (${x.unit})` : ''}`), i, h('small', {}, x.hint));
+  }));
+  drawFields();
+  const goodSel = select([['', '— a specific good (optional) —'], ...w.goods.map((g) => [g.id, `${g.emoji} ${g.name}`])], v.values?.good || '');
+  const goodPct = h('input', { type: 'number', step: 'any', value: v.values?.goodPct ?? '', placeholder: '%', style: 'width:90px' });
+  const nameIn = h('input', { value: v.name || '', placeholder: 'Conscription' });
+  const emojiIn = h('input', { value: v.emoji || '📜', style: 'width:70px' });
+  const turnsIn = h('input', { type: 'number', min: 0, value: v.turns || '', placeholder: 'until lifted' });
+  const descIn = h('textarea', { rows: 3, placeholder: 'Every household must send a son to train with the outer disciples.' }); descIn.value = v.description || '';
+  const scriptSel = select(scriptOpts(), v.scriptId || '');
+  const presets = h('div', { class: 'toolbar small', style: 'flex-wrap:wrap;gap:6px' }, h('span', { class: 'muted' }, 'Start from a preset:'), ...(WD.decreePresets || []).map((p) => h('button', { class: 'btn small', title: `${p.description}`, onclick: () => {
+    v.values = { ...p.values }; drawFields();
+    if (!nameIn.value) nameIn.value = p.name;
+    if (!descIn.value) descIn.value = p.description;
+    if (p.turns && !turnsIn.value) turnsIn.value = p.turns;
+    emojiIn.value = p.emoji;
+  } }, `${p.emoji} ${p.name}`)));
+  const lab = (t, el, cls = 'field') => h('label', { class: cls }, h('span', {}, t), el);
+  const form = { el: h('div', { class: 'form' }, lab('Emoji', emojiIn), lab('Name', nameIn), lab('Lasts (turns)', turnsIn), lab('Custom code (optional)', scriptSel), lab('What the faction does, in RP (players see this)', descIn, 'field wide')) };
+  const regBox = h('div', { class: 'toolbar small', style: 'flex-wrap:wrap;gap:8px' }, lands.length ? lands.map((r) => { const cb = h('input', { type: 'checkbox', value: r.key }); cb.checked = (v.regions || []).includes(r.key); return h('label', { class: 'field check' }, cb, h('span', {}, rname(r.key))); }) : h('span', { class: 'muted' }, 'It rules no land yet — the decree waits until it does.'));
+  const read = () => {
+    const x = { name: nameIn.value.trim(), emoji: emojiIn.value.trim() || '📜', description: descIn.value.trim(), scriptId: scriptSel.value, turns: Number(turnsIn.value) || 0 };
+    const values = {};
+    for (const [k, i] of Object.entries(inputs)) if (i.value !== '' && Number(i.value)) values[k] = Number(i.value);
+    if (goodSel.value && Number(goodPct.value)) { values.good = goodSel.value; values.goodPct = Number(goodPct.value); }
+    return { ...x, turns: Number(x.turns) || 0, values, regions: [...regBox.querySelectorAll('input:checked')].map((c) => c.value) };
+  };
+  openModal(request ? `Decree for ${f.name} — set its effects` : d ? `Edit decree — ${f.name}` : `New decree — ${f.name}`, h('div', { style: 'display:grid;gap:12px' },
+    request ? h('div', { class: 'card' }, h('b', {}, `${request.byName || 'A representative'} asked:`), h('p', {}, request.payload?.description || request.summary)) : null,
+    presets, form.el,
+    h('div', {}, h('b', {}, 'Where'), h('p', { class: 'muted small', style: 'margin:2px 0 6px' }, 'Tick regions to limit it; none ticked = all of its lands (including land it takes later).'), regBox),
+    h('div', {}, h('b', {}, 'Effects every turn'), h('p', { class: 'muted small', style: 'margin:2px 0 6px' }, 'Leave a box empty for no effect. Small numbers go a long way: prosperity ±0.3 a turn is a lot over a season. A decree only colours the story.'), fieldsBox,
+      h('div', { class: 'toolbar small', style: 'margin-top:6px' }, goodSel, goodPct))), [
+    h('button', { class: 'btn', onclick: closeModal }, 'Cancel'),
+    h('button', { class: 'btn primary', onclick: run(async () => {
+      const body = read();
+      if (!body.name) throw new Error('Give it a name.');
+      if (request) await api(`/world/requests/${request.id}/approve`, { method: 'POST', body: { payload: body } });
+      else if (d) await api(`/world/factions/${f.id}/decrees/${d.id}`, { method: 'PUT', body: { ...body, keepUntil: !body.turns } });
+      else await api(`/world/factions/${f.id}/decrees`, { method: 'POST', body });
+      toast(request ? 'Approved — the decree is in force.' : 'Saved.'); closeModal(); await loadWorld(); if (request) render(); else openRealm(fac(f.id), 'decrees');
+    }) }, request ? 'Approve with these effects' : 'Save'),
+  ]);
+}
+
+/** Characters with a search box, a sect filter and pages (there may be hundreds). */
+function officeList(columns, rows) {
+  const q = h('input', { placeholder: 'Search characters…' });
+  const holders = h('input', { type: 'checkbox' }); holders.checked = rows.length > 40;
+  const sects = [...new Set(rows.map((c) => c.sect).filter(Boolean))].sort();
+  const sectSel = select([['', 'Every sect'], ...sects.map((x) => [x, x])], '');
+  const box = h('div');
+  const draw = () => {
+    const t = q.value.trim().toLowerCase();
+    const list = rows.filter((c) => (!holders.checked || c.office === 'leader' || c.office === 'representative') && (!sectSel.value || c.sect === sectSel.value) && (!t || `${c.name} ${c.ownerTag || ''} ${c.sect || ''}`.toLowerCase().includes(t)));
+    box.replaceChildren(pagedTable(columns, list, null, { per: 25 }));
+  };
+  q.oninput = draw; holders.onchange = draw; sectSel.onchange = draw;
+  draw();
+  return h('div', {}, h('div', { class: 'toolbar small' }, q, sectSel, h('label', { class: 'field check' }, holders, h('span', {}, 'Leaders & representatives only'))), box);
+}
 
 function officesCard() {
   const w = W_();
@@ -1544,13 +1742,13 @@ function officesCard() {
   setTimeout(showPlan, 0);
   return h('div', { class: 'card' }, h('h3', {}, 'Council members & stipends (all realms)'),
     h('p', { class: 'muted small' }, `Representatives (up to ${s.maxRepresentatives || '∞'} per faction) are the players whose characters lead their sect's politics, diplomacy and trade. ${s.representativesFight ? 'They may fight in battles.' : 'They do not fight in battles (World settings → "Representatives may fight").'} Staff can also use /office in Discord, which gives the Representative role.`),
-    h('div', { class: 'table-wrap', style: 'max-height:320px' }, table([
+    officeList([
       ['Character', (c) => h('b', {}, c.name)], ['Sect', (c) => c.sect], ['Player', (c) => c.ownerTag || ''],
       ['Office', (c) => { const f = W_().factions.find((x) => x.sect === c.sect); const sl = select([['member', 'Member'], ...((WD.ranks || []).map((r) => [`rep:${r.id}`, r.name])), ['leader', 'Leader']], c.office === 'leader' ? 'leader' : c.office === 'representative' ? `rep:${f?.repRanks?.[c.id] || s.defaultRepRank}` : 'member'); sl.onchange = run(async () => { const [o, rk] = sl.value.split(':'); await api('/world/office', { method: 'PUT', body: { charId: c.id, office: o === 'rep' ? 'representative' : o, rank: rk } }); toast(`${c.name}: ${sl.selectedOptions[0].text}.`); render(); }); return sl; }],
       ['Purse', (c) => fmtN(c.nyang)],
-    ], rows)),
+    ], rows),
     h('div', { class: 'ref', style: 'margin-top:10px' },
-      h('p', {}, h('b', {}, 'Where the money goes. '), 'Each region\'s ', h('i', {}, 'coffers'), ' are its merchants\' and households\' purse: they pay players who sell there and fill when players buy. Every turn the ruler taxes part of it into the faction ', h('i', {}, 'treasury'), ', which pays armies, policies, diplomacy and officials. Members get nothing automatically — unless the faction pays ', h('i', {}, 'stipends'), ':'),
+      h('p', {}, h('b', {}, 'Where the money goes. '), 'Each region\'s ', h('i', {}, 'coffers'), ' are its merchants\' and households\' purse: they pay for the merchants\' and caravans\' goods. Every turn the ruler taxes part of it into the faction ', h('i', {}, 'treasury'), ', which pays armies, decrees, diplomacy and officials. Members get nothing automatically — unless the faction pays ', h('i', {}, 'stipends'), ':'),
       h('p', {}, h('code', {}, `fund += stipendRate% × net income each turn · every ${s.stipendEveryTurns} turns: raw = fund × weight ÷ Σweights · cap = ${s.stipendSoftCap} × weight × (1 + ln(members) ÷ 4) · paid = cap × (1 − e^(−raw ÷ cap))`)),
       h('p', { class: 'muted small' }, `Weights: member 1 · representative ${s.repWeight} · leader ${s.leaderWeight}. The soft cap is the brake on small rich factions: however big the fund, nobody gets more than their cap per season, and the rest goes back to the treasury. A separate cap stops anyone moving more than ${fmtN(s.maxTradePerTurn)} through the markets per turn (0 = no cap).`),
       h('div', { class: 'toolbar' }, h('span', {}, 'Preview:'), fSel)), preview);
@@ -1571,10 +1769,12 @@ VIEWS.war = async () => {
         ['Morale', (a) => fmt(a.morale)], ['Supply', (a) => fmt(a.supply)], ['Formation', (a) => w.formations.find((f) => f.id === a.formationId)?.name || a.formationId], ['Commander', (a) => charName(a.commanderId)], ['Status', (a) => a.status],
       ], w.armies, editArmy)),
     ...preparing.map(battleCard),
-    fought.length ? h('div', { class: 'card' }, h('h3', {}, 'Recent battles'), table([
+    fought.length ? h('div', { class: 'card' }, h('div', { class: 'toolbar' }, h('h3', { class: 'grow', style: 'margin:0' }, `Recent battles (${w.battles.filter((b) => b.status === 'fought').length})`),
+      h('button', { class: 'btn small danger', onclick: run(async () => { if (!confirm('Clear every finished battle and its report? Battles still being prepared stay.')) return; const r = await api('/world/battles', { method: 'DELETE' }); toast(`Cleared ${r.cleared} battle(s).`); render(); }) }, 'Clear battle logs')), table([
       ['Battle', (b) => `⚔️ ${rname(b.region)}`], ['Sides', (b) => `${facName(b.sides.A.factionId)} vs ${facName(b.sides.D.factionId)}`], ['Winner', (b) => facName(b.result?.winnerFaction)],
       ['Losses', (b) => `${fmtN(b.result?.lost?.A)} / ${fmtN(b.result?.lost?.D)}`], ['Days', (b) => b.result?.days ?? (b.rounds ? `${b.rounds.length} rounds` : '')], ['Terrain', (b) => `${w.terrains[b.result?.terrain]?.label || b.result?.terrain || ''}${b.result?.terrainPenalty ? ` (${b.result.terrainPenalty} dice)` : ''}`], ['Duels', (b) => b.duels.length],
     ], fought, battleDetails)) : null,
+    worldLogCard(['war', 'army']),
     simulatorCard(),
     listEditorCard('Formations', 'formations', [
       { k: 'id', label: 'Id' }, { k: 'name', label: 'Name' }, { k: 'hanzi', label: '漢字' },
@@ -1602,10 +1802,17 @@ function battleCard(b) {
   const wSel = select([['', '— winner —'], ...[...side('A').champions, ...side('D').champions].map((id) => [id, charName(id)])]);
   const lSel = select([['', '— loser —'], ...[...side('A').champions, ...side('D').champions].map((id) => [id, charName(id)])]);
   const note = h('input', { placeholder: 'link to the RP / note' });
+  // Only characters of that side (its faction and its allies) are offered — there may be hundreds of characters.
+  const sideChars = (k) => {
+    const fid = side(k).factionId; const al = allianceOfF(fid);
+    const fids = new Set([fid, ...(al ? al.members : []), ...(w.wars || []).filter((x) => x.attackers.includes(fid) || x.defenders.includes(fid)).flatMap((x) => (x.attackers.includes(fid) ? x.attackers : x.defenders))]);
+    const sects = new Set(w.factions.filter((f) => fids.has(f.id) && f.sect).map((f) => f.sect));
+    return WD.characters.filter((c) => sects.has(c.sect) || side(k).champions.includes(c.id) || side(k).commanderId === c.id);
+  };
   const planRow = (k) => {
     const fm = select(w.formations.map((f) => [f.id, f.name]), side(k).formationId);
-    const cmd = select([['', '— commander —'], ...WD.characters.filter((c) => c.office !== 'representative' || w.settings.representativesFight).map((c) => [c.id, `${c.name} · fire ${c.pips?.fire ?? 0} shock ${c.pips?.shock ?? 0} man. ${c.pips?.maneuver ?? 0}`])], side(k).commanderId);
-    const chSel = h('select', { multiple: true, style: 'min-height:70px' }, WD.characters.map((c) => h('option', { value: c.id }, `${c.name} (${c.sect || 'Rogue'}) · ${Math.round(c.champion)}`)));
+    const cmd = select([['', '— commander —'], ...sideChars(k).filter((c) => c.office !== 'representative' || w.settings.representativesFight).map((c) => [c.id, `${c.name} · fire ${c.pips?.fire ?? 0} shock ${c.pips?.shock ?? 0} man. ${c.pips?.maneuver ?? 0}`])], side(k).commanderId);
+    const chSel = h('select', { multiple: true, style: 'min-height:70px' }, sideChars(k).map((c) => h('option', { value: c.id }, `${c.name} (${c.sect || 'Rogue'}) · ${Math.round(c.champion)}`)));
     [...chSel.options].forEach((o) => (o.selected = side(k).champions.includes(o.value)));
     return h('div', { class: 'card' }, h('b', {}, `${k === 'A' ? 'Attacker' : 'Defender'}: ${facName(side(k).factionId)}`), h('p', { class: 'small muted' }, `Duel dice +${side(k).momentum || 0}${side(k).moraleShock ? ` · morale −${side(k).moraleShock}` : ''}${side(k).commanderFallen ? ' · commander fallen' : ''} · champions: ${champs(k)}`),
       h('div', { class: 'form' }, h('label', { class: 'field' }, h('span', {}, 'Formation'), fm), h('label', { class: 'field' }, h('span', {}, 'Commander (general pips)'), cmd), h('label', { class: 'field wide' }, h('span', {}, 'Champions (power → extra dice)'), chSel)),

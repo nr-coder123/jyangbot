@@ -19,6 +19,7 @@ const { EPH, actor, requireChar, requireAccess, isStaff, sendToChannel } = requi
 const { UserError, fmt, truncate, num, norm } = require('../../utils');
 
 const { geo, economy: E, common: C, military: M, politics: P, diplomacy: D, events: EV, territory: T, realm: R } = W;
+const templates = require('../../engine/templates');
 const st = () => store.state;
 
 const cmd = new SlashCommandBuilder()
@@ -130,7 +131,7 @@ VIEWS.politics = (ctx) => {
       opt('dip', 'Diplomacy…', 'diplomacy', 'Agreements, marriages, alliances, war and peace with another faction'),
       opt('alliance', 'Our alliance…', 'alliance', 'Found, leave or manage your alliance'),
       opt('build', 'Build…', 'build', 'Spend the treasury on buildings in your lands'),
-      opt('policies', 'Policies…', 'policies', 'Adopt or revoke policies'),
+      opt('decrees', 'Decrees…', 'decree', 'What your sect does in RP (conscription, festivals…), given effects by staff'),
       R.canRunCaravans(s, f) ? opt('trade', 'Trade caravans…', 'trade', 'Buy cheap, sell dear — where you have trade rights') : null,
       opt('stipend', 'Stipends…', 'treasury', 'Share income with the members every season'),
       opt('claim', 'Claim a region…', 'land', 'Ask staff for a region (after it was won in role-play)'),
@@ -220,19 +221,21 @@ VIEWS.bdwhere = (ctx, typeId) => {
   return { content: `**${t?.name}** — where? (${t?.cost}, ready in ${t?.turns} turns)`, embeds: [], components: [navRow(ctx, 'politics'), lands.length ? row(select(cid('s', ctx, 'bdwhere', typeId), 'Pick a region…', lands.map((r) => ({ label: WP.regionName(r.key), value: r.key })))) : null, row(btn(cid('v', ctx, 'build'), 'back'))].filter(Boolean) };
 };
 
-VIEWS.policies = (ctx) => {
+VIEWS.decrees = (ctx) => {
   const s = st(); const f = realmOf(ctx);
-  const lv = levelFor(ctx, f, 'policies');
-  const adopted = P.factionPolicies(s, f);
-  const pol = s.world.policies.filter((x) => x.enabled !== false && (!x.kinds?.length || x.kinds.includes(f.kind)));
-  const e = new EmbedBuilder().setTitle(`Policies — ${f.name}`).setColor(0x2980b9).setDescription(truncate([
-    adopted.length ? `**In force:** ${adopted.map((x) => `${x.def.name}${x.region ? ` (${WP.regionName(x.region)})` : ''}`).join(' · ')}` : '*No policies in force.*', '',
-    ...pol.map((x) => `**${x.name}** — ${x.cost?.treasury ? `${x.cost.treasury} to adopt` : 'free'}${x.upkeep?.treasury ? `, ${x.upkeep.treasury}/turn` : ''} · ${x.description}`),
+  const lv = levelFor(ctx, f, 'decree');
+  const DC = W.decrees;
+  const list = DC.active(s, f);
+  const e = new EmbedBuilder().setTitle(`Decrees — ${f.name}`).setColor(0x8e44ad).setDescription(truncate([
+    'A decree is something your sect does in role-play — conscription, a festival, closing the gates… Tell staff what your sect does and they decide what it does in the game (more men to raise, less prosperity, a cost each turn…).',
+    '',
+    list.length ? list.map((d) => `${d.emoji} **${d.name}**${d.regions.length ? ` — ${d.regions.map((k) => WP.regionName(k)).join(', ')}` : ' — all your lands'}${d.until ? ` · ${Math.max(0, d.until - s.world.turn)} turns left` : ''}\n-# ${DC.describe(s, d).join(' · ') || 'flavour only'}${d.description ? ` · ${truncate(d.description, 120)}` : ''}`).join('\n') : '*No decrees in force.*',
   ].join('\n'), 4000));
-  return { embeds: [e], components: [navRow(ctx, 'politics'), lv !== 'none' ? row(select(cid('s', ctx, 'policy'), `Adopt or revoke…${tag(lv)}`, [
-    ...adopted.map((x) => ({ label: `Revoke: ${x.def.name}${x.region ? ` (${WP.regionName(x.region)})` : ''}`, value: `-${x.def.id}|${x.region}` })),
-    ...pol.filter((x) => !adopted.some((a) => a.def.id === x.id && x.scope !== 'region')).map((x) => ({ label: `${x.name} — ${x.cost?.treasury || 0}`, value: `+${x.id}`, description: truncate(x.description, 100) })),
-  ])) : null, backRow(ctx)].filter(Boolean) };
+  const opts = lv === 'none' ? [] : [
+    { label: `Ask staff for a decree…`, value: '+', description: 'Describe what your sect does; staff set its effects' },
+    ...list.map((d) => ({ label: truncate(`Lift: ${d.name}`, 100), value: `-${d.id}` })),
+  ];
+  return { embeds: [e], components: [navRow(ctx, 'politics'), opts.length ? row(select(cid('s', ctx, 'decree'), 'Decrees…', opts)) : null, backRow(ctx)].filter(Boolean) };
 };
 
 VIEWS.trade = (ctx) => {
@@ -417,19 +420,15 @@ async function onComponent(i) {
         return i.showModal(new ModalBuilder().setCustomId(['wm', 'fcv', viewer, gid, `${from}>${v}`].join(':')).setTitle(truncate(`${g.name}: ${geo.label(s, from)} → ${geo.label(s, v)}`, 45)).addComponents(input('qty', `How many? (max ${max})`, { value: String(Math.max(1, Math.floor(max / 2))), placeholder: hint })));
       }
       case 'answer': return i.update(render(ctx, 'answer', v));
-      case 'policy': {
+      case 'decree': {
+        if (v.startsWith('-')) return i.update(render(ctx, 'decrees', null, await act(i, ctx, 'end-decree', { decreeId: v.slice(1) })));
         const f = repOf(s, c, ctx.member);
-        if (v.startsWith('-')) {
-          const [pid, region] = v.slice(1).split('|');
-          return i.update(render(ctx, 'policies', null, await act(i, ctx, 'revoke', { policyId: pid, region })));
-        }
-        const def = P.policyDef(s, v.slice(1));
-        if (def.scope === 'region') {
-          return i.showModal(new ModalBuilder().setCustomId(['wm', 'policy', viewer, def.id].join(':')).setTitle(truncate(def.name, 45)).addComponents(
-            input('region', 'Which of your regions?', { value: here(c) && s.world.regions[here(c)]?.controller === f.id ? geo.label(s, here(c)) : '', placeholder: C.controlled(s, f.id).map((r) => geo.label(s, r.key)).join(', ').slice(0, 100) }),
-          ));
-        }
-        return i.update(render(ctx, 'policies', null, await act(i, ctx, 'policy', { policyId: def.id })));
+        return i.showModal(new ModalBuilder().setCustomId(['wm', 'decree', viewer].join(':')).setTitle(truncate(`${f.name}: a decree`, 45)).addComponents(
+          input('name', 'Name (e.g. Conscription)', { placeholder: 'Conscription' }),
+          input('description', 'What does your sect do, in RP?', { style: TextInputStyle.Paragraph, placeholder: 'Every household in our lands must send a son to train with the outer disciples.' }),
+          input('regions', 'Where? (empty = all your lands)', { required: false, placeholder: C.controlled(s, f.id).map((r) => geo.label(s, r.key)).join(', ').slice(0, 100) }),
+          input('turns', 'For how many turns? (empty = until lifted)', { required: false }),
+        ));
       }
       case 'army': return i.update(render(ctx, 'army', v));
       case 'recruit': {
@@ -512,11 +511,10 @@ async function onModal(i) {
       const [from, to] = arg2.split('>');
       return i.update(render(ctx, 'trade', null, await act(i, ctx, 'caravan', { from, to, good: arg, qty: Math.floor(num(val('qty'))) })));
     }
-    case 'policy': {
-      const f = repOf(s, c, ctx.member);
-      const region = findRegion(val('region'));
-      void f;
-      return i.update(render(ctx, 'policies', null, await act(i, ctx, 'policy', { policyId: arg, region })));
+    case 'decree': {
+      const regions = val('regions') ? val('regions').split(/[,;]+/).map((x) => x.trim()).filter(Boolean).map(findRegion) : [];
+      const payload = { name: val('name') || 'Decree', description: val('description'), regions, turns: Math.max(0, Math.floor(num(val('turns')))) };
+      return i.update(render(ctx, 'decrees', null, await act(i, ctx, 'decree', payload)));
     }
     case 'recruit': {
       const f = repOf(s, c, ctx.member);
@@ -623,6 +621,35 @@ async function onProposalButton(i) {
 }
 
 // ---------- staff requests (a representative's rank needs approval) ----------
+/** Staff pressed Send: post one information embed (with a button) in a region's information channel. */
+async function postRegionInfo(client, key) {
+  const s = st();
+  const r = s.world.regions[key];
+  if (!r) throw new UserError('Unknown region.');
+  if (!r.infoChannelId) throw new UserError(`Set an information channel for ${geo.label(s, key)} first.`);
+  const ch = await client.channels.fetch(r.infoChannelId).catch(() => null);
+  if (!ch || !ch.isTextBased?.()) throw new UserError(`The bot can't reach the information channel of ${geo.label(s, key)}.`);
+  // Re-sending replaces the old post instead of piling them up.
+  if (r.infoMessageId) { try { const old = await ch.messages.fetch(r.infoMessageId); await old.delete(); } catch {} }
+  const g = geo.get(key);
+  const p = templates.render(s, 'worldInfoPost', { region: geo.label(s, key), province: key.includes('/') ? geo.label(s, geo.provinceOf(key)) : (g?.historicalName || ''), hanzi: g?.hanzi || '', notes: r.notes || g?.description || '' }, { color: C.faction(s, r.controller)?.color });
+  const msg = await ch.send({ ...p, components: [row(btn(`wi:${key}`, 'wInfo', { style: ButtonStyle.Primary }))], allowedMentions: { parse: [] } });
+  r.infoMessageId = msg.id; r.infoSentAt = new Date().toISOString();
+  return { channelId: ch.id, messageId: msg.id };
+}
+/** Someone pressed Information: show the region's live panel, only to them. */
+async function onInfoButton(i) {
+  requireWorld();
+  const key = i.customId.replace(/~\d+$/, '').split(':').slice(1).join(':');
+  const s = st();
+  if (!s.world.regions[key] && !geo.get(key)) throw new UserError('That region no longer exists.');
+  const c = require('../../engine/characters').activeCharacterOf(s, i.user.id);
+  if (c) {
+    const ctx = { viewer: i.user.id, c, isOwner: true, member: i.member, channelRegion: key };
+    return i.reply({ ...render(ctx, 'region', key), flags: EPH });
+  }
+  return i.reply({ ...WP.regionPanel(key, null), components: [], flags: EPH });
+}
 async function postRequest(client, q) {
   const s = st();
   const ch = s.settings.channels.log || s.settings.channels.diplomacy || s.settings.channels.world;
@@ -738,7 +765,7 @@ async function refreshBattle(i, b, deferred = false) {
 
 module.exports = {
   commands: [{ data: cmd, execute, autocomplete }],
-  buttons: { w: onComponent, wd: onProposalButton, wb: onBattleButton, wt: onTakeoverButton, wq: onRequestButton },
+  buttons: { w: onComponent, wd: onProposalButton, wb: onBattleButton, wt: onTakeoverButton, wq: onRequestButton, wi: onInfoButton },
   modals: { wm: onModal, wbm: onBattleModal },
-  postProposal, postTakeover, postRequest, battleComponents, render, VIEWS,
+  postProposal, postTakeover, postRequest, postRegionInfo, battleComponents, render, VIEWS,
 };

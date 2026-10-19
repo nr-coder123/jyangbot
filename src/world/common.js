@@ -62,7 +62,7 @@ const STANCE_LABEL = { self: 'Same faction', war: 'At war', allied: 'Allied', ag
 
 // ─────────── effect blocks ───────────
 const ADD_KEYS = ['prosperity', 'security', 'population', 'caravanRisk', 'tariff', 'coffers', 'supply', 'attrition', 'treasury', 'fortGrowth', 'noGuildCaravans'];
-const MUL_KEYS = ['income', 'tax', 'recruitCost'];
+const MUL_KEYS = ['income', 'tax', 'recruitCost', 'manpower'];
 const MAP_KEYS = ['production', 'demand', 'price', 'stockLoss'];
 
 function emptyMods() {
@@ -116,12 +116,12 @@ function regionSummary(state, key) {
     controller: f ? { id: f.id, name: f.name, kind: f.kind } : null,
     stock: clone(r.stock || {}), prices: clone(r.prices || {}), production: clone(r.production || {}),
     events: state.world.activeEvents.filter((e) => e.regions.includes(key)).map((e) => e.eventId),
-    policies: activePolicyIds(state, key),
+    decrees: activeDecrees(state, key).map((d) => d.name),
   };
 }
 function factionSummary(state, f) {
   if (!f) return null;
-  return { id: f.id, name: f.name, kind: f.kind, alignment: f.alignment, sect: f.sect, treasury: f.treasury, hq: f.hq, members: members(state, f).length, regions: controlled(state, f.id).map((r) => r.key), policies: f.policies.map((p) => p.policyId), alliance: allianceOf(state, f.id)?.name || '', wars: warsOf(state, f.id).map((x) => x.name) };
+  return { id: f.id, name: f.name, kind: f.kind, alignment: f.alignment, sect: f.sect, treasury: f.treasury, hq: f.hq, members: members(state, f).length, regions: controlled(state, f.id).map((r) => r.key), decrees: require('./decrees').active(state, f).map((d) => d.name), alliance: allianceOf(state, f.id)?.name || '', wars: warsOf(state, f.id).map((x) => x.name) };
 }
 function worldCtx(state, extra = {}) {
   return { world: { ...calendar(state) }, ...extra };
@@ -144,16 +144,12 @@ function runHooks(state, sources, hook, ctx, value) {
   return value;
 }
 
-function activePolicyIds(state, key) {
-  const r = state.world.regions[key];
-  if (!r) return [];
-  const out = (r.policies || []).map((p) => p.policyId);
-  const f = faction(state, r.controller);
-  if (f) for (const p of f.policies) if (!p.region) out.push(p.policyId);
-  return [...new Set(out)];
+/** Names of the decrees in force in a region (its ruler's). */
+function activeDecrees(state, key) {
+  return require('./decrees').decreesIn(state, key);
 }
 
-/** Everything that modifies a region this turn: events, policies, treaties, scripts. */
+/** Everything that modifies a region this turn: events, decrees, treaties, scripts. */
 function regionMods(state, key) {
   const w = state.world;
   const r = w.regions[key];
@@ -168,18 +164,11 @@ function regionMods(state, key) {
     sources.push({ scriptId: ev.scriptId, type: 'event', name: ev.name });
   }
   const f = faction(state, r.controller);
-  const pol = [];
-  for (const p of r.policies || []) pol.push(p);
-  if (f) for (const p of f.policies) if (!p.region) pol.push({ ...p, factionId: f.id });
-  for (const p of pol) {
-    const def = w.policies.find((x) => x.id === p.policyId);
-    if (!def || def.enabled === false) continue;
-    const strength = policyStrength(def, w.turn - num(p.since));
-    const eff = { ...def.effects };
-    // Treasury from faction-wide policies is counted once per faction (see politics.js), not per region.
-    delete eff.treasury;
-    applyEffects(m, eff, strength, `${def.emoji} ${def.name}${strength < 1 ? ` (${Math.round(strength * 100)}%)` : ''}`);
-    sources.push({ scriptId: def.scriptId, type: 'policy', name: def.name });
+  // Decrees of the ruler (staff-made effects of what the faction does in role-play).
+  const DC = require('./decrees');
+  for (const d of DC.decreesIn(state, key)) {
+    applyEffects(m, DC.effectsOf(d), 1, `${d.emoji} ${d.name}`);
+    if (d.scriptId) sources.push({ scriptId: d.scriptId, type: 'decree', name: d.name });
   }
   if (f) {
     for (const t of (w.agreements || []).filter((t) => t.parties.includes(f.id))) {
@@ -236,6 +225,6 @@ function wlog(state, kind, text, extra = {}) {
 module.exports = {
   calendar, faction, factionOfSect, factionOfChar, members, isRepresentative, controlled,
   allianceOf, sameAlliance, warsOf, warBetween, atWar, embargo, agreementsBetween, hasPerk, stance, STANCE_LABEL, wallsOf,
-  emptyMods, applyEffects, mulFor, addFor, policyStrength, regionMods, activePolicyIds, regionSummary, factionSummary, worldCtx, runHooks, wlog,
+  emptyMods, applyEffects, mulFor, addFor, policyStrength, regionMods, activeDecrees, regionSummary, factionSummary, worldCtx, runHooks, wlog,
   ADD_KEYS, MUL_KEYS, MAP_KEYS,
 };

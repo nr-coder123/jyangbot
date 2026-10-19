@@ -259,9 +259,9 @@ const DEFS = {
   worldRegion: {
     group: 'World', label: 'Region (/world → Region)',
     buttons: [['wRegion', 'wMarket', 'wPolitics', 'wWar']],
-    placeholders: ['region', 'province', 'hanzi', 'controller', 'terrain', 'population', 'prosperity', 'prosperityBar', 'security', 'fort', 'buildings', 'coffers', 'calendar', 'events', 'policies', 'you', 'notes', 'armies', 'currency', 'trend'],
+    placeholders: ['region', 'province', 'hanzi', 'controller', 'terrain', 'population', 'prosperity', 'prosperityBar', 'security', 'fort', 'buildings', 'coffers', 'calendar', 'events', 'decrees', 'you', 'notes', 'armies', 'currency', 'trend'],
     help: '{prosperityBar} is a ten-block bar.',
-    sample: { region: 'Luoyang', province: 'Henan', hanzi: '洛阳', controller: '🪷 Shaolin Sect', terrain: '🌾 Plains', population: '21', prosperity: '64', prosperityBar: '🟩🟩🟩🟩🟩🟩⬛⬛⬛⬛', security: '61', fort: '4', buildings: 'Granary · City Walls (damaged)', coffers: '1,240', calendar: '🌸 Spring, day 3 · Year 428', events: '🎪 Great Trade Fair (3 turns left)', policies: '🏛️ Ever-Normal Granaries', notes: 'Ancient capital: sword manors and the great market.', armies: '', currency: 'Nyang', trend: '📈 +0.4 / turn' },
+    sample: { region: 'Luoyang', province: 'Henan', hanzi: '洛阳', controller: '🪷 Shaolin Sect', terrain: '🌾 Plains', population: '21', prosperity: '64', prosperityBar: '🟩🟩🟩🟩🟩🟩⬛⬛⬛⬛', security: '61', fort: '4', buildings: 'Granary · City Walls (damaged)', coffers: '1,240', calendar: '🌸 Spring, day 3 · Year 428', events: '🎪 Great Trade Fair (3 turns left)', decrees: '🪖 Conscription (5 turns left)', notes: 'Ancient capital: sword manors and the great market.', armies: '', currency: 'Nyang', trend: '📈 +0.4 / turn' },
     default: E({
       title: '{region} · {hanzi}',
       description: '-# {province} · {calendar}\n{notes}',
@@ -275,7 +275,7 @@ const DEFS = {
         { name: 'Buildings', value: '{buildings}', inline: true },
         { name: 'Merchants\' purse', value: '{e.nyang} {coffers}', inline: true },
         { name: 'Happening now', value: '{events}', inline: false },
-        { name: 'Policies', value: '{policies}', inline: false },
+        { name: 'Decrees', value: '{decrees}', inline: false },
         { name: 'Armies here', value: '{armies}', inline: false },
       ],
     }),
@@ -298,8 +298,16 @@ const DEFS = {
     sample: { text: '☀️ **Drought** in **Henan**. No rain for weeks. Fields crack and wells run dry.', name: 'Drought', emoji: '☀️', description: 'No rain for weeks. Fields crack and wells run dry.', regions: 'Henan', turns: '8', calendar: '☀️ Summer, day 4 · Year 428' },
     default: E({ color: 0xb3261e, description: '{text}', footer: { text: '{calendar}' } }),
   },
+  worldInfoPost: {
+    group: 'World', label: 'Region information post (#place-information)',
+    help: 'Posted once when staff press Send (Regions tab or the region\'s panel). People press the button and see the region\'s live information, only to them — nothing is edited afterwards.',
+    buttons: [['wInfo']],
+    placeholders: ['region', 'province', 'hanzi', 'notes'],
+    sample: { region: 'Luoyang', province: 'Henan', hanzi: '洛阳', notes: 'Ancient capital: sword manors and the great market.' },
+    default: E({ title: '{region} · {hanzi}', description: '-# {province}\n{notes}\n\nPress **Information** to see who rules it, how it is doing, its buildings, events and armies — only you will see it.', color: 0xc0a062 }),
+  },
   worldNews: {
-    group: 'World', label: 'World news (diplomacy, policies, wars)',
+    group: 'World', label: 'World news (diplomacy, decrees, wars)',
     placeholders: ['text', 'calendar'],
     sample: { text: '🤝 **Propose Trade Agreement** — **Wudang Sect** and **Shaolin Sect**.', calendar: '🌸 Spring, day 3 · Year 428' },
     default: E({ color: 0x2980b9, description: '{text}', footer: { text: '{calendar}' } }),
